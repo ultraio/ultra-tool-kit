@@ -1,0 +1,63 @@
+{
+    "name": "toolkit-template",
+    "private": true,
+    "version": "0.0.0",
+    "scripts": {
+        "dev": "vite -- --dev",
+        "build": "vue-tsc && vite build",
+        "preview": "vite preview",
+        "prepare": "husky install",
+        "buildonly": "vue-tsc && vite build -- --pages",
+        "format": "prettier --check ./src && prettier --write ./src && git add -A ./src"
+    },
+    "dependencies": {
+        "@fortawesome/fontawesome-svg-core": "^6.4.0",
+        "@fortawesome/free-brands-svg-icons": "^6.4.0",
+        "@fortawesome/free-solid-svg-icons": "^6.4.0",
+        "@fortawesome/vue-fontawesome": "^3.0.3",
+        "@greymass/buoy": "^1.0.4",
+        "@guolao/vue-monaco-editor": "^1.5.1",
+        "@ultraos/ultra-api-lib": "^1.1.0",
+        "@ultraos/ultra-extension-wallet-lib": "^1.0.2",
+        "@ultraos/ultra-ledger-lib": "^2.0.2",
+        "@ultraos/ultra-signer-lib": "^1.6.4",
+        "@vitejs/plugin-basic-ssl": "^1.0.1",
+        "@wharfkit/session": "^1.0.0",
+        "@wharfkit/wallet-plugin-anchor": "^1.0.0",
+        "@wharfkit/web-renderer": "^1.0.1",
+        "ajv": "^8.12.0",
+        "buffer": "^6.0.3",
+        "mitt": "^3.0.1",
+        "papaparse": "^5.4.1",
+        "vite-plugin-node-polyfills": "^0.9.0",
+        "vue": "^3.3.4",
+        "vue-router": "^4.2.4",
+        "vue3-code-block": "^2.2.12",
+        "vue3-easy-data-table": "^1.5.47",
+        "vue3-runtime-template": "^1.0.2"
+    },
+    "devDependencies": {
+        "@types/node": "^20.4.2",
+        "@vitejs/plugin-vue": "^4.2.3",
+        "autoprefixer": "^10.4.16",
+        "husky": "^8.0.0",
+        "postcss": "^8.4.31",
+        "prettier": "^3.0.3",
+        "tailwindcss": "^3.3.5",
+        "typescript": "^5.0.2",
+        "unplugin-vue-router": "^0.6.4",
+        "vite": "^4.4.0",
+        "vue-tsc": "^1.8.3"
+    },
+    "prettier": {
+        "tabWidth": 4,
+        "printWidth": 120,
+        "singleQuote": true,
+        "trailingComma": "es5"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "npm run format"
+        }
+    }
+}

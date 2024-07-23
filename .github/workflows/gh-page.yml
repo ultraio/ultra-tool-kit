@@ -1,0 +1,31 @@
+name: GitHub Page
+on:
+    push:
+        branches: ['main']
+    workflow_dispatch:
+permissions:
+    contents: write
+    pages: write
+    id-token: write
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+            - uses: actions/setup-node@v3
+              with:
+                  node-version: '16'
+            - name: Authenticate with private NPM package
+              run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+            - name: Install
+              run: npm install
+            - name: Build
+              run: npm run build
+            - name: GitHub Pages 404 Copy
+              run: cp ./dist/index.html ./dist/404.html
+            - name: Deploy
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  publish_dir: dist
