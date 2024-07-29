@@ -16,7 +16,7 @@ if (process.argv.includes('--dev')) {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-    base: isPages ? '/toolkit-template' : '',
+    base: isPages ? '/tool-kit' : '',
     plugins: defaultPlugins,
     optimizeDeps: {
         esbuildOptions: {

@@ -32,7 +32,7 @@
                 >
                     {{ proposal.name }}
                 </div>
-                <Button title="Review" @onClick="previewData = proposal">
+                <Button title="Review" @onClick="reviewProposal(proposal)">
                     <Icon icon="fa-magnifying-glass" />
                 </Button>
                 <Button title="Approve" :disabled="proposal.approved" @onClick="handleApprove(proposal)">
@@ -66,7 +66,19 @@
                 </div>
                 <div class="container">
                     <Expand :title="`View Proposal JSON`">
-                        <Code :code="JSON.stringify(previewData.readable)" />
+                        <div class="flex flex-col gap-4">
+                            <div v-for="(hash, index) in contractHashes" :key="index">
+                                <ActionDetail>
+                                    <template #contract>
+                                        {{ hash.contract }}{{ hash.isAbi ? '.abi' : '.wasm' }}
+                                    </template>
+                                    <template #action>
+                                        {{ hash.hash }}
+                                    </template>
+                                </ActionDetail>
+                            </div>
+                            <Code :code="JSON.stringify(previewData.readable)" />
+                        </div>
                     </Expand>
                 </div>
             </div>
@@ -80,6 +92,8 @@ import { useRoute } from 'vue-router/auto';
 import { BlockchainService } from '../../utilities/blockchain';
 import * as I from '../../interfaces/index';
 import LoadingSpinner from '../../components/widgets/LoadingSpinner.vue';
+import { PublicKey } from '@wharfkit/antelope';
+import * as crypto from 'crypto';
 
 const route = useRoute('/proposals/');
 const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
@@ -88,6 +102,7 @@ const proposals = ref<I.Proposal[]>([]);
 const searchText = ref<string>('');
 const loading = ref<boolean>(false);
 const previewData = ref<I.Proposal>(undefined);
+const contractHashes = ref<{contract: string, isAbi: boolean, hash: string}[]>([]);
 
 async function getProposals() {
     loading.value = true;
@@ -106,6 +121,48 @@ const filteredProposals = computed(() => {
 
     return proposals.value.filter((x) => x.name.includes(searchText.value) || x.proposer.includes(searchText.value));
 });
+
+const convertPubK1 = (obj: any) => {
+    for (let key in obj) {
+        let field = obj[key];
+        if (typeof field === 'string') {
+            if (field.startsWith('PUB_K1_')) {
+                try {
+                    let pubkey = PublicKey.from(field);
+                    obj[key] = pubkey.toLegacyString();
+                } catch (e) {
+                    // failed to convert, ignore
+                }
+            }
+        } else if (typeof field === 'object') {
+            convertPubK1(field);
+        }
+    }
+}
+
+const reviewProposal = async (proposal: I.Proposal) => {
+    previewData.value = proposal;
+    contractHashes.value = [];
+
+    for (let p of previewData.value.readable.actions) {
+        if (p.account === 'eosio' && p.name === 'setcode') {
+            contractHashes.value.push({
+                contract: p.data.account,
+                isAbi: false,
+                hash: crypto.createHash('sha256').update(p.data.code, 'hex').digest('hex'),
+            });
+        }
+        else if (p.account === 'eosio' && p.name === 'setabi') {
+            contractHashes.value.push({
+                contract: p.data.account,
+                isAbi: true,
+                hash: crypto.createHash('sha256').update(p.data.abi, 'hex').digest('hex'),
+            });
+        }
+    }
+
+    convertPubK1(proposal);
+}
 
 const canCancel = (proposal: I.Proposal) => {
     if (proposal.proposer === props.state.accountName) return true;

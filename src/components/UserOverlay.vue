@@ -5,7 +5,7 @@
                 @click="emit('set-page-state', { showLogin: true })"
                 class="flex flex-grow items-center justify-center text-sm p-2 border rounded-md bg-neutral-700 border-neutral-600 cursor-pointer hover:bg-neutral-600 hover:border-neutral-500"
             >
-                Login to Toolkit
+                Login to Tool Kit
             </div>
         </div>
         <div v-else class="flex flex-col w-full items-center gap-4 select-none">
