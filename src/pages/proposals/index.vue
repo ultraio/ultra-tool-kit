@@ -126,7 +126,8 @@ const convertPubK1 = (obj: any) => {
     for (let key in obj) {
         let field = obj[key];
         if (typeof field === 'string') {
-            if (field.startsWith('PUB_K1_')) {
+            // Convert a key, e.g. PUB_K1_8YQrMPkLzjC6iuCL3YC5uFUP9x8r7zk8wH3q9HRzQDwvNCZ9P3, to EOS format
+            if (field.startsWith('PUB_K1_') && field.length === 57) {
                 try {
                     let pubkey = PublicKey.from(field);
                     obj[key] = pubkey.toLegacyString();
