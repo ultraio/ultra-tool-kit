@@ -12,7 +12,7 @@
                 <div class="w-8 h-8 mr-4">
                     <img class="rounded-md" src="/logo.webp" alt="avatar" />
                 </div>
-                <span>Toolkit</span>
+                <span>Ultra Tool Kit</span>
             </router-link>
             <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
                 {{ authState.endpoint }}

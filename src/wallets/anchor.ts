@@ -30,7 +30,7 @@ export async function connect(url: string): Promise<{ blockchainid: string; perm
     const id = await getChainIdentifier(url);
 
     sessionKit = new SessionKit({
-        appName: 'Ultra Toolkit',
+        appName: 'Ultra Tool Kit',
         chains: [{ id, url }],
         ui,
         walletPlugins: [anchor],
@@ -98,7 +98,7 @@ export async function restore(url: string) {
     const id = await getChainIdentifier(url);
 
     sessionKit = new SessionKit({
-        appName: 'Ultra Toolkit',
+        appName: 'Ultra Tool Kit',
         chains: [{ id, url }],
         ui,
         walletPlugins: [anchor],

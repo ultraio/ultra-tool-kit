@@ -11,7 +11,7 @@
         <Icon icon="fa-arrow-right" />
         <div class="flex flex-row gap-4 items-center">
             <Icon icon="fa-bolt-lightning" />
-            <div class="w-24 text-right">
+            <div class="min-w-24 text-left">
                 <slot name="action"></slot>
             </div>
         </div>
