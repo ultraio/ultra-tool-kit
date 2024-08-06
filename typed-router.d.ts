@@ -43,6 +43,7 @@ declare module 'vue-router/auto/routes' {
     '/airdrop/': RouteRecordInfo<'/airdrop/', '/airdrop', Record<never, never>, Record<never, never>>,
     '/blacklist/': RouteRecordInfo<'/blacklist/', '/blacklist', Record<never, never>, Record<never, never>>,
     '/builder/': RouteRecordInfo<'/builder/', '/builder', Record<never, never>, Record<never, never>>,
+    '/bulkFactoryCreation/': RouteRecordInfo<'/bulkFactoryCreation/', '/bulkFactoryCreation', Record<never, never>, Record<never, never>>,
     '/contract/': RouteRecordInfo<'/contract/', '/contract', Record<never, never>, Record<never, never>>,
     '/factoryGroupManagement/': RouteRecordInfo<'/factoryGroupManagement/', '/factoryGroupManagement', Record<never, never>, Record<never, never>>,
     '/factoryManagement/': RouteRecordInfo<'/factoryManagement/', '/factoryManagement', Record<never, never>, Record<never, never>>,
