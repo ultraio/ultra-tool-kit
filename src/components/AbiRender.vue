@@ -63,7 +63,7 @@ defineOptions({
     inheritAttrs: false,
 });
 
-const props = defineProps<{ state: AuthState; accounts: I.TransactionBuilderContract[]; actions?: string[], metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: AuthState; accounts: (I.TransactionBuilderContract | string)[]; actions?: string[], metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]) }>();
 
 const loading = ref<boolean>(false);
@@ -180,6 +180,9 @@ onMounted(async () => {
 
     // Try to fetch contract ABIs
     for (let contract of props.accounts) {
+        if (typeof(contract) === 'string') {
+            contract = <I.TransactionBuilderContract>{account: contract, status: 'found'};
+        }
         if (contract.status !== 'found') continue;
         try {
             let abi = await BlockchainService.getAbi(contract.account, true);
