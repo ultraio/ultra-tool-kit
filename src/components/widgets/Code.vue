@@ -137,7 +137,7 @@ watch(
 <style scoped>
 .editor-container {
     width: 100%;
-    height: 400px; /* Set an appropriate height */
+    height: 100vh; /* Set an appropriate height */
     display: flex;
     flex-direction: column;
 }
