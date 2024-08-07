@@ -26,6 +26,7 @@
             </Expand>
             <Expand title="Details">
                 <Code
+                    ref="codeComponent"
                     :code="editableTransactionBody"
                     :editable="true"
                     @apply-changes="applyTransactionBodyEdit"
@@ -116,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, getCurrentInstance, nextTick, watch } from 'vue';
 import { AuthState, Action, TransactionResponse } from '../interfaces/index';
 import { getTransactionLink } from '../utilities/networks';
 
@@ -151,6 +152,7 @@ let proposalExpiration = ref<string>('');
 let errorMessage = ref('');
 
 const editableTransactionBody = ref<string | undefined>('');
+const codeComponent = ref(null); // Ref to the Code component
 
 function closeModal() {
     if (transactionHash.value) {
@@ -197,6 +199,16 @@ async function validateTransaction(currentActions: Array<Action>) {
 async function confirm() {
     let transaction_id: string;
     isTransacting.value = true;
+
+    // Apply edits from the Code component
+    if (codeComponent.value && typeof codeComponent.value.applyEdit === 'function') {
+        try {
+            await codeComponent.value.applyEdit();
+        } catch (error) {
+            isTransacting.value = false;
+            return undefined;
+        }
+    }
 
     // Unbind references
     let currentActions: Array<Action> = JSON.parse(JSON.stringify(props.actions));

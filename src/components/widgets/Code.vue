@@ -16,7 +16,7 @@
                 <Button @click="startEditing">Edit</Button>
             </template>
             <template v-else>
-                <div class="w-full h-[60vh]">
+                <div class="editor-container">
                     <vue-monaco-editor
                         v-model:value="displayedCode"
                         theme="vs-dark"
@@ -63,6 +63,13 @@ const MONACO_EDITOR_OPTIONS = {
     automaticLayout: true,
     formatOnType: true,
     formatOnPaste: true,
+    scrollBeyondLastLine: false,
+    wordWrap: 'on',
+    minimap: { enabled: false },
+    scrollbar: {
+        vertical: 'hidden',
+        horizontal: 'hidden'
+    }
 };
 
 let displayedCode = ref<string>('');
@@ -94,13 +101,17 @@ function applyEdit() {
         } catch (error) {
             console.error('Invalid JSON format:', error);
             errorMessage.value = `Invalid JSON format: ${error.message}`;
-            return;
+            throw error;
         }
     }
 
     emit('apply-changes', displayedCode.value);
     isEditing.value = false;
 }
+
+defineExpose({
+    applyEdit
+})
 
 const handleEditorMount = (editor) => {
     monacoEditorLoaded.value = true;
@@ -122,3 +133,33 @@ watch(
     }
 );
 </script>
+
+<style scoped>
+.editor-container {
+    width: 95%;
+    height: 100vh; /* Set an appropriate height */
+    display: flex;
+    flex-direction: column;
+}
+
+.vue-monaco-editor {
+    flex: 1; /* Allow the editor to take up remaining space */
+}
+
+/* Ensure the Monaco editor content expands fully */
+.vue-monaco-editor .monaco-editor {
+    width: 100%;
+    height: 100%; /* Allow the editor to grow based on its content */
+}
+
+/* Ensure the parent container also expands fully */
+.vue-monaco-editor .monaco-editor > div {
+    width: 100%;
+    height: 100%; /* Allow the editor to grow based on its content */
+}
+
+/* Hide the scrollbars */
+.vue-monaco-editor .monaco-scrollable-element {
+    overflow: hidden !important;
+}
+</style>
