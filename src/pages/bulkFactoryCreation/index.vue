@@ -2,7 +2,7 @@
     <div class="text-3xl font-bold">Bulk Factory Creation</div>
     <br />
     <div class="grid gap-4 grid-cols-1">
-        <div v-if="!refreshDefaultInput()">
+        <div v-if="!props.state.accountName">
             <span>You are not currently logged in, please log in to view this page.</span>
         </div>
         <template v-else>
@@ -207,22 +207,5 @@ const generateActions = () => {
     });
 };
 
-const refreshDefaultInput = () => {
-    if (props.state.accountName) {
-        if (!authorizer.value || authorizer.value.length === 0) {
-            if (I.ELEVATED_ACCOUNTS.includes(props.state.accountName)) {
-                authorizer.value = 'ultra.mrktng';
-                permission.value = 'team';
-            } else {
-                authorizer.value = props.state.accountName;
-                permission.value = 'active';
-            }
-        }
-        return true;
-    }
-    return false;
-};
-
-onMounted(async () => {
-});
+onMounted(async () => {});
 </script>
