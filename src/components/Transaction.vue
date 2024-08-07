@@ -202,7 +202,12 @@ async function confirm() {
 
     // Apply edits from the Code component
     if (codeComponent.value && typeof codeComponent.value.applyEdit === 'function') {
-        await codeComponent.value.applyEdit();
+        try {
+            await codeComponent.value.applyEdit();
+        } catch (error) {
+            isTransacting.value = false;
+            return undefined;
+        }
     }
 
     // Unbind references

@@ -101,7 +101,7 @@ function applyEdit() {
         } catch (error) {
             console.error('Invalid JSON format:', error);
             errorMessage.value = `Invalid JSON format: ${error.message}`;
-            return;
+            throw error;
         }
     }
 
