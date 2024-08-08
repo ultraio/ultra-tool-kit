@@ -92,6 +92,7 @@ const referenceLinks: NavigationOption[] = [
     { name: 'Proposals', link: '/proposals' },
     { name: 'Airdrop', link: '/airdrop' },
     { name: 'Schema Validator', link: '/schemaValidator' },
+    { name: 'Bulk Factory Creation', link: '/bulkFactoryCreation' },
 
     // Admin Links
     { name: 'Blacklist', link: '/blacklist', isAdmin: true },
