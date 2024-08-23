@@ -16,13 +16,16 @@ const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
                 'buy',
                 'burn',
                 'resell',
-                'restore',
                 'transfer',
                 'cancelresell',
                 'settknmeta',
                 'mknftofr.a',
                 'acptnftofr.a',
-                'rmnftofr.a'
+                'rmnftofr.a',
+                'createauct.a',
+                'bidauction.a',
+                'settleauct.a',
+                'cancelauct.a',
             ]"
             @transact="(actions) => emits('transact', actions)"
             :state="props.state"
