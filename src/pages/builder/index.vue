@@ -99,7 +99,7 @@ async function validateAccounts() {
         if (acc.status === 'not found') continue;
         let found: boolean = false;
         try {
-            let abi = await BlockchainService.getAbi(acc.account, false);
+            let abi = await BlockchainService.getAbi(acc.account, true);
             // ABI exists, mark as found
             if (abi) found = true;
         } catch (e) {
