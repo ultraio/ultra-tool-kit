@@ -27,22 +27,24 @@
         <div class="flex flex-row gap-2">
             <input
                 v-model="data.table"
+                v-on:input="clearScopeSearch"
                 placeholder="Table Name"
-                class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
+                class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4 h-12"
             />
             <select
-                class="flex-row gap-2 p-4 bg-neutral-950 rounded focus:outline-none border border-neutral-700 w-full"
+                class="flex-row gap-2 bg-neutral-950 rounded focus:outline-none border border-neutral-700 w-full h-12 px-4"
                 v-if="currentAbi" single
                 v-model="data.table"
+                v-on:change="clearScopeSearch"
             >
                 <template v-for="table in currentAbi.tables">
                     <option>{{ table.name }}</option>
                 </template>
             </select>
             <Button
-                v-if="currentAbi && data.table && tableScopes.dataTable.rows.length === 0"
+                v-if="currentAbi && data.table && tableScopes.dataTable.rows.length === 0 && !tableScopes.notFound"
                 @onClick="fetchScopesInit"
-                class="w-full mt-6"
+                class="w-full"
             >
                 Search scopes
             </Button>
@@ -56,18 +58,33 @@
             />
             <Button
                 @onClick="searchTable(scopeSearch)"
-                class="w-full mt-6"
             >
-                Search
+                Search by scope name
             </Button>
         </div>
+        <Expand title="Additional Options">
+            <div class="flex flex-col p-4 border rounded border-neutral-700">
+                <div class="flex flex-row h-12 gap-2">
+                    <input
+                        v-model="data.lower_bound"
+                        placeholder="Lower Bound"
+                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
+                    />
+                    <input
+                        v-model="data.upper_bound"
+                        placeholder="Upper Bound"
+                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
+                    />
+                </div>
+            </div>
+        </Expand>
         <EasyDataTable
-            v-if="tableScopes.dataTable.rows.length > 0"
+            v-if="tableScopes.dataTable.rows.length > 0 || tableScopes.notFound"
             table-class-name="datatable-table"
             :headers="tableScopes.dataTable.headers"
             :items="tableScopes.dataTable.rows"
             multi-sort
-            :rows-items="['10', '25', '50', '100']"
+            :rows-items="[10, 25, 50, 100]"
             :rows-per-page="10"
             :search-field="scopeSearchField"
             :search-value="scopeSearch"
@@ -104,36 +121,33 @@
                 Load all scopes
             </Button> -->
         </div>
-        <Expand title="Additional Options">
-            <div class="flex flex-col p-4 border rounded border-neutral-700">
-                <div class="flex flex-row h-12 gap-2">
-                    <input
-                        v-model="data.lower_bound"
-                        placeholder="Lower Bound"
-                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
-                    />
-                    <input
-                        v-model="data.upper_bound"
-                        placeholder="Upper Bound"
-                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
-                    />
-                </div>
-            </div>
-        </Expand>
         <div class="flex flex-col gap-4" v-if="queryResult">
             <div class="text-2xl font-bold">Results</div>
-            <div class="flex flex-col">
-                <LoadingSpinner v-if="loading" />
-                <div v-if="queryResult && !loading" class="flex flex-col">
-                    <Code :code="queryResult" />
-                </div>
-            </div>
+            <EasyDataTable
+                table-class-name="datatable-table"
+                :headers="queryResult.dataTable.headers"
+                :items="queryResult.dataTable.rows"
+                multi-sort
+                :rows-items="[10, 25, 50, 100]"
+                :rows-per-page="10"
+                buttons-pagination
+                :theme-color="'rgb(169 132 232 / var(--tw-text-opacity))'"
+            >
+                <template #empty-message>
+                    <p>No Entries found</p>
+                </template>
+            </EasyDataTable>
             <Button
-                v-if="queryResultRaw && queryResultRaw.next_key"
+                v-if="moreResultsToLoad"
                 @click="() => searchTable(data.scope, queryResultRaw.next_key)"
             >
-                Next Page
+                Load 100 results
             </Button>
+            <Expand title="Raw response">
+                <div class="flex flex-col">
+                    <Code :code="queryResultJson" />
+                </div>
+            </Expand>
         </div>
     </div>
 </template>
@@ -165,7 +179,7 @@ const currentAbiAccount = ref<string>();
 const currentAbi = ref<ABI>();
 
 const tableScopesMore = ref<string>();
-const tableScopes = ref<I.DataTableType>({
+const tableScopes = ref<I.DataTableType & {notFound: boolean}>({
     dataTable: {
         headers: [
             { text: 'Scope', value: 'scope', sortable: true },
@@ -174,6 +188,7 @@ const tableScopes = ref<I.DataTableType>({
         ],
         rows: [],
     },
+    notFound: false
 });
 const scopeSearchField = ref("scope");
 const scopeSearch = ref<string>();
@@ -181,8 +196,11 @@ const scopesPerRequest = ref<number>(100);
 const moreScopesToLoad = ref<boolean>(true);
 
 const loading = ref<boolean>(false);
-const queryResult = ref();
 const queryResultRaw = ref<{ rows: Object[]; next_key?: string }>(undefined);
+const queryResultJson = ref<string>();
+const queryResult = ref<I.DataTableType>(undefined);
+const resultsPerRequest = ref<number>(100);
+const moreResultsToLoad = ref<boolean>(true);
 
 function clear() {
     (data.account = ''),
@@ -199,6 +217,7 @@ function clear() {
     tableScopes.value.dataTable.rows = [];
 
     moreScopesToLoad.value = true;
+    moreResultsToLoad.value = true;
 }
 
 interface TableEmits extends SharedEmits {
@@ -220,6 +239,12 @@ async function parseQueryParams() {
     if (route.query.table) {
         data.table = <string>route.query.table;
     }
+    if (route.query.lower_bound) {
+        data.lower_bound = <string>(route.query.lower_bound);
+    }
+    if (route.query.upper_bound) {
+        data.upper_bound = <string>(route.query.upper_bound);
+    }
 
     // If all 3 required fields were set - perform the search automatically
     if (route.query.code && route.query.scope && route.query.table) {
@@ -227,10 +252,37 @@ async function parseQueryParams() {
     }
 }
 
+function populateResultHeaders() {
+    let headers = [];
+
+    for (let r of queryResultRaw.value.rows) {
+        Object.keys(r).forEach((k) => {
+            if (headers.find((h) => h.value === k)) return;
+            headers.push({ text: k, value: k, sortable: true });
+        });
+    }
+
+    let table = currentAbi.value.tables.find((t) => t.name === data.table);
+    table.key_names.forEach((k) => {
+        headers.push({ text: k, value: k, sortable: true });
+    })
+
+    queryResult.value = {
+        dataTable: {
+            headers: headers,
+            rows: [],
+        },
+    }
+}
+
 async function searchTable(scope: string, lower_bound = null) {
+    moreResultsToLoad.value = true;
     data.scope = scope;
 
-    window.history.pushState('table', '', `${route.path}?env=${BlockchainService.environment}&code=${data.account}&scope=${data.scope}&table=${data.table}`);
+    let state = `${route.path}?env=${BlockchainService.environment}&code=${data.account}&scope=${data.scope}&table=${data.table}`;
+    if (data.lower_bound) state += `&lower_bound=${data.lower_bound}`;
+    if (data.upper_bound) state += `&upper_bound=${data.upper_bound}`;
+    window.history.pushState('table', '', state);
 
     loading.value = true;
 
@@ -238,21 +290,46 @@ async function searchTable(scope: string, lower_bound = null) {
         data.lower_bound = lower_bound;
     }
 
-    for (let key of Object.keys(data)) {
-        if (key === 'lower_bound' || key === 'upper_bound') {
-            continue;
-        }
-
-        if (data[key] === '') {
-            loading.value = false;
-            return;
-        }
-    }
-
     try {
-        queryResultRaw.value = await BlockchainService.getTableData(data.account, data.scope, data.table, data.lower_bound, data.upper_bound);
-        queryResult.value = JSON.stringify(queryResultRaw.value);
-    } catch (err) {}
+        // if lower_bound is set, it means we want to load more data
+        // otherwise - initialize new results array
+        if (!lower_bound) {
+            queryResultJson.value = '';
+            queryResultRaw.value = undefined;
+        }
+
+        const response = await BlockchainService.getTableData(data.account, data.scope, data.table, data.lower_bound, data.upper_bound, resultsPerRequest.value);
+        if (!queryResultRaw.value) queryResultRaw.value = response;
+        else {
+            queryResultRaw.value.next_key = response.next_key;
+            queryResultRaw.value.rows = queryResultRaw.value.rows.concat(response.rows);
+        }
+        queryResultJson.value = JSON.stringify(queryResultRaw.value);
+
+        if (!lower_bound) {
+            populateResultHeaders();
+        }
+
+        // Convert any objects to strings so that they display properly
+        for (let r of response.rows) {
+            Object.keys(r).forEach((k) => {
+                if (r[k] && typeof r[k] === 'object') {
+                    r[k] = JSON.stringify(r[k]);
+                }
+            });
+        }
+        
+        queryResult.value.dataTable.rows = queryResult.value.dataTable.rows.concat(response.rows);
+
+        if (!response.next_key || queryResultRaw.value.rows.length < resultsPerRequest.value) {
+            moreResultsToLoad.value = false;
+        }
+
+        let content = document.getElementById('content');
+        content.scrollTo(0, content.scrollHeight);
+    } catch (err) {
+        console.log(err);
+    }
 
     loading.value = false;
 }
@@ -270,7 +347,6 @@ async function fetchContract() {
     if (!data.account || data.account.length === 0) {
         return;
     }
-    console.log(data.account);
 
     currentAbiAccount.value = null;
     currentAbi.value = null;
@@ -292,7 +368,14 @@ async function loadAllScopes(count: number = -1) {
     }
 }
 
+async function clearScopeSearch() {
+    tableScopes.value.dataTable.rows = [];
+    tableScopes.value.notFound = false;
+    queryResult.value = undefined;
+}
+
 async function fetchScopesInit() {
+    scopeSearch.value = '';
     await fetchScopes(true);
 }
 
@@ -308,12 +391,15 @@ async function fetchScopes(clear: boolean) {
     let scopes = await BlockchainService.getTableByScope(data.account, data.table, scopesPerRequest.value, lower_bound);
     // Fetch until we reach the slice of desired data or reach the end of the contract
     while(scopes.rows.length === 0) {
-        if (!scopes.more || scopes.more === '') {
-            moreScopesToLoad.value = false;
-        }
         lower_bound = scopes.more;
         scopes = await BlockchainService.getTableByScope(data.account, data.table, scopesPerRequest.value, lower_bound);
+        if (!scopes.more || scopes.more === '') {
+            moreScopesToLoad.value = false;
+            break;
+        }
     }
+
+    if (scopes.rows.length === 0) tableScopes.value.notFound = true;
     
     // Result with contract scope is sometimes not returned because it is deeper in the scope list
     // Need to fetch it manually and append to the list of results
@@ -333,9 +419,8 @@ async function fetchScopes(clear: boolean) {
         ))
     )
 
-    let resultsCountBefore = tableScopes.value.dataTable.rows.length;
     if (!scopes.more || scopes.more === '') {
-        //moreScopesToLoad.value = false;
+        moreScopesToLoad.value = false;
     }
     tableScopesMore.value = scopes.more;
     loading.value = false;
