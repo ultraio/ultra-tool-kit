@@ -92,7 +92,7 @@
             :theme-color="'rgb(169 132 232 / var(--tw-text-opacity))'"
         >
             <template #item-scope="{ scope }">
-                {{ scope === '' ? '<empty>' : scope }}
+                {{ scope === '' ? 0 : scope }}
             </template>
             <template #item-action="{ scope }">
                 <Button
@@ -278,10 +278,10 @@ function populateResultHeaders() {
 async function searchTable(scope: string, lower_bound = null) {
     moreResultsToLoad.value = true;
     // Initialize empty scope
-    // String with a space should be an equivalent to 0 or null
+    // 0 should be an equivalent to null or empty string
     // Otherwise ultra-api-lib will set it to account name
     if (!scope) {
-        scope = ' ';
+        scope = '0';
     }
     data.scope = scope;
 
