@@ -5,7 +5,7 @@
         <div class="flex flex-row gap-2">
             <input
                 v-model="data.account"
-                placeholder="Account Name"
+                placeholder="Contract Account Name"
                 @keyup.enter="fetchContract"
                 v-on:blur="fetchContract"
                 class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
@@ -277,6 +277,12 @@ function populateResultHeaders() {
 
 async function searchTable(scope: string, lower_bound = null) {
     moreResultsToLoad.value = true;
+    // Initialize empty scope
+    // String with a space should be an equivalent to 0 or null
+    // Otherwise ultra-api-lib will set it to account name
+    if (!scope) {
+        scope = ' ';
+    }
     data.scope = scope;
 
     let state = `${route.path}?env=${BlockchainService.environment}&code=${data.account}&scope=${data.scope}&table=${data.table}`;
