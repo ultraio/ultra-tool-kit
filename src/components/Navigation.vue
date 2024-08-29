@@ -89,10 +89,16 @@ const referenceLinks: NavigationOption[] = [
             { name: 'User Uniqs', link: '/user' },
         ],
     },
+    {
+        name: 'Bulk Tools',
+        nestedOptions: [
+            { name: 'Airdrop', link: '/airdrop' },
+            { name: 'Bulk Factory Creation', link: '/bulkFactoryCreation' },
+            { name: 'UOS Mass Transfer', link: '/uosMassTransfer' },
+        ],
+    },
     { name: 'Proposals', link: '/proposals' },
-    { name: 'Airdrop', link: '/airdrop' },
     { name: 'Schema Validator', link: '/schemaValidator' },
-    { name: 'Bulk Factory Creation', link: '/bulkFactoryCreation' },
 
     // Admin Links
     { name: 'Blacklist', link: '/blacklist', isAdmin: true },

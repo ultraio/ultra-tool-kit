@@ -55,6 +55,7 @@ declare module 'vue-router/auto/routes' {
     '/uniq/': RouteRecordInfo<'/uniq/', '/uniq', Record<never, never>, Record<never, never>>,
     '/uniqFactory/': RouteRecordInfo<'/uniqFactory/', '/uniqFactory', Record<never, never>, Record<never, never>>,
     '/uniqManagement/': RouteRecordInfo<'/uniqManagement/', '/uniqManagement', Record<never, never>, Record<never, never>>,
+    '/uosMassTransfer/': RouteRecordInfo<'/uosMassTransfer/', '/uosMassTransfer', Record<never, never>, Record<never, never>>,
     '/user/': RouteRecordInfo<'/user/', '/user', Record<never, never>, Record<never, never>>,
   }
 }
