@@ -246,7 +246,7 @@ async function parseQueryParams() {
         data.upper_bound = <string>(route.query.upper_bound);
     }
 
-    // If all 3 required fields were set - perform the search automatically
+    // If 3 required fields were set - perform the search automatically
     if (route.query.code && route.query.scope && route.query.table) {
         await searchTable(data.scope);
     }
@@ -307,6 +307,8 @@ async function searchTable(scope: string, lower_bound = null) {
         queryResultJson.value = JSON.stringify(queryResultRaw.value);
 
         if (!lower_bound) {
+            // We can't easily know the possible rows of the table
+            // The simplest solution is to figure it out based on the response
             populateResultHeaders();
         }
 
@@ -325,6 +327,7 @@ async function searchTable(scope: string, lower_bound = null) {
             moreResultsToLoad.value = false;
         }
 
+        // Automatically scroll to the list of results, otherwise it may not be obvious where the results are
         let content = document.getElementById('content');
         content.scrollTo(0, content.scrollHeight);
     } catch (err) {
@@ -355,6 +358,7 @@ async function fetchContract() {
     if (abi) {
         currentAbiAccount.value = data.account;
         currentAbi.value = abi.ABI;
+        if (currentAbi.value.tables.length > 0) data.table = currentAbi.value.tables[0].name;
     }
 }
 
@@ -375,11 +379,13 @@ async function clearScopeSearch() {
 }
 
 async function fetchScopesInit() {
+    // Clear scopeSearch so it won't filter the scopes table as soon as it loads
     scopeSearch.value = '';
     await fetchScopes(true);
 }
 
 async function fetchScopes(clear: boolean) {
+    // Ensure that the table exists
     if (!currentAbi.value.tables.find(t => t.name === data.table)) return;
 
     loading.value = true;
@@ -387,6 +393,7 @@ async function fetchScopes(clear: boolean) {
         tableScopes.value.dataTable.rows = [];
     }
 
+    // For initial load no lower bound is specified. When "Load more" button is pressed this argument will be used
     let lower_bound = clear ? undefined : tableScopesMore.value;
     let scopes = await BlockchainService.getTableByScope(data.account, data.table, scopesPerRequest.value, lower_bound);
     // Fetch until we reach the slice of desired data or reach the end of the contract
@@ -399,6 +406,7 @@ async function fetchScopes(clear: boolean) {
         }
     }
 
+    // Make sure an empty table is shown if no scopes are found
     if (scopes.rows.length === 0) tableScopes.value.notFound = true;
     
     // Result with contract scope is sometimes not returned because it is deeper in the scope list
