@@ -258,7 +258,7 @@ export abstract class BlockchainService {
             // try to get contract metadata
             if (withMetadata) {
                 try {
-                    let meta = await getContractDescriptor(account);
+                    let meta = await getContractDescriptor(account, BlockchainService.environment);
                     BlockchainService.abiCache[account].ABI.metadata = meta;
                 } catch (err) {
                     // no metadata
