@@ -111,6 +111,19 @@ export interface GetAccountsByAuthorizersResponse {
     accounts: GetAccountsByAuthorizersAccount[];
 }
 
+export interface GetTableRowResponse {
+    code: string;
+    scope: string;
+    table: string;
+    payer: string;
+    count: number;
+}
+
+export interface GetTableByScopeResponse {
+    rows: GetTableRowResponse[];
+    more: string;
+}
+
 export interface NFTTokenV1 {
     id: number;
     token_factory_id: number;

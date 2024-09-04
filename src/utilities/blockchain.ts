@@ -128,11 +128,12 @@ export abstract class BlockchainService {
         code: string,
         scope: string,
         table: string,
-        lowerBound: number | null = null,
-        upperBound: number | null = null
+        lowerBound: number | string | null = null,
+        upperBound: number | string | null = null,
+        limit: number = 10
     ) =>
         BlockchainService.roundRobinRequest(() =>
-            BlockchainService.api.contract(code).getTableLimited<T>(table, scope, lowerBound, upperBound)
+            BlockchainService.api.contract(code).getTableLimited<T>(table, scope, lowerBound, upperBound, limit)
         );
 
     /**
@@ -301,6 +302,34 @@ export abstract class BlockchainService {
             return <GetAccountsByAuthorizersResponse>await response.json();
         } catch (error) {
             console.error('getAccountsByKey error:', error);
+            return undefined;
+        }
+    };
+
+    public static getTableByScope = async (code: string, table: string, limit = 100, lower_bound: any = undefined) => {
+        try {
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: code,
+                    table: table,
+                    limit: limit,
+                    lower_bound: lower_bound
+                }),
+            };
+
+            const response = await BlockchainService.roundRobinRequest(() =>
+                fetchWithTimeout(`${BlockchainService.endpoint}/v1/chain/get_table_by_scope`, options)
+            );
+
+            if (!response || !response.ok) {
+                return null;
+            }
+
+            return <I.GetTableByScopeResponse>await response.json();
+        } catch (error) {
+            console.error('getTableByScope error:', error);
             return undefined;
         }
     };

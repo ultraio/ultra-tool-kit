@@ -36,6 +36,7 @@
             </div>
             <!-- Content -->
             <div
+                id="content"
                 class="flex flex-grow flex-col h-screen overflow-y-auto pr-6 sm:pr-6 md:pr-24 lg:pr-48 pt-6 pl-6 pb-32"
             >
                 <router-view :state="authState" :metadata="runtimeMetadata" :key="keyRouterUpdate" @transact="setTransaction" @set-endpoint="setEndpoint" @set-page-state="setPageState" />
