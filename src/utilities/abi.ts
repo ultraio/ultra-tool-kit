@@ -121,7 +121,7 @@ export class FieldData {
     name: string;
     type: string;
     typeWithoutDecorators: string;
-    isArray: boolean;
+    isArray: number = 0;
     isOptional: boolean;
     isBinaryExtension: boolean;
     isPrimitive: boolean;
@@ -158,7 +158,7 @@ export class FieldData {
             let struct = this.abi.structs.find((x) => x.name === this.typeWithoutDecorators);
             if (struct) {
                 if (this.isArray) {
-                    this.children = [new FieldData(this.name, this.typeWithoutDecorators, this.abi, metadata)];
+                    this.children = [new FieldData(this.name, this.typeWithoutDecorators + '[]'.repeat(this.isArray - 1), this.abi, metadata)];
                 } else {
                     this.populateParentType(struct.base, metadata);
 
@@ -179,7 +179,7 @@ export class FieldData {
             this.children = [
                 new FieldData(
                     this.name,
-                    this.typeWithoutDecorators,
+                    this.typeWithoutDecorators + '[]'.repeat(this.isArray - 1),
                     this.abi,
                     this.getMetadataChild(metadata, undefined)
                 ),
@@ -231,7 +231,7 @@ export class FieldData {
         }
 
 
-        this.isArray = this.isArray || this.type.indexOf('[]') >= 0;
+        this.isArray += this.type.indexOf('[]') >= 0 ? 1 : 0;
         this.isOptional = this.isOptional || this.type.indexOf('?') >= 0;
         this.isBinaryExtension = this.isBinaryExtension || this.type.indexOf('$') >= 0;
 
