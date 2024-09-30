@@ -238,14 +238,14 @@ async function confirm() {
 
     // Anchor Ledger Integration for Signing Transactions
     if (props.state.type === 'anchor') {
-        const session = Anchor.getSession();
-        const transaction = await Anchor.convertActions(
-            currentActions,
-            props.state.accountName,
-            props.state.accountPerm
-        );
-
         try {
+            const session = Anchor.getSession();
+            const transaction = await Anchor.convertActions(
+                currentActions,
+                props.state.accountName,
+                props.state.accountPerm
+            );
+
             const res = await session.transact(transaction, { broadcast: true });
             if (res.response) {
                 transaction_id = res.response.transaction_id;

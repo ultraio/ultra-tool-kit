@@ -60,6 +60,9 @@ const onDeleteEntry = (index: number) => {
 onMounted(() => {
     let t = props.data.getAtPath(props.path);
     if (t === undefined) props.data.setAtPath(props.path, props.type.getDefaultValue());
+    else if (Array.isArray(t)) {
+        totalEntries.value = t.length;
+    }
 });
 </script>
 
