@@ -30,7 +30,7 @@
                     class="flex flex-col items-center justify-center w-32 flex-grow bg-neutral-700 rounded select-none"
                     :class="proposal.approved ? ['text-green-300'] : ['text-red-300']"
                 >
-                    {{ proposal.name }}
+                    {{ proposal.proposer }} - {{ proposal.name }}
                 </div>
                 <Button title="Review" @onClick="reviewProposal(proposal)">
                     <Icon icon="fa-magnifying-glass" />
@@ -51,7 +51,7 @@
             <p v-if="filteredProposals.length == 0 && !loading">No proposals found</p>
             <LoadingSpinner v-if="loading"></LoadingSpinner>
         </template>
-        <Modal v-if="previewData" :title="previewData.name + ' Proposal'" @close="previewData = undefined">
+        <Modal v-if="previewData" :title="previewData.proposer + ' - ' + previewData.name + ' Proposal'" @close="previewData = undefined">
             <div class="flex flex-col gap-4">
                 <div>Details about what is inside of this proposal.</div>
                 <div v-for="(action, index) in previewData.readable.actions" :key="index">
