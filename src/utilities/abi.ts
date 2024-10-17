@@ -304,19 +304,30 @@ export class ABI {
     tables: AbiTables[];
     variants: AbiVariants[];
     metadata: I.SmartContractMetadata;
+    authState: I.AuthState;
 
-    constructor(jsonResponse: any) {
+    constructor(jsonResponse: any, authState: I.AuthState) {
         this.types = jsonResponse.types;
         this.structs = jsonResponse.structs;
         this.actions = jsonResponse.actions;
         this.tables = jsonResponse.tables;
         this.variants = jsonResponse.variants;
+        this.authState = authState;
     }
 
     getActionType(actionName: string) {
         let act = this.actions.find((x) => x.name === actionName);
-        let meta = undefined;
-        if (this.metadata && this.metadata.actions[actionName]) meta = this.metadata.actions[actionName];
+        let meta: I.SmartContractMetadataAction = undefined;
+        if (this.metadata && this.metadata.actions[actionName]) {
+            meta = this.metadata.actions[actionName];
+
+            // Update documentation link based on the environment
+            if (meta.documentation && meta.documentation.includes('https://developers.ultra.io') && this.authState.environment) {
+                if (window.origin.includes('localhost:5172') && this.authState.environment === 'Local:8888') meta.documentation = meta.documentation.replace('https://developers.ultra.io', 'http://localhost:5173/experimental');
+                else if (this.authState.environment === 'Testnet') meta.documentation = meta.documentation.replace('developers.ultra.io', 'developers.ultra.io/staging');
+                else if (this.authState.environment !== 'Mainnet') meta.documentation = meta.documentation.replace('developers.ultra.io', 'developers.ultra.io/experimental');
+            }
+        }
         let t = new FieldData(actionName, act.type, this, meta);
         // root action struct is not expandable for better UX
         t.metadata.isExpandable = false;

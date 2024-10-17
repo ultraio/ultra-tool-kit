@@ -6,7 +6,7 @@ export async function getContractDescriptor(contract: string, environment: strin
         method: 'GET',
     };
 
-    let descriptorSources = environment === 'Local:8888' ? [`http://localhost:5173/descriptors/${contract}-descriptor.json`] : [];
+    let descriptorSources = (window.origin.includes('localhost:5172') && environment === 'Local:8888') ? [`http://localhost:5173/experimental/descriptors/${contract}-descriptor.json`] : [];
     descriptorSources = descriptorSources.concat([
         `https://developers.ultra.io/descriptors/${contract}-descriptor.json`,
         `https://raw.githubusercontent.com/ultraio/docs-blockchain/main/docs/public/descriptors/${contract}-descriptor.json`,
