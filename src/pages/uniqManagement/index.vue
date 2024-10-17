@@ -26,6 +26,7 @@ const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
                 'bidauction.a',
                 'settleauct.a',
                 'cancelauct.a',
+                'setvals.a'
             ]"
             @transact="(actions) => emits('transact', actions)"
             :state="props.state"

@@ -254,7 +254,7 @@ export abstract class BlockchainService {
         }
 
         try {
-            BlockchainService.abiCache[account] = { ABI: new ABI(data.abi), wharfkitAbi: Wharfkit.ABI.from(data.abi) };
+            BlockchainService.abiCache[account] = { ABI: new ABI(data.abi, this.authState), wharfkitAbi: Wharfkit.ABI.from(data.abi) };
 
             // try to get contract metadata
             if (withMetadata) {

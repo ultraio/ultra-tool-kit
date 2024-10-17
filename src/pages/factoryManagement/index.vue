@@ -21,6 +21,7 @@
                 'mkfctofr.a',
                 'acptfctofr.a',
                 'rmfctofr.a',
+                'addkeys.a'                
             ]"
             @transact="(actions) => emits('transact', actions)"
             :state="props.state"
