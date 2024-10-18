@@ -319,7 +319,8 @@ export class ABI {
         let act = this.actions.find((x) => x.name === actionName);
         let meta: I.SmartContractMetadataAction = undefined;
         if (this.metadata && this.metadata.actions[actionName]) {
-            meta = this.metadata.actions[actionName];
+            // Copy metadata
+            meta = JSON.parse(JSON.stringify(this.metadata.actions[actionName]));
 
             // Update documentation link based on the environment
             if (meta.documentation && meta.documentation.includes('https://developers.ultra.io') && this.authState.environment) {
