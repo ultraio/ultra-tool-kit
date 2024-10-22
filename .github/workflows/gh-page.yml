@@ -1,7 +1,7 @@
 name: GitHub Page
 on:
     push:
-        branches: ['bugfix/BLOCK-2566-add-cloudflare-headers']
+        branches: ['main']
     workflow_dispatch:
 permissions:
     contents: write
