@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 import * as Anchor from './wallets/anchor';
-import UltraWallet from '@ultraos/ultra-extension-wallet-lib';
+import * as Ultra from './wallets/ultra';
 import * as I from './interfaces';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { BlockchainService } from './utilities/blockchain';
@@ -184,6 +184,19 @@ async function setAccount(
     localStorage.setItem('authState', JSON.stringify(authState.value));
 
     setPageState({ showLogin: false });
+
+    // Capture wallet chain ID for network mismatch detection
+    if (type === 'ultra' && Ultra.isAvailable()) {
+        try {
+            const chainIdResponse = await Ultra.getChainId();
+            if (chainIdResponse.status === 'success') {
+                setAuthStateKeys({ chainId: chainIdResponse.data });
+                localStorage.setItem('authState', JSON.stringify(authState.value));
+            }
+        } catch {
+            // Non-critical — chainId just enables mismatch warning
+        }
+    }
 }
 
 /**
@@ -192,7 +205,7 @@ async function setAccount(
  */
 async function logout() {
     if (authState.value.type === 'ultra') {
-        await UltraWallet().disconnect();
+        await Ultra.disconnect();
     }
 
     if (authState.value.type === 'anchor') {
@@ -204,6 +217,7 @@ async function logout() {
         accountName: undefined,
         accountPerm: undefined,
         isAdmin: false,
+        chainId: undefined,
     });
     localStorage.setItem('authState', JSON.stringify(authState.value));
     resetPageState();
@@ -229,10 +243,19 @@ async function restoreSession() {
         }
 
         if (restoredAuthState.type === 'ultra') {
-            await window['ultra'].connect({ onlyIfTrusted: true })
-            .catch(async () => {
-                await window['ultra'].connect({ onlyIfTrusted: false })
-            });
+            if (Ultra.isAvailable()) {
+                try {
+                    const response = await Ultra.connect(true);
+                    if (response.status === 'success' && response.data.network) {
+                        restoredAuthState.chainId = response.data.network.chainId;
+                    }
+                } catch {
+                    // Silent connect failed — user will need to log in manually
+                    return;
+                }
+            } else {
+                return;
+            }
         }
 
         if (restoredAuthState.type === 'anchor' && restoredAuthState.endpoint) {
@@ -271,10 +294,49 @@ function handleUpdateAppActions(updatedActions) {
     actions.value = updatedActions;
 }
 
+function handleWalletAccountChanged(data: { selected: { accountName: string } | null }) {
+    if (authState.value.type !== 'ultra') return;
+
+    if (!data.selected) {
+        // Wallet locked — log out
+        logout();
+        return;
+    }
+
+    if (data.selected.accountName !== authState.value.accountName) {
+        // Account switched in wallet — update toolkit state
+        setAuthStateKeys({
+            accountName: data.selected.accountName,
+            accountPerm: 'active',
+        });
+        localStorage.setItem('authState', JSON.stringify(authState.value));
+        keyRouterUpdate.value += 1;
+        keyUserUpdate.value += 1;
+    }
+}
+
+function handleWalletNetworkChanged(data: { chainId: string; name: string }) {
+    if (authState.value.type !== 'ultra') return;
+    setAuthStateKeys({ chainId: data.chainId });
+    localStorage.setItem('authState', JSON.stringify(authState.value));
+    // Re-render to show mismatch warning if applicable
+    keyUserUpdate.value += 1;
+}
+
+function handleWalletDisconnect() {
+    if (authState.value.type !== 'ultra') return;
+    logout();
+}
+
 onMounted(async () => {
     restoreSession();
 
     emitter.on('updateAppActions', handleUpdateAppActions);
+
+    // Wallet event listeners
+    Ultra.on('accountChanged', handleWalletAccountChanged);
+    Ultra.on('networkChanged', handleWalletNetworkChanged);
+    Ultra.on('disconnect', handleWalletDisconnect);
 
     const endpoint = localStorage.getItem('endpoint');
     if (endpoint && endpoint !== '') {
