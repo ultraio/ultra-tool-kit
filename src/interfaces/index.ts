@@ -10,6 +10,7 @@ export interface AuthState {
     type?: WalletTypes;
     isAdmin: boolean;
     ledgerIndex?: number;
+    chainId?: string;
 }
 
 export interface PageState {
