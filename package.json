@@ -18,7 +18,7 @@
         "@greymass/buoy": "^1.0.4",
         "@guolao/vue-monaco-editor": "^1.5.1",
         "@ultraos/ultra-api-lib": "^1.1.0",
-        "@ultraos/ultra-extension-wallet-lib": "^1.0.2",
+        "@ultraos/wallet-sdk": "^0.2.0",
         "@ultraos/ultra-ledger-lib": "^2.0.2",
         "@ultraos/ultra-signer-lib": "^1.6.4",
         "@vitejs/plugin-basic-ssl": "^1.0.1",
