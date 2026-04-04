@@ -712,7 +712,7 @@ test.describe('Wallet SDK Integration', () => {
     });
 
     // ============================================================
-    // 7. TRANSACTION SIGNING PIPELINE
+    // 7. TRANSACTION SIGNING
     // ============================================================
     test.describe('Transaction Signing', () => {
 
@@ -758,7 +758,6 @@ test.describe('Wallet SDK Integration', () => {
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Also verify legacy format is accepted
             const result = await page.evaluate(async () => {
                 const response = await (window as any).ultra.signTransaction(
                     [{
@@ -773,6 +772,90 @@ test.describe('Wallet SDK Integration', () => {
 
             expect(result).toBe('success');
         });
+
+        test('transaction modal opens with correct content and can be dismissed', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Inject actions via the emitter exposed in eventBus.ts
+            await page.evaluate(({ account }) => {
+                (window as any).__emitter.emit('updateAppActions', [
+                    {
+                        contract: 'eosio.token',
+                        action: 'transfer',
+                        data: { from: account, to: 'someaccount1', quantity: '1.00000000 UOS', memo: 'playwright test' },
+                        authorization: [{ actor: account, permission: 'active' }],
+                    },
+                ]);
+            }, { account: TEST_ACCOUNT });
+
+            // Step 1: Transaction modal opens with correct title
+            await expect(page.locator(`text=Transaction - @${TEST_ACCOUNT}`)).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '32-tx-modal-open');
+
+            // Step 2: Action content is correct
+            await expect(page.locator('text=Action Overview')).toBeVisible();
+            await expect(page.locator('text=eosio.token')).toBeVisible();
+            await expect(page.locator('text=transfer')).toBeVisible();
+
+            // Step 3: Buttons present
+            await expect(page.locator('button:has-text("Confirm")')).toBeVisible();
+            await expect(page.locator('button:has-text("Cancel")')).toBeVisible();
+
+            // Step 4: Expand details shows JSON with action data
+            await page.click('text=Details');
+            await page.waitForTimeout(300);
+            // JSON should contain our action data
+            const detailsText = await page.locator('.cm-content, pre, code').first().textContent();
+            expect(detailsText).toContain('eosio.token');
+            await screenshot(page, '33-tx-modal-details');
+
+            // Step 5: Cancel closes the modal
+            await page.click('button:has-text("Cancel")');
+            await expect(page.locator(`text=Transaction - @${TEST_ACCOUNT}`)).not.toBeVisible();
+            await screenshot(page, '34-tx-modal-cancelled');
+        });
+
+        test('transaction modal shows multiple actions', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Inject 2 actions
+            await page.evaluate(({ account }) => {
+                (window as any).__emitter.emit('updateAppActions', [
+                    {
+                        contract: 'eosio.token',
+                        action: 'transfer',
+                        data: { from: account, to: 'someone', quantity: '1.00000000 UOS', memo: 'first' },
+                        authorization: [{ actor: account, permission: 'active' }],
+                    },
+                    {
+                        contract: 'eosio.token',
+                        action: 'transfer',
+                        data: { from: account, to: 'another', quantity: '2.00000000 UOS', memo: 'second' },
+                        authorization: [{ actor: account, permission: 'active' }],
+                    },
+                ]);
+            }, { account: TEST_ACCOUNT });
+
+            await expect(page.locator(`text=Transaction - @${TEST_ACCOUNT}`)).toBeVisible({ timeout: 5000 });
+
+            // Both actions shown
+            const tokenLabels = page.locator('text=eosio.token');
+            expect(await tokenLabels.count()).toBeGreaterThanOrEqual(2);
+            await screenshot(page, '35-tx-modal-multi-action');
+        });
+
+        // NOTE: The full Confirm → sign → success flow requires real chain endpoints
+        // for UltraSignerAPI.buildTransaction() validation (ABI binary encoding, block data).
+        // This must be tested manually with the real wallet extension.
+        // The signTransaction mock pipeline is verified in the tests above.
     });
 
     // ============================================================
