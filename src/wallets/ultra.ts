@@ -113,14 +113,43 @@ export async function getAvailableAuthorizations(): Promise<UltraResponse<Availa
     return wallet.getAvailableAuthorizations();
 }
 
+// Local listener registry — the SDK has no off() method, so we manage our own
+// callbacks and register a single SDK listener per event type that dispatches to them.
+const localListeners = new Map<WalletEventType, Set<(data: any) => void>>();
+let sdkListenersRegistered = false;
+
+function ensureSdkListeners(): void {
+    if (sdkListenersRegistered) return;
+    const wallet = getSDK();
+    if (!wallet) return;
+
+    const events: WalletEventType[] = ['accountChanged', 'networkChanged', 'disconnect'];
+    for (const event of events) {
+        wallet.on(event, (data: any) => {
+            const callbacks = localListeners.get(event);
+            if (callbacks) callbacks.forEach((cb) => cb(data));
+        });
+    }
+    sdkListenersRegistered = true;
+}
+
 /**
  * Register a wallet event listener.
  * Events: 'accountChanged', 'networkChanged', 'disconnect'
  */
 export function on(event: WalletEventType, callback: (data: any) => void): void {
-    const wallet = getSDK();
-    if (!wallet) return;
-    wallet.on(event, callback);
+    ensureSdkListeners();
+    const existing = localListeners.get(event) ?? new Set();
+    existing.add(callback);
+    localListeners.set(event, existing);
+}
+
+/**
+ * Remove a wallet event listener.
+ */
+export function off(event: WalletEventType, callback: (data: any) => void): void {
+    const existing = localListeners.get(event);
+    if (existing) existing.delete(callback);
 }
 
 /**

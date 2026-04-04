@@ -294,7 +294,7 @@ function handleUpdateAppActions(updatedActions) {
     actions.value = updatedActions;
 }
 
-function handleWalletAccountChanged(data: { selected: { accountName: string } | null }) {
+async function handleWalletAccountChanged(data: { selected: { accountName: string } | null }) {
     if (authState.value.type !== 'ultra') return;
 
     if (!data.selected) {
@@ -304,10 +304,25 @@ function handleWalletAccountChanged(data: { selected: { accountName: string } | 
     }
 
     if (data.selected.accountName !== authState.value.accountName) {
-        // Account switched in wallet — update toolkit state
+        // Account switched in wallet — resolve actual permission
+        let perm = 'active';
+        try {
+            const selected = await Ultra.getSelectedAccount();
+            if (selected.status === 'success' && selected.data) {
+                const { permission } = Ultra.extractAccountInfo({
+                    blockchainid: selected.data.accountName,
+                    publicKey: '',
+                    selectedAccount: selected.data,
+                });
+                perm = permission;
+            }
+        } catch {
+            // Fall back to 'active'
+        }
+
         setAuthStateKeys({
             accountName: data.selected.accountName,
-            accountPerm: 'active',
+            accountPerm: perm,
         });
         localStorage.setItem('authState', JSON.stringify(authState.value));
         keyRouterUpdate.value += 1;
@@ -360,6 +375,9 @@ onMounted(async () => {
 
 onUnmounted(async () => {
     emitter.off('updateAppActions', handleUpdateAppActions);
+    Ultra.off('accountChanged', handleWalletAccountChanged);
+    Ultra.off('networkChanged', handleWalletNetworkChanged);
+    Ultra.off('disconnect', handleWalletDisconnect);
 });
 
 </script>
