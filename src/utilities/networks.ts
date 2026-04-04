@@ -3,6 +3,7 @@ import { BlockchainService } from "./blockchain";
 export const defaultNetworks = [
     {
         name: 'Mainnet',
+        chainId: 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097',
         urls: [
             //'https://api.mainnet.ultra.io', - does not support get_accounts_by_authorizer
             'https://ultra.api.eosnation.io',
@@ -16,6 +17,7 @@ export const defaultNetworks = [
     },
     {
         name: 'Testnet',
+        chainId: '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9',
         urls: [
             //'https://api.testnet.ultra.io/', - get_accounts_by_authorizer
             'https://ultratest.api.eosnation.io',
@@ -33,6 +35,14 @@ export const defaultNetworks = [
     { name: 'QA', urls: ['https://api-qa.dfuse.ultra.io'], isPublic: false },
     { name: 'Local:8888', urls: ['http://localhost:8888'], isPublic: true },
 ];
+
+/**
+ * Find a network config by its chain ID.
+ * Returns undefined if no known network matches (custom/internal networks).
+ */
+export function getNetworkByChainId(chainId: string) {
+    return defaultNetworks.find((net) => (net as any).chainId === chainId);
+}
 
 export const defaultExplorers = {
     Mainnet: 'https://explorer.mainnet.ultra.io',

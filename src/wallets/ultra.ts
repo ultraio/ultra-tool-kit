@@ -87,6 +87,16 @@ export async function getChainId(): Promise<UltraResponse<string>> {
 }
 
 /**
+ * Request the wallet to switch to a different network.
+ * Shows a confirmation popup to the user.
+ * Not in the SDK class — calls window.ultra directly.
+ */
+export async function switchNetwork(chainId: string): Promise<UltraResponse<void>> {
+    if (!isAvailable()) throw new Error('Ultra Wallet extension is not installed');
+    return (window as any).ultra.switchNetwork(chainId);
+}
+
+/**
  * Get all accounts the wallet controls on the current network.
  */
 export async function getAccounts(): Promise<UltraResponse<AccountInfo[]>> {

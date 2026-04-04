@@ -68,7 +68,8 @@ import * as Ultra from './wallets/ultra';
 import * as I from './interfaces';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { BlockchainService } from './utilities/blockchain';
-import { defaultNetworks, getEnvironmentName } from './utilities/networks';
+import { defaultNetworks, getEnvironmentName, getNetworkByChainId } from './utilities/networks';
+import { fetchWithTimeout } from './utilities/networks';
 import * as NFTAPI from './utilities/nftapi/api';
 import { emitter } from './eventBus';
 
@@ -79,6 +80,7 @@ let pageState = ref<I.PageState>({});
 let actions = ref<I.Action[] | undefined>(undefined);
 let keyRouterUpdate = ref<number>(1);
 let keyUserUpdate = ref<number>(1);
+let isNetworkSyncing = false; // Prevents circular sync between wallet↔toolkit
 
 // We never assign a whole object directly to authState,
 // all properties must be set individually.
@@ -158,6 +160,32 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
 
     // Init Blockchain & NFT API service after setting authState object
     await initServices();
+
+    // Toolkit→Wallet sync: if user changed endpoint while Ultra is connected,
+    // request the wallet to switch to the new chain
+    if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable() && !isNetworkSyncing) {
+        try {
+            const res = await fetchWithTimeout(`${endpoint}/v1/chain/get_info`);
+            if (res?.ok) {
+                const info = await res.json();
+                const endpointChainId = info.chain_id;
+                if (endpointChainId && endpointChainId !== authState.value.chainId) {
+                    isNetworkSyncing = true;
+                    try {
+                        await Ultra.switchNetwork(endpointChainId);
+                        setAuthStateKeys({ chainId: endpointChainId });
+                        localStorage.setItem('authState', JSON.stringify(authState.value));
+                    } catch {
+                        // User rejected the switch or wallet error — mismatch warning will show
+                    } finally {
+                        isNetworkSyncing = false;
+                    }
+                }
+            }
+        } catch {
+            // Endpoint unreachable — can't determine chainId
+        }
+    }
 }
 
 /**
@@ -331,11 +359,45 @@ async function handleWalletAccountChanged(data: { selected: { accountName: strin
     }
 }
 
-function handleWalletNetworkChanged(data: { chainId: string; name: string }) {
+async function handleWalletNetworkChanged(data: { chainId: string; name: string }) {
     if (authState.value.type !== 'ultra') return;
+    if (isNetworkSyncing) return; // We initiated this switch, ignore the echo
+
     setAuthStateKeys({ chainId: data.chainId });
     localStorage.setItem('authState', JSON.stringify(authState.value));
-    // Re-render to show mismatch warning if applicable
+
+    // Try to auto-switch toolkit endpoint to match the wallet's network
+    const matchedNetwork = getNetworkByChainId(data.chainId);
+    if (matchedNetwork) {
+        const currentEndpoint = authState.value.endpoint;
+        const isAlreadyOnThisNetwork = matchedNetwork.urls.includes(currentEndpoint);
+
+        if (!isAlreadyOnThisNetwork) {
+            isNetworkSyncing = true;
+            try {
+                // Switch toolkit endpoint, then re-connect to get the account on the new chain
+                await setEndpoint(matchedNetwork.urls[0]);
+                if (Ultra.isAvailable()) {
+                    try {
+                        const response = await Ultra.connect();
+                        if (response.status === 'success') {
+                            const { accountName, permission } = Ultra.extractAccountInfo(response.data);
+                            await setAccount('ultra', accountName, permission);
+                        }
+                    } catch {
+                        // Wallet connect failed on new network — user sees login button
+                    }
+                }
+                // Force UserOverlay re-mount to fetch new endpoint's chainId
+                keyUserUpdate.value += 1;
+            } finally {
+                isNetworkSyncing = false;
+            }
+            return;
+        }
+    }
+
+    // No matching endpoint found — just show the mismatch warning
     keyUserUpdate.value += 1;
 }
 

@@ -510,6 +510,7 @@ test.describe('Wallet SDK Integration', () => {
         });
 
         test('networkChanged updates chainId in localStorage', async ({ page }) => {
+            const UNKNOWN_CHAIN = 'abcd1234'.repeat(8);
             await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
             await mockChainAPI(page, TESTNET_CHAIN_ID);
             await page.goto('/');
@@ -520,22 +521,23 @@ test.describe('Wallet SDK Integration', () => {
             let authState = await getAuthState(page);
             expect(authState.chainId).toBe(TESTNET_CHAIN_ID);
 
-            // Fire networkChanged to mainnet
+            // Fire networkChanged to an unknown chain (won't trigger auto-switch)
             await fireWalletEvent(page, 'networkChanged', {
-                chainId: MAINNET_CHAIN_ID,
-                name: 'Mainnet',
-                nodeUrl: 'https://api.mainnet.ultra.io',
+                chainId: UNKNOWN_CHAIN,
+                name: 'CustomNet',
+                nodeUrl: 'https://custom.example.com',
                 accounts: [],
             });
             await page.waitForTimeout(500);
 
             // chainId updated
             authState = await getAuthState(page);
-            expect(authState.chainId).toBe(MAINNET_CHAIN_ID);
+            expect(authState.chainId).toBe(UNKNOWN_CHAIN);
             await screenshot(page, '17-events-network-changed');
         });
 
         test('compound events: networkChanged then accountChanged', async ({ page }) => {
+            const UNKNOWN_CHAIN = 'abcd1234'.repeat(8);
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page, TESTNET_CHAIN_ID);
             await page.goto('/');
@@ -543,11 +545,11 @@ test.describe('Wallet SDK Integration', () => {
             await connectWallet(page);
             await screenshot(page, '18-compound-initial');
 
-            // Network switch
+            // Network switch (unknown chain — no auto-sync, just updates chainId)
             await fireWalletEvent(page, 'networkChanged', {
-                chainId: MAINNET_CHAIN_ID,
-                name: 'Mainnet',
-                nodeUrl: 'https://api.mainnet.ultra.io',
+                chainId: UNKNOWN_CHAIN,
+                name: 'CustomNet',
+                nodeUrl: 'https://custom.example.com',
                 accounts: [],
             });
             await page.waitForTimeout(300);
@@ -564,7 +566,7 @@ test.describe('Wallet SDK Integration', () => {
             // Both reflected
             await expect(page.locator(`text=${TEST_ACCOUNT_2}`).first()).toBeVisible({ timeout: 5000 });
             const authState = await getAuthState(page);
-            expect(authState.chainId).toBe(MAINNET_CHAIN_ID);
+            expect(authState.chainId).toBe(UNKNOWN_CHAIN);
             expect(authState.accountName).toBe(TEST_ACCOUNT_2);
             await screenshot(page, '19-compound-both-changed');
         });
@@ -602,27 +604,89 @@ test.describe('Wallet SDK Integration', () => {
             await screenshot(page, '21-mismatch-no-warning');
         });
 
-        test('warning appears dynamically after networkChanged', async ({ page }) => {
+        test('wallet networkChanged to known chain auto-switches toolkit endpoint', async ({ page }) => {
+            // Start with wallet on MAINNET (matching the default endpoint ultra.api.eosnation.io)
+            await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID, networkName: 'Mainnet' }) });
+            // Smart get_info: return chainId based on which endpoint URL is called
+            await page.route('**/v1/chain/get_info', async (route) => {
+                const url = route.request().url();
+                const isTestnet = url.includes('ultratest') || url.includes('ultra-testnet')
+                    || url.includes('api.testnet');
+                const chainId = isTestnet ? TESTNET_CHAIN_ID : MAINNET_CHAIN_ID;
+                await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+                    server_version: 'mock', chain_id: chainId, head_block_num: 100000,
+                    head_block_time: '2026-04-04T00:00:00.000', head_block_producer: 'ultra',
+                    last_irreversible_block_num: 99999, last_irreversible_block_id: '0'.repeat(64),
+                    head_block_id: '0'.repeat(63) + '1', server_version_string: 'mock-v1',
+                    fork_db_head_block_num: 100000, fork_db_head_block_id: '0'.repeat(63) + '1',
+                })});
+            });
+            await page.route('**/v1/chain/get_account', async (route) => {
+                const body = JSON.parse(route.request().postData() || '{}');
+                await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+                    account_name: body.account_name || TEST_ACCOUNT,
+                    head_block_num: 100000, head_block_time: '2026-04-04T00:00:00.000',
+                    privileged: false, last_code_update: '1970-01-01T00:00:00.000',
+                    created: '2024-01-01T00:00:00.000', ram_quota: 100000, net_weight: 1000, cpu_weight: 1000,
+                    net_limit: { used: 0, available: 100000, max: 100000 },
+                    cpu_limit: { used: 0, available: 100000, max: 100000 }, ram_usage: 3000,
+                    permissions: [
+                        { perm_name: 'active', parent: 'owner', required_auth: { threshold: 1, keys: [{ key: TEST_PUBKEY, weight: 1 }], accounts: [], waits: [] } },
+                    ],
+                    total_resources: null, self_delegated_bandwidth: null, refund_request: null, voter_info: null,
+                })});
+            });
+
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Initially wallet=mainnet, endpoint=mainnet — no warning
+            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+            await screenshot(page, '22-sync-before-switch');
+
+            // Wallet switches to TESTNET — toolkit should auto-follow
+            await page.evaluate(({ chainId }) => {
+                (window as any).__walletConfig.chainId = chainId;
+            }, { chainId: TESTNET_CHAIN_ID });
+            await fireWalletEvent(page, 'networkChanged', {
+                chainId: TESTNET_CHAIN_ID,
+                name: 'Testnet',
+                nodeUrl: 'https://ultratest.api.eosnation.io',
+                accounts: [{ accountName: TEST_ACCOUNT, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
+            });
+
+            // Wait for auto-switch (setEndpoint + re-connect)
+            await page.waitForTimeout(3000);
+            await screenshot(page, '23-sync-after-switch');
+
+            // Endpoint should have changed to testnet
+            const authState = await getAuthState(page);
+            expect(authState.environment).toBe('Testnet');
+
+            // No mismatch warning (both on testnet now)
+            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+        });
+
+        test('wallet networkChanged to unknown chain shows warning', async ({ page }) => {
+            const UNKNOWN_CHAIN_ID = 'deadbeef'.repeat(8); // 64 chars, not in defaultNetworks
             await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
             await mockChainAPI(page, TESTNET_CHAIN_ID);
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // No warning initially
-            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
-            await screenshot(page, '22-mismatch-before-switch');
-
-            // Wallet switches to mainnet
+            // Fire networkChanged to an unknown chain
             await fireWalletEvent(page, 'networkChanged', {
-                chainId: MAINNET_CHAIN_ID,
-                name: 'Mainnet',
-                nodeUrl: 'https://api.mainnet.ultra.io',
+                chainId: UNKNOWN_CHAIN_ID,
+                name: 'CustomDevNet',
+                nodeUrl: 'https://custom.node.example.com',
                 accounts: [],
             });
 
+            // Can't auto-switch — warning should appear
             await expect(page.locator('text=Wallet network differs from endpoint')).toBeVisible({ timeout: 5000 });
-            await screenshot(page, '23-mismatch-after-switch');
+            await screenshot(page, '24-sync-unknown-chain-warning');
         });
 
         test('warning disappears after logout', async ({ page }) => {
