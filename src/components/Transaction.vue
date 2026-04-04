@@ -122,7 +122,7 @@ import { AuthState, Action, TransactionResponse } from '../interfaces/index';
 import { getTransactionLink } from '../utilities/networks';
 
 import * as Anchor from '../wallets/anchor';
-import UltraWallet from '@ultraos/ultra-extension-wallet-lib';
+import * as Ultra from '../wallets/ultra';
 import { connect as ledgerConnect } from '@ultraos/ultra-ledger-lib';
 // import { API as SignerAPI } from '@ultraos/ultra-signer-lib';
 import { API as UltraSignerAPI } from '@ultraos/ultra-signer-lib';
@@ -265,37 +265,29 @@ async function confirm() {
 
     // Ultra Wallet Integration
     if (props.state.type === 'ultra') {
-        // We need to sanitize the array and remove any vue bindings.
-        // This makes it easy.
-        const actions = JSON.parse(JSON.stringify(currentActions));
-        for (let action of actions) {
-            action.authorizations = [];
-            for (let auth of action.authorization) {
-                action.authorizations.push(`${auth.actor}@${auth.permission}`);
-            }
-            delete action.authorization;
-        }
+        try {
+            const result = await Ultra.signTransaction(
+                currentActions,
+                props.state.accountName,
+                props.state.accountPerm ?? 'active'
+            );
 
-        const result = await UltraWallet()
-            .signTransaction(actions)
-            .catch((err) => {
-                if (err && err.data && err.data.error && err.data.error.details && err.data.error.details.length > 0) {
-                    errorMessage.value = err.data.error.details[0].message;
-                } else {
-                    errorMessage.value = err.message;
-                }
-
+            if (!result || result.status !== 'success' || !result.data) {
+                errorMessage.value = result?.message ?? 'Transaction signing failed';
                 isTransacting.value = false;
-                return undefined;
-            });
+                return;
+            }
 
-        if (!result || !result.data) {
+            transaction_id = result.data.transactionHash;
+        } catch (err: any) {
+            if (err?.data?.error?.details?.length > 0) {
+                errorMessage.value = err.data.error.details[0].message;
+            } else {
+                errorMessage.value = err?.message ?? 'Transaction signing failed';
+            }
             isTransacting.value = false;
             return;
         }
-
-        console.log(result);
-        transaction_id = result.data.transactionHash;
     }
 
     // Direct Ledger Integration for Signing Transactions
