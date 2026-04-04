@@ -18,9 +18,9 @@
         "@greymass/buoy": "^1.0.4",
         "@guolao/vue-monaco-editor": "^1.5.1",
         "@ultraos/ultra-api-lib": "^1.1.0",
-        "@ultraos/wallet-sdk": "file:../web-app/dist/libs/wallet-sdk",
         "@ultraos/ultra-ledger-lib": "^2.0.2",
         "@ultraos/ultra-signer-lib": "^1.6.4",
+        "@ultraos/wallet-sdk": "file:../web-app/dist/libs/wallet-sdk",
         "@vitejs/plugin-basic-ssl": "^1.0.1",
         "@wharfkit/session": "^1.0.0",
         "@wharfkit/wallet-plugin-anchor": "^1.0.0",
@@ -37,6 +37,7 @@
         "vue3-runtime-template": "^1.0.2"
     },
     "devDependencies": {
+        "@playwright/test": "^1.59.1",
         "@types/node": "^20.4.2",
         "@vitejs/plugin-vue": "^4.2.3",
         "autoprefixer": "^10.4.16",
