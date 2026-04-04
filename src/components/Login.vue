@@ -114,7 +114,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue';
 
-import UltraWallet from '@ultraos/ultra-extension-wallet-lib';
+import * as Ultra from '../wallets/ultra';
 
 import { SharedEmits, AuthState, WalletTypes, PageState } from '../interfaces';
 import * as Anchor from '../wallets/anchor';
@@ -246,17 +246,16 @@ async function login(type: 'ledger' | 'anchor' | 'ultra') {
     // 2. Connect with Wallet
     // 3. Pass Public Key + Account to Main App
     if (type === 'ultra') {
-        const api = UltraWallet();
-        if (!api) {
+        if (!Ultra.isAvailable()) {
             loginState.isSelectingLogin = true;
             alert('Could not connect to the Ultra Wallet Extension, is the extension installed?');
             return;
         }
 
         try {
-            const response = await api.connect();
+            const response = await Ultra.connect();
 
-            if (!response || !response.status) {
+            if (!response || response.status !== 'success') {
                 loginState.isSelectingLogin = true;
                 alert('Ultra Wallet Extension connection was canceled.');
                 return;
@@ -268,7 +267,8 @@ async function login(type: 'ledger' | 'anchor' | 'ultra') {
                 return;
             }
 
-            setAccount(type, response.data.blockchainid, 'active');
+            const { accountName, permission } = Ultra.extractAccountInfo(response.data);
+            setAccount(type, accountName, permission);
         } catch (err) {
             loginState.isSelectingLogin = true;
             alert('Ultra Wallet Extension connection was canceled.');
@@ -312,6 +312,6 @@ const isShowingHelp = computed(() => {
 });
 
 onMounted(() => {
-    loginState.isUltraWalletAvailable = UltraWallet() ? true : false;
+    loginState.isUltraWalletAvailable = Ultra.isAvailable();
 });
 </script>
