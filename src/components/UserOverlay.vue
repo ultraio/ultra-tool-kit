@@ -15,7 +15,7 @@
                     @click="copyToClipboard"
                     class="flex flex-row items-center justify-center gap-3 hover:text-purple-400 hover:cursor-pointer"
                 >
-                    <span>{{ wasNameCopied ? 'Copied' : props.state.accountName }}</span>
+                    <span>{{ wasNameCopied ? 'Copied' : displayName }}</span>
                     <Icon :icon="wasNameCopied ? 'fa-check' : 'fa-copy'" />
                 </div>
             </div>
@@ -25,6 +25,12 @@
             >
                 Logout
             </div>
+            <div
+                v-if="isNetworkMismatch"
+                class="flex flex-grow w-full items-center justify-center text-xs p-2 border rounded-md bg-amber-900 border-amber-700 text-amber-200 mt-2"
+            >
+                Wallet network differs from endpoint
+            </div>
         </div>
     </div>
 </template>
@@ -33,15 +39,31 @@
 import { ref, computed, onMounted } from 'vue';
 import * as I from '../interfaces';
 import { SharedEmits } from '../interfaces';
+import { fetchWithTimeout } from '../utilities/networks';
 
 const props = defineProps<{ state: I.AuthState }>();
 const custom_endpoints = ref<{ text: string; value: string }[]>([]);
+const endpointChainId = ref<string | undefined>(undefined);
 
 interface EndpointEmits extends SharedEmits {
     (e: 'logout'): void;
 }
 
 const emit = defineEmits<EndpointEmits>();
+
+const displayName = computed(() => {
+    if (!props.state.accountName) return '';
+    if (props.state.accountPerm && props.state.accountPerm !== 'active') {
+        return `${props.state.accountName}@${props.state.accountPerm}`;
+    }
+    return props.state.accountName;
+});
+
+const isNetworkMismatch = computed(() => {
+    if (props.state.type !== 'ultra') return false;
+    if (!props.state.chainId || !endpointChainId.value) return false;
+    return props.state.chainId !== endpointChainId.value;
+});
 
 const userAvatarURL = computed(() => {
     return `https://api.dicebear.com/6.x/thumbs/svg?seed=${props.state.accountName}&backgroundColor=0a5b83,1c799f,69d2e7,f1f4dc,f88c49,d1d4f9,c0aede,b6e3f4,ffd5dc,ffdfbf&backgroundType=solid,gradientLinear`;
@@ -58,14 +80,25 @@ function copyToClipboard() {
     }, 1000);
 }
 
-onMounted(() => {
-    let endpoints = localStorage.getItem('endpoints');
-    if (!endpoints || endpoints.length <= 0) {
-        return;
+onMounted(async () => {
+    const endpoints = localStorage.getItem('endpoints');
+    if (endpoints && endpoints.length > 0) {
+        custom_endpoints.value = endpoints.split(',').map((x) => {
+            return { text: x, value: x };
+        });
     }
 
-    custom_endpoints.value = endpoints.split(',').map((x) => {
-        return { text: x, value: x };
-    });
+    // Fetch endpoint chain ID for network mismatch detection
+    if (props.state.endpoint) {
+        try {
+            const res = await fetchWithTimeout(`${props.state.endpoint}/v1/chain/get_info`);
+            if (res?.ok) {
+                const info = await res.json();
+                endpointChainId.value = info.chain_id;
+            }
+        } catch {
+            // Non-critical
+        }
+    }
 });
 </script>
