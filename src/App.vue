@@ -263,6 +263,7 @@ async function restoreSession() {
         }
 
         setAuthStateKeys(restoredAuthState);
+        localStorage.setItem('authState', JSON.stringify(authState.value));
         setPageState({ showEndpoint: false, showLogin: false, showTransaction: false });
     } catch (err) {}
 }

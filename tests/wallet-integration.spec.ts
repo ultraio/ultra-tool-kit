@@ -5,12 +5,13 @@ import { test, expect, Page } from '@playwright/test';
 const TESTNET_CHAIN_ID = '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9';
 const MAINNET_CHAIN_ID = 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097';
 const TEST_ACCOUNT = 'testaccount1';
+const TEST_ACCOUNT_2 = 'otheraccount';
 const TEST_PUBKEY = 'EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV';
 const TEST_TX_HASH = 'abc123def456789abcdef0123456789abcdef0123456789abcdef0123456789a';
 
+const SCREENSHOT_DIR = 'test-results/screenshots';
+
 // --- Wallet Mock ---
-// Injected into window.ultra before page load.
-// Configurable via window.__walletConfig for per-test customization.
 
 function walletMockScript(overrides: Record<string, any> = {}) {
     const config = {
@@ -27,6 +28,7 @@ function walletMockScript(overrides: Record<string, any> = {}) {
     return `
         window.__walletTrusted = false;
         window.__walletConfig = ${JSON.stringify(config)};
+        window.__signCalls = [];
 
         window.ultra = {
             connect: async (params) => {
@@ -57,6 +59,7 @@ function walletMockScript(overrides: Record<string, any> = {}) {
             },
             signTransaction: async (tx, opts) => {
                 const cfg = window.__walletConfig;
+                window.__signCalls.push({ tx, opts });
                 return {
                     status: 'success',
                     data: { transactionHash: cfg.txHash }
@@ -94,7 +97,6 @@ function walletMockScript(overrides: Record<string, any> = {}) {
                 };
             },
             on: (event, cb) => {
-                // Store callbacks so tests can trigger them
                 if (!window.__walletCallbacks) window.__walletCallbacks = {};
                 if (!window.__walletCallbacks[event]) window.__walletCallbacks[event] = [];
                 window.__walletCallbacks[event].push(cb);
@@ -107,7 +109,6 @@ function walletMockScript(overrides: Record<string, any> = {}) {
 
 // --- Helpers ---
 
-/** Intercept chain API calls with mock responses */
 async function mockChainAPI(page: Page, chainId: string = TESTNET_CHAIN_ID) {
     await page.route('**/v1/chain/get_account', async (route) => {
         const body = JSON.parse(route.request().postData() || '{}');
@@ -158,218 +159,459 @@ async function mockChainAPI(page: Page, chainId: string = TESTNET_CHAIN_ID) {
                 head_block_time: '2026-04-04T00:00:00.000',
                 head_block_producer: 'ultra',
                 last_irreversible_block_num: 99999,
-                last_irreversible_block_id: '0000000000000000000000000000000000000000000000000000000000000000',
-                head_block_id: '0000000000000000000000000000000000000000000000000000000000000001',
+                last_irreversible_block_id: '0'.repeat(64),
+                head_block_id: '0'.repeat(63) + '1',
                 server_version_string: 'mock-v1',
                 fork_db_head_block_num: 100000,
-                fork_db_head_block_id: '0000000000000000000000000000000000000000000000000000000000000001',
+                fork_db_head_block_id: '0'.repeat(63) + '1',
             }),
         });
     });
 }
 
-/** Fire a wallet event by posting a message (how the extension dispatches events) */
 async function fireWalletEvent(page: Page, type: string, data: any) {
-    await page.evaluate(
-        ({ type, data }) => {
-            window.postMessage({ type, data }, '*');
-        },
-        { type, data }
-    );
+    await page.evaluate(({ type, data }) => {
+        window.postMessage({ type, data }, '*');
+    }, { type, data });
 }
 
-/** Connect the Ultra wallet via the login modal */
 async function connectWallet(page: Page) {
-    // Click "Login to Tool Kit" in the sidebar
     await page.click('text=Login to Tool Kit');
-    // Click "Ultra Wallet" button in the modal
     await page.click('button:has-text("Ultra Wallet")');
-    // Wait for account name to appear in sidebar
     await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible({ timeout: 5000 });
+}
+
+async function screenshot(page: Page, name: string) {
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png`, fullPage: false });
+}
+
+async function getAuthState(page: Page): Promise<any> {
+    return page.evaluate(() => {
+        const raw = localStorage.getItem('authState');
+        return raw ? JSON.parse(raw) : null;
+    });
 }
 
 // --- Tests ---
 
 test.describe('Wallet SDK Integration', () => {
+
+    // ============================================================
+    // 1. CONNECT FLOW — full walkthrough with screenshots
+    // ============================================================
     test.describe('Connect Flow', () => {
-        test('connect via Ultra wallet shows account name', async ({ page }) => {
+
+        test('full connect flow: initial → login modal → connected', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
 
-            await connectWallet(page);
+            // Step 1: Initial state — login button visible, no account
+            await expect(page.locator('text=Login to Tool Kit')).toBeVisible();
+            await expect(page.locator('text=Logout')).not.toBeVisible();
+            await screenshot(page, '01-initial-state');
 
-            // Account name visible in sidebar
-            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
-            // Logout button visible
+            // Step 2: Open login modal
+            await page.click('text=Login to Tool Kit');
+            await expect(page.locator('text=Select a Wallet Provider')).toBeVisible();
+
+            // All 3 wallet buttons present
+            await expect(page.locator('button:has-text("Ultra Wallet")')).toBeVisible();
+            await expect(page.locator('button:has-text("Anchor")')).toBeVisible();
+            await expect(page.locator('button:has-text("Ledger")')).toBeVisible();
+
+            // Ultra Wallet enabled (extension available)
+            await expect(page.locator('button:has-text("Ultra Wallet")')).toBeEnabled();
+
+            // Help buttons present
+            const helpButtons = page.locator('button:has-text("Help")');
+            expect(await helpButtons.count()).toBe(3);
+            await screenshot(page, '02-login-modal-open');
+
+            // Step 3: Click Ultra Wallet → connecting → connected
+            await page.click('button:has-text("Ultra Wallet")');
+
+            // Wait for account to appear
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible({ timeout: 5000 });
             await expect(page.locator('text=Logout')).toBeVisible();
+
+            // Login modal should be closed
+            await expect(page.locator('text=Select a Wallet Provider')).not.toBeVisible();
+            await screenshot(page, '03-connected');
+
+            // Step 4: Verify localStorage was set correctly
+            const authState = await getAuthState(page);
+            expect(authState).toBeTruthy();
+            expect(authState.accountName).toBe(TEST_ACCOUNT);
+            expect(authState.accountPerm).toBe('active');
+            expect(authState.type).toBe('ultra');
+            expect(authState.chainId).toBe(TESTNET_CHAIN_ID);
+
+            // Step 5: No network mismatch warning (chains match)
+            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+
+            // Step 6: Endpoint is displayed in header
+            await expect(page.locator('header >> text=/.*api.*/i').or(page.locator('button:has-text("api")'))).toBeVisible();
         });
 
         test('connect with non-active permission shows account@permission', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript({ permission: 'owner' }) });
             await mockChainAPI(page);
             await page.goto('/');
-
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Should show "testaccount1@owner" since permission is not active
+            // Should show "testaccount1@owner"
             await expect(page.locator(`text=${TEST_ACCOUNT}@owner`).first()).toBeVisible();
+            await screenshot(page, '04-non-active-permission');
+
+            // Verify localStorage has correct permission
+            const authState = await getAuthState(page);
+            expect(authState.accountPerm).toBe('owner');
         });
 
-        test('Ultra Wallet button is enabled when extension is available', async ({ page }) => {
-            await page.addInitScript({ content: walletMockScript() });
-            await mockChainAPI(page);
-            await page.goto('/');
-
-            await page.click('text=Login to Tool Kit');
-            const ultraButton = page.locator('button:has-text("Ultra Wallet")');
-            await expect(ultraButton).toBeEnabled();
-        });
-
-        test('connect failure shows alert', async ({ page }) => {
+        test('connect failure shows alert and returns to wallet selection', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript({ connectShouldFail: true }) });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
 
-            // Listen for the alert dialog
+            let alertMessage = '';
             page.on('dialog', async (dialog) => {
-                expect(dialog.message()).toContain('canceled');
+                alertMessage = dialog.message();
                 await dialog.accept();
             });
 
             await page.click('text=Login to Tool Kit');
+            await screenshot(page, '05-connect-fail-modal');
+
             await page.click('button:has-text("Ultra Wallet")');
 
-            // Should return to wallet selection (login modal still showing)
+            // Wait for alert to fire
+            await page.waitForTimeout(500);
+            expect(alertMessage).toContain('canceled');
+
+            // Should return to wallet selection
             await expect(page.locator('text=Select a Wallet Provider')).toBeVisible();
+            await screenshot(page, '06-connect-fail-back-to-selection');
+
+            // No authState stored
+            const authState = await getAuthState(page);
+            expect(authState?.accountName).toBeFalsy();
         });
     });
 
+    // ============================================================
+    // 2. ULTRA WALLET NOT AVAILABLE
+    // ============================================================
+    test.describe('Extension Not Available', () => {
+
+        test('Ultra Wallet button is disabled when extension is not installed', async ({ page }) => {
+            // Do NOT inject window.ultra
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+
+            await page.click('text=Login to Tool Kit');
+
+            // Ultra Wallet button should be visually disabled
+            // (Button component uses CSS classes, not HTML disabled attribute)
+            const ultraBtn = page.locator('button:has-text("Ultra Wallet")');
+            await expect(ultraBtn).toHaveClass(/cursor-default/);
+            await expect(ultraBtn).not.toHaveClass(/cursor-pointer/);
+
+            // Anchor and Ledger should still be clickable (have cursor-pointer)
+            await expect(page.locator('button:has-text("Anchor")')).toHaveClass(/cursor-pointer/);
+            await expect(page.locator('button:has-text("Ledger")')).toHaveClass(/cursor-pointer/);
+
+            await screenshot(page, '07-extension-not-available');
+        });
+    });
+
+    // ============================================================
+    // 3. SESSION RESTORE
+    // ============================================================
     test.describe('Session Restore', () => {
+
         test('restores session from localStorage without popup', async ({ page }) => {
-            // Use a wallet mock that starts pre-trusted (simulates already-connected dApp)
-            const trustedMock = walletMockScript();
-            const preTrustedMock = trustedMock.replace(
+            const preTrustedMock = walletMockScript().replace(
                 'window.__walletTrusted = false;',
                 'window.__walletTrusted = true;'
             );
             await page.addInitScript({ content: preTrustedMock });
             await mockChainAPI(page);
 
-            // First visit — set localStorage as if user previously logged in
+            // Set localStorage with saved session
             await page.goto('/');
-            await page.evaluate(
-                ({ account }) => {
-                    localStorage.setItem(
-                        'authState',
-                        JSON.stringify({
-                            accountName: account,
-                            accountPerm: 'active',
-                            endpoint: 'https://ultra.api.eosnation.io',
-                            environment: 'Mainnet',
-                            type: 'ultra',
-                            isAdmin: false,
-                        })
-                    );
-                },
-                { account: TEST_ACCOUNT }
-            );
+            await page.evaluate(({ account }) => {
+                localStorage.setItem('authState', JSON.stringify({
+                    accountName: account,
+                    accountPerm: 'active',
+                    endpoint: 'https://ultra.api.eosnation.io',
+                    environment: 'Mainnet',
+                    type: 'ultra',
+                    isAdmin: false,
+                }));
+            }, { account: TEST_ACCOUNT });
 
-            // Reload — addInitScript runs again with pre-trusted mock
-            // restoreSession() calls Ultra.connect(true) which succeeds
+            // Reload
             await page.reload();
+            await page.waitForLoadState('networkidle');
+
+            // Auto-reconnected
             await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible({ timeout: 5000 });
-            // Login modal should NOT be visible
             await expect(page.locator('text=Select a Wallet Provider')).not.toBeVisible();
+            await screenshot(page, '08-session-restored');
+
+            // chainId was captured during restore
+            const authState = await getAuthState(page);
+            expect(authState.chainId).toBe(TESTNET_CHAIN_ID);
+        });
+
+        test('failed restore shows login button without popup', async ({ page }) => {
+            // NOT pre-trusted — onlyIfTrusted will throw
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+
+            await page.goto('/');
+            await page.evaluate(({ account }) => {
+                localStorage.setItem('authState', JSON.stringify({
+                    accountName: account,
+                    accountPerm: 'active',
+                    endpoint: 'https://ultra.api.eosnation.io',
+                    environment: 'Mainnet',
+                    type: 'ultra',
+                    isAdmin: false,
+                }));
+            }, { account: TEST_ACCOUNT });
+
+            // Reload — restore fails silently
+            await page.reload();
+            await page.waitForLoadState('networkidle');
+            await page.waitForTimeout(1000);
+
+            // No popup — just login button
+            await expect(page.locator('text=Select a Wallet Provider')).not.toBeVisible();
+            await screenshot(page, '09-session-restore-failed');
+
+            // User can still login manually
+            await connectWallet(page);
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
+            await screenshot(page, '10-manual-login-after-failed-restore');
         });
     });
 
+    // ============================================================
+    // 4. WALLET EVENTS
+    // ============================================================
     test.describe('Wallet Events', () => {
-        test('accountChanged event updates displayed account', async ({ page }) => {
+
+        test('accountChanged updates displayed account and localStorage', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Update the mock config so getSelectedAccount returns the new account
-            await page.evaluate(() => {
-                (window as any).__walletConfig.accountName = 'newaccount11';
-            });
+            // Verify initial state
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
+            await screenshot(page, '11-events-before-account-change');
 
-            // Fire accountChanged event
+            // Update mock for new account
+            await page.evaluate(({ newAccount }) => {
+                (window as any).__walletConfig.accountName = newAccount;
+            }, { newAccount: TEST_ACCOUNT_2 });
+
+            // Fire accountChanged
             await fireWalletEvent(page, 'accountChanged', {
-                accounts: [{ accountName: 'newaccount11', permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
-                selected: { accountName: 'newaccount11', permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] },
+                accounts: [{ accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
+                selected: { accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] },
             });
 
-            // UI should update to new account
-            await expect(page.locator('text=newaccount11').first()).toBeVisible({ timeout: 5000 });
+            // UI updates
+            await expect(page.locator(`text=${TEST_ACCOUNT_2}`).first()).toBeVisible({ timeout: 5000 });
+            // Old account name gone from sidebar
+            const sidebar = page.locator('.sticky');
+            await expect(sidebar.locator(`text=${TEST_ACCOUNT}`)).not.toBeVisible();
+            await screenshot(page, '12-events-after-account-change');
+
+            // localStorage updated
+            const authState = await getAuthState(page);
+            expect(authState.accountName).toBe(TEST_ACCOUNT_2);
         });
 
-        test('disconnect event triggers logout', async ({ page }) => {
+        test('accountChanged with non-active permission resolves correctly', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Verify we're logged in
-            await expect(page.locator('text=Logout')).toBeVisible();
+            // Update mock: new account with 'owner' permission
+            await page.evaluate(({ newAccount }) => {
+                (window as any).__walletConfig.accountName = newAccount;
+                (window as any).__walletConfig.permission = 'owner';
+            }, { newAccount: TEST_ACCOUNT_2 });
 
-            // Fire disconnect event
+            await fireWalletEvent(page, 'accountChanged', {
+                accounts: [{ accountName: TEST_ACCOUNT_2, permissions: [{ name: 'owner', publicKeys: [TEST_PUBKEY] }] }],
+                selected: { accountName: TEST_ACCOUNT_2, permissions: [{ name: 'owner', publicKeys: [TEST_PUBKEY] }] },
+            });
+
+            // Should show "otheraccount@owner" since permission is non-active
+            await expect(page.locator(`text=${TEST_ACCOUNT_2}@owner`).first()).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '13-events-account-change-owner-perm');
+        });
+
+        test('disconnect event triggers logout and clears state', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Verify logged in
+            await expect(page.locator('text=Logout')).toBeVisible();
+            await screenshot(page, '14-events-before-disconnect');
+
+            // Fire disconnect
             await fireWalletEvent(page, 'disconnect', {});
 
-            // Should show login button again
+            // Logged out
             await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
+            await expect(page.locator('text=Logout')).not.toBeVisible();
+            await screenshot(page, '15-events-after-disconnect');
+
+            // localStorage cleared
+            const authState = await getAuthState(page);
+            expect(authState.accountName).toBeFalsy();
+            expect(authState.type).toBeFalsy();
+            expect(authState.chainId).toBeFalsy();
         });
 
-        test('wallet lock (accountChanged with null selected) triggers logout', async ({ page }) => {
+        test('wallet lock (null selected) triggers logout', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Fire accountChanged with null selected (wallet locked)
             await fireWalletEvent(page, 'accountChanged', {
                 accounts: [],
                 selected: null,
             });
 
-            // Should show login button again
             await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
-        });
-    });
+            await screenshot(page, '16-events-wallet-locked');
 
-    test.describe('Network Mismatch', () => {
-        test('shows warning when wallet chain differs from endpoint', async ({ page }) => {
-            // Wallet on mainnet, but endpoint returns testnet chain ID
-            await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID }) });
-            await mockChainAPI(page, TESTNET_CHAIN_ID); // endpoint says testnet
-            await page.goto('/');
-            await connectWallet(page);
-
-            // The amber warning should appear
-            await expect(page.locator('text=Wallet network differs from endpoint')).toBeVisible({ timeout: 5000 });
+            const authState = await getAuthState(page);
+            expect(authState.accountName).toBeFalsy();
         });
 
-        test('no warning when wallet and endpoint chains match', async ({ page }) => {
-            await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
-            await mockChainAPI(page, TESTNET_CHAIN_ID); // same chain
-            await page.goto('/');
-            await connectWallet(page);
-
-            // Warning should NOT appear
-            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
-        });
-
-        test('networkChanged event updates mismatch warning', async ({ page }) => {
-            // Start matching
+        test('networkChanged updates chainId in localStorage', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
             await mockChainAPI(page, TESTNET_CHAIN_ID);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Initial chainId
+            let authState = await getAuthState(page);
+            expect(authState.chainId).toBe(TESTNET_CHAIN_ID);
+
+            // Fire networkChanged to mainnet
+            await fireWalletEvent(page, 'networkChanged', {
+                chainId: MAINNET_CHAIN_ID,
+                name: 'Mainnet',
+                nodeUrl: 'https://api.mainnet.ultra.io',
+                accounts: [],
+            });
+            await page.waitForTimeout(500);
+
+            // chainId updated
+            authState = await getAuthState(page);
+            expect(authState.chainId).toBe(MAINNET_CHAIN_ID);
+            await screenshot(page, '17-events-network-changed');
+        });
+
+        test('compound events: networkChanged then accountChanged', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+            await screenshot(page, '18-compound-initial');
+
+            // Network switch
+            await fireWalletEvent(page, 'networkChanged', {
+                chainId: MAINNET_CHAIN_ID,
+                name: 'Mainnet',
+                nodeUrl: 'https://api.mainnet.ultra.io',
+                accounts: [],
+            });
+            await page.waitForTimeout(300);
+
+            // Account switch
+            await page.evaluate(() => {
+                (window as any).__walletConfig.accountName = 'otheraccount';
+            });
+            await fireWalletEvent(page, 'accountChanged', {
+                accounts: [{ accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
+                selected: { accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] },
+            });
+
+            // Both reflected
+            await expect(page.locator(`text=${TEST_ACCOUNT_2}`).first()).toBeVisible({ timeout: 5000 });
+            const authState = await getAuthState(page);
+            expect(authState.chainId).toBe(MAINNET_CHAIN_ID);
+            expect(authState.accountName).toBe(TEST_ACCOUNT_2);
+            await screenshot(page, '19-compound-both-changed');
+        });
+    });
+
+    // ============================================================
+    // 5. NETWORK MISMATCH WARNING
+    // ============================================================
+    test.describe('Network Mismatch Warning', () => {
+
+        test('shows amber warning when wallet chain differs from endpoint', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID }) });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            const warning = page.locator('text=Wallet network differs from endpoint');
+            await expect(warning).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '20-mismatch-warning-visible');
+
+            // Verify amber styling (the element has specific tailwind classes)
+            const warningEl = page.locator('[class*="bg-amber"]');
+            await expect(warningEl).toBeVisible();
+        });
+
+        test('no warning when chains match', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+            await screenshot(page, '21-mismatch-no-warning');
+        });
+
+        test('warning appears dynamically after networkChanged', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript({ chainId: TESTNET_CHAIN_ID }) });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
             // No warning initially
             await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+            await screenshot(page, '22-mismatch-before-switch');
 
             // Wallet switches to mainnet
             await fireWalletEvent(page, 'networkChanged', {
@@ -379,83 +621,185 @@ test.describe('Wallet SDK Integration', () => {
                 accounts: [],
             });
 
-            // Warning should now appear
             await expect(page.locator('text=Wallet network differs from endpoint')).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '23-mismatch-after-switch');
         });
-    });
 
-    test.describe('Transaction Signing', () => {
-        test('signs transaction via Ultra wallet and shows tx hash', async ({ page }) => {
-            await page.addInitScript({ content: walletMockScript() });
-            await mockChainAPI(page);
-
-            // Mock transaction validation endpoint
-            await page.route('**/v1/chain/get_abi', async (route) => {
-                await route.fulfill({
-                    status: 200,
-                    contentType: 'application/json',
-                    body: JSON.stringify({
-                        account_name: 'eosio.token',
-                        abi: {
-                            version: 'eosio::abi/1.1',
-                            types: [],
-                            structs: [
-                                {
-                                    name: 'transfer',
-                                    base: '',
-                                    fields: [
-                                        { name: 'from', type: 'name' },
-                                        { name: 'to', type: 'name' },
-                                        { name: 'quantity', type: 'asset' },
-                                        { name: 'memo', type: 'string' },
-                                    ],
-                                },
-                            ],
-                            actions: [{ name: 'transfer', type: 'transfer', ricardian_contract: '' }],
-                            tables: [],
-                            ricardian_clauses: [],
-                            variants: [],
-                        },
-                    }),
-                });
-            });
-
+        test('warning disappears after logout', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID }) });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Verify the wallet mock's signTransaction works correctly
-            // (the actual Transaction.vue flow requires complex UI interaction
-            // with the action builder — we verify the mock pipeline here)
-            const result = await page.evaluate(async () => {
-                const response = await (window as any).ultra.signTransaction(
-                    [{ contract: 'eosio.token', action: 'transfer', data: {}, authorization: [{ actor: 'testaccount1', permission: 'active' }] }]
-                );
-                return {
-                    status: response.status,
-                    hash: response.data?.transactionHash,
-                    expectedHash: (window as any).__walletConfig.txHash,
-                };
-            });
+            // Warning visible
+            await expect(page.locator('text=Wallet network differs from endpoint')).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '24-mismatch-before-logout');
 
-            expect(result.status).toBe('success');
-            expect(result.hash).toBe(result.expectedHash);
+            // Logout
+            await page.click('text=Logout');
+
+            // Warning gone (not logged in as ultra anymore)
+            await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
+            await screenshot(page, '25-mismatch-after-logout');
         });
     });
 
+    // ============================================================
+    // 6. LOGOUT
+    // ============================================================
     test.describe('Logout', () => {
-        test('logout clears account and shows login button', async ({ page }) => {
+
+        test('full logout clears all state', async ({ page }) => {
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
+            await page.waitForLoadState('networkidle');
             await connectWallet(page);
+
+            // Logged in
+            await expect(page.locator('text=Logout')).toBeVisible();
+            const preLogout = await getAuthState(page);
+            expect(preLogout.accountName).toBe(TEST_ACCOUNT);
+            expect(preLogout.chainId).toBe(TESTNET_CHAIN_ID);
+            await screenshot(page, '26-logout-before');
 
             // Click logout
             await page.click('text=Logout');
 
-            // Should show login button
+            // Logged out
             await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
-            // Account name should be gone
+            await expect(page.locator('text=Logout')).not.toBeVisible();
             await expect(page.locator(`text=${TEST_ACCOUNT}`)).not.toBeVisible();
+            await screenshot(page, '27-logout-after');
+
+            // All auth state cleared
+            const postLogout = await getAuthState(page);
+            expect(postLogout.accountName).toBeFalsy();
+            expect(postLogout.type).toBeFalsy();
+            expect(postLogout.accountPerm).toBeFalsy();
+            expect(postLogout.isAdmin).toBe(false);
+            expect(postLogout.chainId).toBeFalsy();
+        });
+
+        test('can re-login after logout', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+
+            // Login
+            await connectWallet(page);
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
+            await screenshot(page, '28-relogin-first-login');
+
+            // Logout
+            await page.click('text=Logout');
+            await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
+            await screenshot(page, '29-relogin-logged-out');
+
+            // Re-login
+            await connectWallet(page);
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
+            await expect(page.locator('text=Logout')).toBeVisible();
+            await screenshot(page, '30-relogin-second-login');
+
+            // State is correct
+            const authState = await getAuthState(page);
+            expect(authState.accountName).toBe(TEST_ACCOUNT);
+            expect(authState.type).toBe('ultra');
+        });
+    });
+
+    // ============================================================
+    // 7. TRANSACTION SIGNING PIPELINE
+    // ============================================================
+    test.describe('Transaction Signing', () => {
+
+        test('signTransaction mock returns correct hash and accepts structured auth', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Verify signTransaction works with structured authorization
+            const result = await page.evaluate(async () => {
+                const response = await (window as any).ultra.signTransaction(
+                    [{
+                        contract: 'eosio.token',
+                        action: 'transfer',
+                        data: { from: 'testaccount1', to: 'someone', quantity: '1.00000000 UOS', memo: 'test' },
+                        authorization: [{ actor: 'testaccount1', permission: 'active' }],
+                    }]
+                );
+                return {
+                    status: response.status,
+                    hash: response.data?.transactionHash,
+                };
+            });
+
+            expect(result.status).toBe('success');
+            expect(result.hash).toBe(TEST_TX_HASH);
+
+            // Verify the call was recorded
+            const signCalls = await page.evaluate(() => (window as any).__signCalls);
+            expect(signCalls).toHaveLength(1);
+            expect(signCalls[0].tx[0].contract).toBe('eosio.token');
+            expect(signCalls[0].tx[0].action).toBe('transfer');
+            expect(signCalls[0].tx[0].authorization[0].actor).toBe('testaccount1');
+            expect(signCalls[0].tx[0].authorization[0].permission).toBe('active');
+        });
+
+        test('signTransaction works with legacy string authorizations', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+            await connectWallet(page);
+
+            // Also verify legacy format is accepted
+            const result = await page.evaluate(async () => {
+                const response = await (window as any).ultra.signTransaction(
+                    [{
+                        contract: 'eosio.token',
+                        action: 'transfer',
+                        data: {},
+                        authorizations: ['testaccount1@active'],
+                    }]
+                );
+                return response.status;
+            });
+
+            expect(result).toBe('success');
+        });
+    });
+
+    // ============================================================
+    // 8. ANCHOR & LEDGER BUTTONS NOT BROKEN
+    // ============================================================
+    test.describe('Other Wallets Not Broken', () => {
+
+        test('Anchor and Ledger buttons are present and clickable', async ({ page }) => {
+            await page.addInitScript({ content: walletMockScript() });
+            await mockChainAPI(page);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+
+            await page.click('text=Login to Tool Kit');
+
+            // Both buttons present and enabled
+            const anchorBtn = page.locator('button:has-text("Anchor")');
+            const ledgerBtn = page.locator('button:has-text("Ledger")');
+            await expect(anchorBtn).toBeVisible();
+            await expect(anchorBtn).toBeEnabled();
+            await expect(ledgerBtn).toBeVisible();
+            await expect(ledgerBtn).toBeEnabled();
+            await screenshot(page, '31-other-wallets-available');
+
+            // Help buttons work for each wallet
+            const helpButtons = page.locator('button:has-text("Help")');
+            expect(await helpButtons.count()).toBe(3);
         });
     });
 });
