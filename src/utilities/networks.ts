@@ -6,7 +6,7 @@ export const defaultNetworks = [
         chainId: 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097',
         urls: [
             //'https://api.mainnet.ultra.io', - does not support get_accounts_by_authorizer
-            'https://ultra.api.eosnation.io',
+            'https://ultra.eosphere.io',
             //'https://ultra.eosrio.io', - CORS error
             'https://api.ultra.cryptolions.io',
             'https://ultra.eosusa.io',
@@ -20,7 +20,7 @@ export const defaultNetworks = [
         chainId: '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9',
         urls: [
             //'https://api.testnet.ultra.io/', - get_accounts_by_authorizer
-            'https://ultratest.api.eosnation.io',
+            'https://ultra-testnet.eosphere.io',
             //'https://testnet.ultra.eosrio.io', - CORS error
             'https://api.ultra-testnet.cryptolions.io',
             'https://test.ultra.eosusa.io',

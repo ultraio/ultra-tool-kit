@@ -348,7 +348,7 @@ test.describe('Wallet SDK Integration', () => {
                 localStorage.setItem('authState', JSON.stringify({
                     accountName: account,
                     accountPerm: 'active',
-                    endpoint: 'https://ultra.api.eosnation.io',
+                    endpoint: 'https://ultra.eosphere.io',
                     environment: 'Mainnet',
                     type: 'ultra',
                     isAdmin: false,
@@ -379,7 +379,7 @@ test.describe('Wallet SDK Integration', () => {
                 localStorage.setItem('authState', JSON.stringify({
                     accountName: account,
                     accountPerm: 'active',
-                    endpoint: 'https://ultra.api.eosnation.io',
+                    endpoint: 'https://ultra.eosphere.io',
                     environment: 'Mainnet',
                     type: 'ultra',
                     isAdmin: false,
@@ -605,7 +605,7 @@ test.describe('Wallet SDK Integration', () => {
         });
 
         test('wallet networkChanged to known chain auto-switches toolkit endpoint', async ({ page }) => {
-            // Start with wallet on MAINNET (matching the default endpoint ultra.api.eosnation.io)
+            // Start with wallet on MAINNET (matching the default endpoint ultra.eosphere.io)
             await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID, networkName: 'Mainnet' }) });
             // Smart get_info: return chainId based on which endpoint URL is called
             await page.route('**/v1/chain/get_info', async (route) => {
@@ -652,7 +652,7 @@ test.describe('Wallet SDK Integration', () => {
             await fireWalletEvent(page, 'networkChanged', {
                 chainId: TESTNET_CHAIN_ID,
                 name: 'Testnet',
-                nodeUrl: 'https://ultratest.api.eosnation.io',
+                nodeUrl: 'https://ultra-testnet.eosphere.io',
                 accounts: [{ accountName: TEST_ACCOUNT, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
             });
 
