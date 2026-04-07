@@ -101,6 +101,19 @@ function walletMockScript(overrides: Record<string, any> = {}) {
                 if (!window.__walletCallbacks[event]) window.__walletCallbacks[event] = [];
                 window.__walletCallbacks[event].push(cb);
             },
+            // Mirror the real extension's addExtensionListener: tracks which events
+            // the dApp wants. Events only fire for registered listeners.
+            addExtensionListener: async (eventName, listenerId) => {
+                if (!window.__registeredListeners) window.__registeredListeners = {};
+                window.__registeredListeners[eventName] = listenerId;
+                return { status: 'success', data: null };
+            },
+            removeExtensionListener: async (eventName, listenerId) => {
+                if (window.__registeredListeners && window.__registeredListeners[eventName] === listenerId) {
+                    delete window.__registeredListeners[eventName];
+                }
+                return { status: 'success', data: null };
+            },
             signMessage: async (msg) => ({ status: 'success', data: { signature: 'SIG_K1_mock123' } }),
             purchaseItem: async () => ({ status: 'success', data: { orderHash: '', items: [] } }),
         };
@@ -169,10 +182,30 @@ async function mockChainAPI(page: Page, chainId: string = TESTNET_CHAIN_ID) {
     });
 }
 
-async function fireWalletEvent(page: Page, type: string, data: any) {
-    await page.evaluate(({ type, data }) => {
-        window.postMessage({ type, data }, '*');
-    }, { type, data });
+/**
+ * Fire a wallet event using the REAL extension message format.
+ * The extension sends: { type: 'event', from, to, payload: { event, origin, data }, id }
+ * Only fires if the dApp has registered a listener for this event (matches real behavior).
+ */
+async function fireWalletEvent(page: Page, eventName: string, data: any) {
+    await page.evaluate(({ eventName, data }) => {
+        // Check if the dApp registered a listener for this event (real extension gates this)
+        if (!(window as any).__registeredListeners || !(window as any).__registeredListeners[eventName]) {
+            console.warn(`No listener registered for ${eventName}, skipping`);
+            return;
+        }
+        window.postMessage({
+            type: 'event',
+            from: 'content_script',
+            to: 'external_page',
+            payload: {
+                event: eventName,
+                origin: window.location.origin,
+                data: data,
+            },
+            id: 'test-' + Date.now(),
+        }, window.location.origin);
+    }, { eventName, data });
 }
 
 async function connectWallet(page: Page) {
@@ -251,8 +284,8 @@ test.describe('Wallet SDK Integration', () => {
             // Step 5: No network mismatch warning (chains match)
             await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
 
-            // Step 6: Endpoint is displayed in header
-            await expect(page.locator('header >> text=/.*api.*/i').or(page.locator('button:has-text("api")'))).toBeVisible();
+            // Step 6: Endpoint URL is displayed in the top bar (as a button)
+            await expect(page.locator('button').filter({ hasText: /https?:\/\// }).first()).toBeVisible();
         });
 
         test('connect with non-active permission shows account@permission', async ({ page }) => {
