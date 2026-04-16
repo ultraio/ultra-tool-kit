@@ -20,7 +20,7 @@
         "@ultraos/ultra-api-lib": "^1.1.0",
         "@ultraos/ultra-ledger-lib": "^2.0.2",
         "@ultraos/ultra-signer-lib": "^1.6.4",
-        "@ultraos/wallet-sdk": "file:../web-app/dist/libs/wallet-sdk",
+        "@ultraos/wallet-sdk": "^0.2.0",
         "@vitejs/plugin-basic-ssl": "^1.0.1",
         "@wharfkit/session": "^1.0.0",
         "@wharfkit/wallet-plugin-anchor": "^1.0.0",

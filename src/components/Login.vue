@@ -90,7 +90,7 @@
                     </template>
                 </template>
                 <template v-else>
-                    <Icon icon="fa-spinner" size="2x" spin />
+                    <Icon icon="fa-spinner" size="2x" class="animate-spin" />
                     <div v-if="walletProviderForm" class="text-center">
                         Ensure that your Ledger is connected to the computer, unlocked and has EOS application installed
                         and opened
@@ -98,6 +98,9 @@
                     <div v-if="walletProviderForm" class="text-center">
                         If you still experience issues try resetting USB device permission in your browser and reloading
                         the page
+                    </div>
+                    <div v-if="loginState.connectingWalletType === 'ultra'" class="text-center">
+                        Please sign in to your Ultra Wallet extension and approve the connection request.
                     </div>
                     <div class="text-center">Waiting for wallet provider...</div>
                 </template>
@@ -126,6 +129,7 @@ import {fetchWithTimeout} from '../utilities/networks';
 interface LoginState {
     isUltraWalletAvailable: boolean;
     isSelectingLogin: boolean;
+    connectingWalletType: 'ultra' | 'ledger' | 'anchor' | null;
 }
 
 interface WalletProviderForm {
@@ -145,6 +149,7 @@ const emit = defineEmits<LoginEmits>();
 const loginState = reactive<LoginState>({
     isUltraWalletAvailable: false,
     isSelectingLogin: true,
+    connectingWalletType: null,
 });
 
 const props = defineProps<{ state: Pick<AuthState, 'endpoint'> }>();
@@ -157,6 +162,7 @@ let walletProviderForm = ref<WalletProviderForm>(undefined);
 
 function resetState() {
     loginState.isSelectingLogin = true;
+    loginState.connectingWalletType = null;
     walletProviderForm.value = undefined;
 }
 
@@ -241,6 +247,7 @@ async function setAccount(type: WalletTypes, accountName: string, permission: st
 
 async function login(type: 'ledger' | 'anchor' | 'ultra') {
     loginState.isSelectingLogin = false;
+    loginState.connectingWalletType = type;
 
     // 1. Ultra Login
     // 2. Connect with Wallet
@@ -253,7 +260,13 @@ async function login(type: 'ledger' | 'anchor' | 'ultra') {
         }
 
         try {
-            const response = await Ultra.connect();
+            const CONNECT_TIMEOUT_MS = 120_000; // 2 minutes
+            const response = await Promise.race([
+                Ultra.connect(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), CONNECT_TIMEOUT_MS)
+                ),
+            ]);
 
             if (!response || response.status !== 'success') {
                 loginState.isSelectingLogin = true;
@@ -271,7 +284,11 @@ async function login(type: 'ledger' | 'anchor' | 'ultra') {
             setAccount(type, accountName, permission);
         } catch (err) {
             loginState.isSelectingLogin = true;
-            alert('Ultra Wallet Extension connection was canceled.');
+            if (err instanceof Error && err.message === 'timeout') {
+                alert('Connection timed out. Please make sure you are signed in to the Ultra Wallet extension and try again.');
+            } else {
+                alert('Ultra Wallet Extension connection was canceled.');
+            }
         }
 
         return;

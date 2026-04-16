@@ -274,11 +274,17 @@ async function restoreSession() {
             if (Ultra.isAvailable()) {
                 try {
                     const response = await Ultra.connect(true);
-                    if (response.status === 'success' && response.data.network) {
+                    if (response.status !== 'success') {
+                        // Wallet rejected silent reconnect (locked, key removed, or not trusted)
+                        localStorage.removeItem('authState');
+                        return;
+                    }
+                    if (response.data.network) {
                         restoredAuthState.chainId = response.data.network.chainId;
                     }
                 } catch {
                     // Silent connect failed — user will need to log in manually
+                    localStorage.removeItem('authState');
                     return;
                 }
             } else {
