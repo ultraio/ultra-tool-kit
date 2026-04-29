@@ -228,7 +228,19 @@ async function confirm() {
                 proposalExpiration.value
             );
 
-            currentActions = [{ contract: 'eosio.msig', action: 'proposex', data }];
+            currentActions = [
+                {
+                    contract: 'eosio.msig',
+                    action: 'proposex',
+                    data,
+                    authorization: [
+                        {
+                            actor: props.state.accountName,
+                            permission: props.state.accountPerm ? props.state.accountPerm : 'active',
+                        },
+                    ],
+                },
+            ];
         } catch (err) {
             errorMessage.value = err.message || JSON.stringify(err);
             isTransacting.value = false;
