@@ -365,11 +365,16 @@ export abstract class BlockchainService {
         }
         transaction.expiration = Wharfkit.TimePointSec.from(expiration);
 
+        // Serialize the Wharfkit.Transaction through toJSON (via JSON round-trip)
+        // so the wallet receives a plain transaction struct: header fields + actions
+        // with data as hex bytes. Without this, structured clone over postMessage
+        // copies the runtime `abi` field stamped on each Wharfkit.Action, which
+        // shows the entire contract ABI in the wallet's sign-transaction view.
         return {
             proposer,
             proposal_name,
             requested,
-            trx: transaction,
+            trx: JSON.parse(JSON.stringify(transaction)),
         };
     };
 }
