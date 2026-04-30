@@ -7,7 +7,13 @@
             <div class="grid grid-rows-1 gap-4">
                 <div class="grid grid-cols-2 gap-4">
                     <LabelWithTooltip label="Select Schema JSON File" />
-                    <input type="file" @change="onFileSelected($event)" accept=".json" capture />
+                    <input
+                        type="file"
+                        @change="onFileSelected($event)"
+                        accept=".json"
+                        capture
+                        class="text-sm text-neutral-300 file:mr-4 file:py-2 file:px-4 file:rounded file:border file:border-neutral-700 file:bg-neutral-800 file:text-neutral-200 file:cursor-pointer hover:file:bg-neutral-700 file:transition-colors"
+                    />
                     <LabelWithTooltip label="Schema Type" />
                     <div class="flex flex-row h-12 gap-4">
                         <input type="radio" id="Factory" name="Factory" value="factory" v-model="fileType" />

@@ -8,29 +8,62 @@
             <p>
                 We currently support any of the following wallet providers. Use 'help' if you need setup instructions.
             </p>
-            <!-- Ultra Wallet -->
-            <div class="flex items-center justify-between flex-row">
+            <!-- Ultra Wallet Extension -->
+            <div class="flex items-center flex-row gap-3">
+                <div
+                    class="flex items-center justify-center w-10 h-10 rounded border border-neutral-600 bg-neutral-800 text-neutral-200 flex-shrink-0"
+                >
+                    <Icon icon="fa-puzzle-piece" />
+                </div>
                 <Button
                     :disabled="loginState.isUltraWalletAvailable ? false : true"
                     @onClick="login('ultra')"
-                    class="flex flex-row items-center flex-grow mr-4"
+                    class="flex-grow text-left"
                 >
-                    <span>Ultra Wallet</span>
+                    <span>Ultra Wallet (Extension)</span>
+                </Button>
+                <Button @onClick="ultraHelp = true"> Help </Button>
+            </div>
+
+            <!-- Ultra Web Wallet -->
+            <div class="flex items-center flex-row gap-3">
+                <div
+                    class="flex items-center justify-center w-10 h-10 rounded border border-neutral-600 bg-neutral-800 text-neutral-200 flex-shrink-0"
+                >
+                    <Icon icon="fa-globe" />
+                </div>
+                <Button
+                    :disabled="!isWebWalletSupported"
+                    :title="isWebWalletSupported ? '' : 'Web Wallet only supports Mainnet and Testnet'"
+                    @onClick="login('ultra-web')"
+                    class="flex-grow text-left"
+                >
+                    <span>Ultra Wallet (Web)</span>
                 </Button>
                 <Button @onClick="ultraHelp = true"> Help </Button>
             </div>
 
             <!-- Ultra Ledger Lib -->
-            <div class="flex items-center justify-between flex-row">
-                <Button @onClick="login('ledger')" class="flex flex-row items-center flex-grow mr-4">
+            <div class="flex items-center flex-row gap-3">
+                <div
+                    class="flex items-center justify-center w-10 h-10 rounded border border-neutral-600 bg-neutral-800 text-neutral-200 flex-shrink-0"
+                >
+                    <Icon icon="fa-microchip" />
+                </div>
+                <Button @onClick="login('ledger')" class="flex-grow text-left">
                     <span>Ledger</span>
                 </Button>
                 <Button @onClick="ledgerHelp = true"> Help </Button>
             </div>
 
             <!-- Anchor Wallet -->
-            <div class="flex items-center justify-between flex-row">
-                <Button @onClick="login('anchor')" class="flex flex-row items-center flex-grow mr-4">
+            <div class="flex items-center flex-row gap-3">
+                <div
+                    class="flex items-center justify-center w-10 h-10 rounded border border-neutral-600 bg-neutral-800 text-neutral-200 flex-shrink-0"
+                >
+                    <Icon icon="fa-anchor" />
+                </div>
+                <Button @onClick="login('anchor')" class="flex-grow text-left">
                     <span>Anchor</span>
                 </Button>
                 <Button @onClick="anchorHelp = true"> Help </Button>
@@ -102,6 +135,10 @@
                     <div v-if="loginState.connectingWalletType === 'ultra'" class="text-center">
                         Please sign in to your Ultra Wallet extension and approve the connection request.
                     </div>
+                    <div v-if="loginState.connectingWalletType === 'ultra-web'" class="text-center">
+                        Please complete sign-in in the Ultra Web Wallet popup. If you don't see it, make sure popups
+                        are allowed for this site.
+                    </div>
                     <div class="text-center">Waiting for wallet provider...</div>
                 </template>
             </div>
@@ -118,6 +155,8 @@
 import { ref, onMounted, reactive, computed } from 'vue';
 
 import * as Ultra from '../wallets/ultra';
+import * as UltraWeb from '../wallets/ultra-web';
+import { populateWalletAccountsFromConnectResult } from '../wallets/wallet-accounts';
 
 import { SharedEmits, AuthState, WalletTypes, PageState } from '../interfaces';
 import * as Anchor from '../wallets/anchor';
@@ -129,7 +168,7 @@ import {fetchWithTimeout} from '../utilities/networks';
 interface LoginState {
     isUltraWalletAvailable: boolean;
     isSelectingLogin: boolean;
-    connectingWalletType: 'ultra' | 'ledger' | 'anchor' | null;
+    connectingWalletType: 'ultra' | 'ultra-web' | 'ledger' | 'anchor' | null;
 }
 
 interface WalletProviderForm {
@@ -152,7 +191,9 @@ const loginState = reactive<LoginState>({
     connectingWalletType: null,
 });
 
-const props = defineProps<{ state: Pick<AuthState, 'endpoint'> }>();
+const props = defineProps<{ state: Pick<AuthState, 'endpoint' | 'environment'> }>();
+
+const isWebWalletSupported = computed(() => UltraWeb.isSupportedEnvironment(props.state.environment));
 
 let anchorHelp = ref<boolean>(false);
 let ultraHelp = ref<boolean>(false);
@@ -227,9 +268,11 @@ async function setAccount(type: WalletTypes, accountName: string, permission: st
     });
 
     if (!response || !response.ok) {
-        if (type === 'ultra') {
+        if (type === 'ultra' || type === 'ultra-web') {
             resetState();
-            alert('Could not find account, did you select the right endpoint in the Ultra Wallet Extension?');
+            alert(
+                `Could not find account '${accountName}' on the current endpoint. Make sure your wallet's network matches the selected endpoint.`
+            );
             return;
         }
 
@@ -245,9 +288,38 @@ async function setAccount(type: WalletTypes, accountName: string, permission: st
     }
 }
 
-async function login(type: 'ledger' | 'anchor' | 'ultra') {
+async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
     loginState.isSelectingLogin = false;
     loginState.connectingWalletType = type;
+
+    if (type === 'ultra-web') {
+        if (!UltraWeb.isSupportedEnvironment(props.state.environment)) {
+            loginState.isSelectingLogin = true;
+            alert('Ultra Web Wallet only supports Mainnet and Testnet.');
+            return;
+        }
+
+        try {
+            const response = await UltraWeb.connect(props.state.environment);
+            if (!response || response.status !== 'success') {
+                loginState.isSelectingLogin = true;
+                alert('Ultra Web Wallet connection was canceled.');
+                return;
+            }
+
+            if (loginState.isSelectingLogin) {
+                return;
+            }
+
+            const { accountName, permission } = UltraWeb.extractAccountInfo(response.data);
+            setAccount(type, accountName, permission);
+        } catch (err) {
+            loginState.isSelectingLogin = true;
+            alert('Ultra Web Wallet connection failed. Check that popups are allowed for this site.');
+        }
+
+        return;
+    }
 
     // 1. Ultra Login
     // 2. Connect with Wallet
@@ -280,7 +352,8 @@ async function login(type: 'ledger' | 'anchor' | 'ultra') {
                 return;
             }
 
-            const { accountName, permission } = Ultra.extractAccountInfo(response.data);
+            populateWalletAccountsFromConnectResult(response.data);
+            const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
             setAccount(type, accountName, permission);
         } catch (err) {
             loginState.isSelectingLogin = true;

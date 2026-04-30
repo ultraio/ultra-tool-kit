@@ -15,7 +15,7 @@
                 <span>Ultra Tool Kit</span>
             </router-link>
             <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
-                {{ authState.endpoint }}
+                {{ authState.environment }}
             </Button>
         </div>
 
@@ -29,6 +29,7 @@
                     @set-endpoint="setEndpoint"
                     @set-page-state="setPageState"
                     @logout="logout"
+                    @set-active-account="setActiveAccount"
                     :state="authState"
                     :key="keyUserUpdate"
                 />
@@ -39,7 +40,7 @@
                 id="content"
                 class="flex flex-grow flex-col h-screen overflow-y-auto pr-6 sm:pr-6 md:pr-24 lg:pr-48 pt-6 pl-6 pb-32"
             >
-                <router-view :state="authState" :metadata="runtimeMetadata" :key="keyRouterUpdate" @transact="setTransaction" @set-endpoint="setEndpoint" @set-page-state="setPageState" />
+                <router-view :state="authState" :metadata="runtimeMetadata" :key="keyRouterUpdate" @transact="setTransaction" />
             </div>
         </div>
 
@@ -65,6 +66,12 @@
 <script setup lang="ts">
 import * as Anchor from './wallets/anchor';
 import * as Ultra from './wallets/ultra';
+import * as UltraWeb from './wallets/ultra-web';
+import {
+    populateWalletAccountsFromConnectResult,
+    validateAccountsAgainstEndpoint,
+    clearWalletAccounts,
+} from './wallets/wallet-accounts';
 import * as I from './interfaces';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { BlockchainService } from './utilities/blockchain';
@@ -133,8 +140,26 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
         return;
     }
 
+    const previousEnvironment = authState.value.environment;
+    const previousType = authState.value.type;
     let environment = getEnvironmentName(endpoint);
     setAuthStateKeys({ endpoint, environment });
+
+    // Web wallet sessions are bound to a specific env origin — they cannot
+    // survive an env change, and can't sign at all on Local/Custom endpoints.
+    // Log out now and (if switching between Mainnet/Testnet) open a reconnect
+    // popup on the new env after the rest of initServices() completes.
+    const webWalletEnvChanged =
+        previousType === 'ultra-web' && previousEnvironment !== environment;
+    const shouldAutoReconnectWebWallet =
+        webWalletEnvChanged && UltraWeb.isSupportedEnvironment(environment);
+
+    if (webWalletEnvChanged && !shouldAutoReconnectWebWallet) {
+        alert(
+            'Ultra Web Wallet does not support this network. You have been logged out — please choose a different wallet or switch back to Mainnet/Testnet.'
+        );
+    }
+
     if (authState.value.accountName) {
         logout();
     }
@@ -156,13 +181,33 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
     keyRouterUpdate.value += 1;
     keyUserUpdate.value += 1;
 
-    console.log({ endpoint, environment });
-
     // Init Blockchain & NFT API service after setting authState object
     await initServices();
 
-    // Toolkit→Wallet sync: if user changed endpoint while Ultra is connected,
-    // request the wallet to switch to the new chain
+    // Auto-reconnect web wallet on env change (separate origin → fresh popup).
+    if (shouldAutoReconnectWebWallet) {
+        try {
+            const response = await UltraWeb.connect(environment);
+            if (response && response.status === 'success') {
+                const { accountName, permission } = UltraWeb.extractAccountInfo(response.data);
+                const chainId = UltraWeb.extractChainId(response.data);
+                setAuthStateKeys({
+                    type: 'ultra-web',
+                    accountName,
+                    accountPerm: permission,
+                    isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName),
+                    chainId,
+                });
+                localStorage.setItem('authState', JSON.stringify(authState.value));
+                keyRouterUpdate.value += 1;
+                keyUserUpdate.value += 1;
+            }
+        } catch {
+            // User closed the popup or rejected — remain logged out.
+        }
+    }
+
+    // Toolkit→Wallet sync: only applies to the extension (web provider can't switchNetwork).
     if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable() && !isNetworkSyncing) {
         try {
             const res = await fetchWithTimeout(`${endpoint}/v1/chain/get_info`);
@@ -197,7 +242,7 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
  * @param permission
  */
 async function setAccount(
-    type: 'ultra' | 'anchor' | 'ledger',
+    type: I.WalletTypes,
     accountName: string,
     permission: string,
     ledgerIndex?: number
@@ -206,8 +251,8 @@ async function setAccount(
         type,
         accountName,
         accountPerm: permission,
-        isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName) ? true : false,
-        ledgerIndex: ledgerIndex,
+        isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName),
+        ledgerIndex,
     });
     localStorage.setItem('authState', JSON.stringify(authState.value));
 
@@ -224,6 +269,21 @@ async function setAccount(
         } catch {
             // Non-critical — chainId just enables mismatch warning
         }
+        // Filter the wallet's account list down to ones that exist on this
+        // network — the wallet returns testnet + mainnet accounts together.
+        validateAccountsAgainstEndpoint(authState.value.endpoint).catch(() => {});
+    }
+
+    if (type === 'ultra-web') {
+        try {
+            const chainIdResponse = await UltraWeb.getChainId(authState.value.environment);
+            if (chainIdResponse.status === 'success') {
+                setAuthStateKeys({ chainId: chainIdResponse.data });
+                localStorage.setItem('authState', JSON.stringify(authState.value));
+            }
+        } catch {
+            // Non-critical
+        }
     }
 }
 
@@ -236,9 +296,15 @@ async function logout() {
         await Ultra.disconnect();
     }
 
+    if (authState.value.type === 'ultra-web') {
+        await UltraWeb.disconnect();
+    }
+
     if (authState.value.type === 'anchor') {
         await Anchor.logout();
     }
+
+    clearWalletAccounts();
 
     setAuthStateKeys({
         type: undefined,
@@ -259,47 +325,110 @@ function setTransaction(newActions: I.Action[]) {
  * Grab any local storage information, and try to restore the previous session.
  */
 async function restoreSession() {
+    const jsonData = localStorage.getItem('authState');
+    if (!jsonData) return;
+
+    let restoredAuthState: I.AuthState;
     try {
-        const jsonData = localStorage.getItem('authState');
-        if (!jsonData) {
+        restoredAuthState = JSON.parse(jsonData);
+    } catch (err) {
+        console.warn('[ultra-tool-kit] restoreSession: failed to parse authState', err);
+        localStorage.removeItem('authState');
+        return;
+    }
+    if (!restoredAuthState || !restoredAuthState.accountName || !restoredAuthState.endpoint) {
+        return;
+    }
+
+    if (restoredAuthState.type === 'ultra') {
+        if (!Ultra.isAvailable()) return;
+
+        let response: Awaited<ReturnType<typeof Ultra.connect>>;
+        try {
+            response = await Ultra.connect(true);
+        } catch (err) {
+            console.warn(
+                '[ultra-tool-kit] restoreSession: Ultra.connect threw — clearing authState',
+                err
+            );
+            localStorage.removeItem('authState');
+            return;
+        }
+        if (response.status !== 'success') {
+            // Wallet rejected silent reconnect (locked, key removed, or not trusted)
+            localStorage.removeItem('authState');
             return;
         }
 
-        const restoredAuthState = JSON.parse(jsonData);
-        if (!restoredAuthState || !restoredAuthState.accountName || !restoredAuthState.endpoint) {
+        // The wallet may return status:'success' with empty data when no real
+        // session exists for this origin. Verify we actually have an account
+        // (via connect payload OR a live auths query) before keeping authState.
+        const hasSelected = !!response.data?.selectedAccount;
+        const hasAccounts = Array.isArray(response.data?.accounts) && response.data.accounts.length > 0;
+        let hasAuths = false;
+        if (!hasSelected && !hasAccounts) {
+            const auths = await Ultra.getAvailableAuthorizations().catch(() => null);
+            hasAuths =
+                auths?.status === 'success' &&
+                Array.isArray(auths.data) &&
+                auths.data.length > 0;
+        }
+        if (!hasSelected && !hasAccounts && !hasAuths) {
+            // Worth surfacing — explains why a previously-logged-in session vanishes silently.
+            console.log(
+                '[ultra-tool-kit] silent reconnect returned no session — clearing stale authState'
+            );
+            localStorage.removeItem('authState');
             return;
         }
 
-        if (restoredAuthState.type === 'ultra') {
-            if (Ultra.isAvailable()) {
-                try {
-                    const response = await Ultra.connect(true);
-                    if (response.status !== 'success') {
-                        // Wallet rejected silent reconnect (locked, key removed, or not trusted)
-                        localStorage.removeItem('authState');
-                        return;
-                    }
-                    if (response.data.network) {
-                        restoredAuthState.chainId = response.data.network.chainId;
-                    }
-                } catch {
-                    // Silent connect failed — user will need to log in manually
-                    localStorage.removeItem('authState');
-                    return;
-                }
-            } else {
-                return;
-            }
+        populateWalletAccountsFromConnectResult(response.data);
+        if (response.data.network) {
+            restoredAuthState.chainId = response.data.network.chainId;
         }
-
-        if (restoredAuthState.type === 'anchor' && restoredAuthState.endpoint) {
-            await Anchor.restore(restoredAuthState.endpoint);
+        // Validate accounts against the restored endpoint so the
+        // dropdown only shows accounts that exist on this network.
+        validateAccountsAgainstEndpoint(restoredAuthState.endpoint).catch(() => {});
+        // Trust the wallet's currently selected account over stale localStorage —
+        // user may have switched accounts in the wallet between sessions.
+        if (response.data.selectedAccount) {
+            const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
+            restoredAuthState.accountName = accountName;
+            restoredAuthState.accountPerm = permission;
         }
+    }
 
-        setAuthStateKeys(restoredAuthState);
-        localStorage.setItem('authState', JSON.stringify(authState.value));
-        setPageState({ showEndpoint: false, showLogin: false, showTransaction: false });
-    } catch (err) {}
+    if (restoredAuthState.type === 'ultra-web') {
+        // Web Wallet has no silent reconnect (each popup is a fresh window).
+        // Drop the saved session and let the user reconnect manually.
+        localStorage.removeItem('authState');
+        return;
+    }
+
+    if (restoredAuthState.type === 'anchor' && restoredAuthState.endpoint) {
+        await Anchor.restore(restoredAuthState.endpoint);
+    }
+
+    setAuthStateKeys(restoredAuthState);
+    localStorage.setItem('authState', JSON.stringify(authState.value));
+    setPageState({ showEndpoint: false, showLogin: false, showTransaction: false });
+}
+
+/**
+ * User picked a different account from the connected wallet (UserOverlay dropdown).
+ * The wallet's own selected account doesn't change — this is a local override that
+ * subsequent transactions sign as. The wallet still holds the keys for it.
+ */
+function setActiveAccount(accountName: string, permission: string) {
+    if (!authState.value.type) return;
+    setAuthStateKeys({
+        accountName,
+        accountPerm: permission,
+        isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName),
+    });
+    localStorage.setItem('authState', JSON.stringify(authState.value));
+    keyRouterUpdate.value += 1;
+    keyUserUpdate.value += 1;
 }
 
 function clearTransaction() {
@@ -309,7 +438,6 @@ function clearTransaction() {
 function transactionExecuted() {
     runtimeMetadata.value.lastSignedActions = actions.value;
     runtimeMetadata.value.lastSignedTransactionTimestamp = Date.now();
-    console.log(runtimeMetadata.value);
     actions.value = undefined;
     keyRouterUpdate.value++;
 }
@@ -329,36 +457,31 @@ function handleUpdateAppActions(updatedActions) {
     actions.value = updatedActions;
 }
 
-async function handleWalletAccountChanged(data: { selected: { accountName: string } | null }) {
+async function handleWalletAccountChanged() {
     if (authState.value.type !== 'ultra') return;
 
-    if (!data.selected) {
-        // Wallet locked — log out
+    // Don't trust the event payload shape — different extension versions wrap the
+    // selected account differently (data.selected.accountName, data.accountName,
+    // data.selectedAccount.accountName, etc). Re-query the wallet for ground truth.
+    const selected = await Ultra.getSelectedAccount().catch((err) => {
+        console.warn('[ultra-tool-kit] getSelectedAccount failed:', err);
+        return null;
+    });
+    const selectedAccount =
+        selected && selected.status === 'success' && selected.data ? selected.data : null;
+
+    if (!selectedAccount) {
+        // Wallet locked or no account available — log out
         logout();
         return;
     }
 
-    if (data.selected.accountName !== authState.value.accountName) {
-        // Account switched in wallet — resolve actual permission
-        let perm = 'active';
-        try {
-            const selected = await Ultra.getSelectedAccount();
-            if (selected.status === 'success' && selected.data) {
-                const { permission } = Ultra.extractAccountInfo({
-                    blockchainid: selected.data.accountName,
-                    publicKey: '',
-                    selectedAccount: selected.data,
-                });
-                perm = permission;
-            }
-        } catch {
-            // Fall back to 'active'
-        }
+    const activePerm = selectedAccount.permissions.find((p) => p.name === 'active');
+    const accountName = selectedAccount.accountName;
+    const permission = activePerm ? 'active' : (selectedAccount.permissions[0]?.name ?? 'active');
 
-        setAuthStateKeys({
-            accountName: data.selected.accountName,
-            accountPerm: perm,
-        });
+    if (accountName !== authState.value.accountName || permission !== authState.value.accountPerm) {
+        setAuthStateKeys({ accountName, accountPerm: permission });
         localStorage.setItem('authState', JSON.stringify(authState.value));
         keyRouterUpdate.value += 1;
         keyUserUpdate.value += 1;
@@ -387,7 +510,11 @@ async function handleWalletNetworkChanged(data: { chainId: string; name: string 
                     try {
                         const response = await Ultra.connect();
                         if (response.status === 'success') {
-                            const { accountName, permission } = Ultra.extractAccountInfo(response.data);
+                            populateWalletAccountsFromConnectResult(response.data);
+                            validateAccountsAgainstEndpoint(authState.value.endpoint).catch(() => {});
+                            const { accountName, permission } = await Ultra.resolveSelectedAccount(
+                                response.data
+                            );
                             await setAccount('ultra', accountName, permission);
                         }
                     } catch {
@@ -423,19 +550,15 @@ onMounted(async () => {
     Ultra.on('disconnect', handleWalletDisconnect);
 
     const endpoint = localStorage.getItem('endpoint');
-    if (endpoint && endpoint !== '') {
+    if (endpoint) {
         setAuthStateKeys({ endpoint });
         keyUserUpdate.value += 1;
-
-        console.log('endpoint found in localStore');
     }
 
     const environment = localStorage.getItem('environment');
-    if (environment && environment !== '') {
+    if (environment) {
         setAuthStateKeys({ environment });
         keyUserUpdate.value += 1;
-
-        console.log('environment found in localStore');
     }
 
     // Init Blockchain & NFT API service

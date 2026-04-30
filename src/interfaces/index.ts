@@ -1,6 +1,6 @@
 import { ABI as UtilityABI } from '../utilities/abi';
 
-export type WalletTypes = 'ultra' | 'anchor' | 'ledger';
+export type WalletTypes = 'ultra' | 'ultra-web' | 'anchor' | 'ledger';
 
 export interface AuthState {
     environment?: string;

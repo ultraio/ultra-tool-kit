@@ -9,13 +9,28 @@ import type {
     WalletEventType,
 } from '@ultraos/wallet-sdk';
 
+/**
+ * Subset of the Ultra extension's window-injected API that this module uses
+ * directly (outside what the SDK exposes). Only the methods we actually call
+ * are typed here.
+ */
+interface UltraExtensionWindow {
+    switchNetwork(chainId: string): Promise<UltraResponse<void>>;
+    addExtensionListener(eventName: string, listenerId: string): Promise<unknown> | unknown;
+    removeExtensionListener(eventName: string, listenerId: string): Promise<unknown> | unknown;
+}
+
+function getUltraWindow(): UltraExtensionWindow | undefined {
+    return (window as unknown as { ultra?: UltraExtensionWindow }).ultra;
+}
+
 let sdk: UltraWalletSDK | null = null;
 
 /**
  * Check if the Ultra wallet extension is installed and injected.
  */
 export function isAvailable(): boolean {
-    return !!(window as any).ultra;
+    return !!getUltraWindow();
 }
 
 /**
@@ -25,7 +40,7 @@ export function isAvailable(): boolean {
 export function getSDK(): UltraWalletSDK | null {
     if (!isAvailable()) return null;
     if (!sdk) {
-        sdk = new UltraWalletSDK();
+        sdk = new UltraWalletSDK({ provider: 'extension' });
     }
     return sdk;
 }
@@ -96,11 +111,13 @@ export async function getChainId(): Promise<UltraResponse<string>> {
 /**
  * Request the wallet to switch to a different network.
  * Shows a confirmation popup to the user.
- * Not in the SDK class — calls window.ultra directly.
+ * Calls window.ultra directly (the SDK class also exposes this, but we
+ * standardize on the window method for parity with the listener calls below).
  */
 export async function switchNetwork(chainId: string): Promise<UltraResponse<void>> {
-    if (!isAvailable()) throw new Error('Ultra Wallet extension is not installed');
-    return (window as any).ultra.switchNetwork(chainId);
+    const ultraWindow = getUltraWindow();
+    if (!ultraWindow) throw new Error('Ultra Wallet extension is not installed');
+    return ultraWindow.switchNetwork(chainId);
 }
 
 /**
@@ -162,6 +179,7 @@ function installWindowListener(): void {
         const eventName = msg.payload.event as WalletEventType;
         const data = msg.payload.data;
         if (!eventName) return;
+        console.log('[ultra-tool-kit] wallet event received:', eventName, data);
         const callbacks = localListeners.get(eventName);
         if (callbacks) callbacks.forEach((cb) => cb(data));
     });
@@ -283,4 +301,49 @@ export function extractAccountInfo(result: ConnectResult): {
  */
 export function extractChainId(result: ConnectResult): string | undefined {
     return result.network?.chainId;
+}
+
+/**
+ * Resolve the wallet's authoritative currently-selected account.
+ *
+ * Lookup order:
+ *  1. getSelectedAccount() — live query, most authoritative.
+ *  2. ConnectResult.selectedAccount — the account authorized at connect time.
+ *  3. getAvailableAuthorizations()[0] — fallback for wallets that report
+ *     auths correctly but return null/empty from getSelectedAccount/getAccounts
+ *     (observed in current extension when auths exist but no "active" account
+ *     has been picked for this origin).
+ *  4. extractAccountInfo(connectResult) — legacy blockchainid fallback.
+ */
+export async function resolveSelectedAccount(connectResult: ConnectResult): Promise<{
+    accountName: string;
+    permission: string;
+}> {
+    try {
+        const live = await getSelectedAccount();
+        if (live?.status === 'success' && live.data) {
+            const activePermission = live.data.permissions.find((p) => p.name === 'active');
+            return {
+                accountName: live.data.accountName,
+                permission: activePermission
+                    ? 'active'
+                    : (live.data.permissions[0]?.name ?? 'active'),
+            };
+        }
+    } catch {
+        // fall through
+    }
+    if (connectResult.selectedAccount) {
+        return extractAccountInfo(connectResult);
+    }
+    try {
+        const auths = await getAvailableAuthorizations();
+        if (auths?.status === 'success' && Array.isArray(auths.data) && auths.data.length > 0) {
+            const active = auths.data.find((a) => a.permission === 'active') ?? auths.data[0];
+            return { accountName: active.accountName, permission: active.permission };
+        }
+    } catch {
+        // fall through
+    }
+    return extractAccountInfo(connectResult);
 }

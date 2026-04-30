@@ -3,6 +3,22 @@
         <div class="flex flex-col p-4 border rounded border-neutral-600 bg-neutral-950 gap-4">
             <div v-for="(signature, index) in signatures" :key="index" class="flex flex-col">
                 <div class="flex flex-row gap-2">
+                    <select
+                        v-if="walletAccounts.length > 0"
+                        :value="matchAccount(signature)"
+                        @change="(e) => onPickAccount(index, (e.target as HTMLSelectElement).value)"
+                        class="rounded bg-neutral-950 text-neutral-200 pl-2 pr-2 border border-neutral-700 focus:outline-none"
+                        :title="'Pick an account from the connected wallet'"
+                    >
+                        <option value="">— Custom —</option>
+                        <option
+                            v-for="opt in walletAccounts"
+                            :key="opt.accountName"
+                            :value="opt.accountName"
+                        >
+                            {{ opt.accountName }}
+                        </option>
+                    </select>
                     <input
                         placeholder="actor"
                         v-model="signature.actor"
@@ -22,8 +38,22 @@
             </div>
             <Button @click="addSignatureRequest">Add New Signature Request</Button>
             <div class="text-sm font-bold">Quick Add</div>
-            <div class="flex flex-row gap-4">
-                <Button class="flex-grow" @click="quickAdd('self')">{{ props.state.accountName }}</Button>
+            <div class="flex flex-row flex-wrap gap-2">
+                <Button
+                    v-for="acct in walletAccounts"
+                    :key="acct.accountName"
+                    class="flex-grow"
+                    @click="quickAddWalletAccount(acct.accountName)"
+                >
+                    {{ acct.accountName }}
+                </Button>
+                <Button
+                    v-if="walletAccounts.length === 0 && props.state.accountName"
+                    class="flex-grow"
+                    @click="quickAdd('self')"
+                >
+                    {{ props.state.accountName }}
+                </Button>
                 <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('admins')">Admins</Button>
                 <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('props')">Props</Button>
                 <Button class="flex-grow" @click="quickAdd('producers')">Producers</Button>
@@ -37,12 +67,16 @@
 import * as UltraAPI from '@ultraos/ultra-api-lib';
 import { ref, onMounted } from 'vue';
 import { AuthState } from '../../interfaces';
+import { useWalletAccounts } from '../../wallets/wallet-accounts';
 
 const props = defineProps<{ signatures: Array<{ actor: string; permission: string }>; state: AuthState }>();
 
 const emits = defineEmits<{
     (e: 'set-signatures', signatures: Array<{ actor: string; permission: string }>): void;
 }>();
+
+// Deduplicated, network-filtered list of wallet accounts.
+const { validatedAccounts: walletAccounts } = useWalletAccounts();
 
 let signatures = ref<Array<{ actor: string; permission: string }>>([]);
 
@@ -52,6 +86,28 @@ function updateSignatures() {
 
 function addSignatureRequest() {
     signatures.value.push({ actor: '', permission: 'active' });
+    updateSignatures();
+}
+
+function matchAccount(signature: { actor: string; permission: string }) {
+    return walletAccounts.value.some((a) => a.accountName === signature.actor)
+        ? signature.actor
+        : '';
+}
+
+function onPickAccount(rowIndex: number, accountName: string) {
+    if (!accountName) return;
+    const opt = walletAccounts.value.find((a) => a.accountName === accountName);
+    if (!opt) return;
+    signatures.value[rowIndex].actor = opt.accountName;
+    if (!signatures.value[rowIndex].permission) {
+        signatures.value[rowIndex].permission = opt.permission;
+    }
+    updateSignatures();
+}
+
+function quickAddWalletAccount(accountName: string) {
+    addSignatureIfMissing(accountName, 'active');
     updateSignatures();
 }
 
@@ -106,7 +162,9 @@ async function quickAdd(type: 'self' | 'admins' | 'props' | 'producers' | 'techo
             for (let prod of result.rows) {
                 addSignatureIfMissing(prod.owner, 'active');
             }
-        } catch (err) {}
+        } catch (err) {
+            console.warn('[ultra-tool-kit] failed to fetch producers for quick-add:', err);
+        }
     }
 
     if (type === 'techops') {

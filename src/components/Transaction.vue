@@ -32,10 +32,37 @@
                     @apply-changes="applyTransactionBodyEdit"
                 />
             </Expand>
+            <!-- Per-action authorizer override (signs as a non-active wallet account) -->
+            <Expand
+                v-if="props.actions.length > 0 && !isMakingProposal"
+                title="Action Authorizers (Override)"
+            >
+                <div class="flex flex-col gap-4 p-4 border border-neutral-700 rounded bg-neutral-900">
+                    <div class="text-sm text-neutral-400">
+                        Leave empty to sign as
+                        <span class="font-mono">{{ props.state.accountName }}@{{ props.state.accountPerm || 'active' }}</span
+                        >. Add an authorizer to sign as a different account in your wallet.
+                    </div>
+                    <AuthorizerForm
+                        v-for="(actionInfo, index) in props.actions"
+                        :key="'override-' + index"
+                        :authorizers="authorizers[index]"
+                        :index="index"
+                        :action="actionInfo"
+                        @set-authorizer="setAuthorizer"
+                    />
+                </div>
+            </Expand>
             <!-- Proposal Generator -->
             <Expand title="Proposal Details">
                 <div class="flex flex-col p-4 border border-neutral-700 rounded bg-neutral-900">
-                    <Button v-if="!isMakingProposal" @click="isMakingProposal = true">Create Proposal</Button>
+                    <Button
+                        v-if="!isMakingProposal"
+                        :disabled="!props.state.accountName"
+                        @click="isMakingProposal = true"
+                    >
+                        {{ props.state.accountName ? 'Create Proposal' : 'Sign in to create proposal' }}
+                    </Button>
                     <div v-if="isMakingProposal" class="flex flex-col gap-4">
                         <div class="font-bold">Action Authorizations</div>
                         <AuthorizerForm
@@ -85,13 +112,8 @@
         <div class="split">
             <template v-if="!transactionHash">
                 <Button
-                    :disabled="
-                        isTransacting ||
-                        (isMakingProposal && !proposalName) ||
-                        (isMakingProposal && signatures.length <= 0) ||
-                        !props.state.accountName ||
-                        props.actions.length === 0
-                    "
+                    :disabled="!!confirmDisabledReason"
+                    :title="confirmDisabledReason || ''"
                     @onClick="confirm"
                 >
                     <template v-if="isTransacting">
@@ -99,7 +121,7 @@
                     </template>
                     <template v-else>
                         <div class="split">
-                            <span>{{ props.state.accountName ? 'Confirm' : 'Not Signed In' }}</span>
+                            <span>{{ confirmDisabledReason || 'Confirm' }}</span>
                         </div>
                     </template>
                 </Button>
@@ -123,6 +145,7 @@ import { getTransactionLink } from '../utilities/networks';
 
 import * as Anchor from '../wallets/anchor';
 import * as Ultra from '../wallets/ultra';
+import * as UltraWeb from '../wallets/ultra-web';
 import { connect as ledgerConnect } from '@ultraos/ultra-ledger-lib';
 // import { API as SignerAPI } from '@ultraos/ultra-signer-lib';
 import { API as UltraSignerAPI } from '@ultraos/ultra-signer-lib';
@@ -213,11 +236,18 @@ async function confirm() {
     // Unbind references
     let currentActions: Array<Action> = JSON.parse(JSON.stringify(props.actions));
 
+    // Apply per-action authorizer overrides (proposal mode and direct signing).
+    // A row counts as an override only if its actor is non-empty — otherwise we
+    // fall through to the SDK default of [{ actor: accountName, permission }].
+    for (let i = 0; i < currentActions.length; i++) {
+        const overrides = (authorizers.value[i] ?? []).filter((a) => a && a.actor);
+        if (overrides.length > 0) {
+            currentActions[i].authorization = JSON.parse(JSON.stringify(overrides));
+        }
+    }
+
     // Convert to Proposal
     if (isMakingProposal.value) {
-        for (let i = 0; i < currentActions.length; i++) {
-            currentActions[i].authorization = JSON.parse(JSON.stringify(authorizers.value[i]));
-        }
 
         try {
             const data = await BlockchainService.getProposalTxData(
@@ -275,13 +305,41 @@ async function confirm() {
         return;
     }
 
-    // Ultra Wallet Integration
+    // Ultra Wallet Integration (Extension)
     if (props.state.type === 'ultra') {
         try {
             const result = await Ultra.signTransaction(
                 currentActions,
                 props.state.accountName,
                 props.state.accountPerm ?? 'active'
+            );
+
+            if (!result || result.status !== 'success' || !result.data) {
+                errorMessage.value = result?.message ?? 'Transaction signing failed';
+                isTransacting.value = false;
+                return;
+            }
+
+            transaction_id = result.data.transactionHash;
+        } catch (err: any) {
+            if (err?.data?.error?.details?.length > 0) {
+                errorMessage.value = err.data.error.details[0].message;
+            } else {
+                errorMessage.value = err?.message ?? 'Transaction signing failed';
+            }
+            isTransacting.value = false;
+            return;
+        }
+    }
+
+    // Ultra Wallet Integration (Web) — opens popup to hosted wallet
+    if (props.state.type === 'ultra-web') {
+        try {
+            const result = await UltraWeb.signTransaction(
+                currentActions,
+                props.state.accountName,
+                props.state.accountPerm ?? 'active',
+                props.state.environment
             );
 
             if (!result || result.status !== 'success' || !result.data) {
@@ -362,6 +420,19 @@ function setAuthorizer(index: number, newAuths: Array<{ actor: string; permissio
 function setSignatures(newSignatures: Array<{ actor: string; permission: string }>) {
     signatures.value = newSignatures;
 }
+
+// Tells the user *why* the Confirm button is disabled (and disables it via the
+// non-empty value). Order matters — first matching reason wins.
+const confirmDisabledReason = computed<string | null>(() => {
+    if (isTransacting.value) return 'Processing...';
+    if (!props.state.accountName) return 'Not Signed In';
+    if (props.actions.length === 0) return 'No Actions';
+    if (isMakingProposal.value) {
+        if (!proposalName.value) return 'Enter Proposal Name';
+        if (signatures.value.length <= 0) return 'Add Signature Request';
+    }
+    return null;
+});
 
 const getWaitingText = computed(() => {
     if (props.state.type === 'anchor') {
