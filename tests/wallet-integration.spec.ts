@@ -184,7 +184,9 @@ async function mockChainAPI(page: Page, chainId: string = TESTNET_CHAIN_ID) {
 
 /**
  * Fire a wallet event using the REAL extension message format.
- * The extension sends: { type: 'event', from, to, payload: { event, origin, data }, id }
+ * The extension's MessageType.EVENT enum value is the uppercase string 'EVENT';
+ * the content script forwards the Message object as-is via postMessage. Mock
+ * this faithfully so handlers that mistakenly compare lowercase are caught.
  * Only fires if the dApp has registered a listener for this event (matches real behavior).
  */
 async function fireWalletEvent(page: Page, eventName: string, data: any) {
@@ -195,7 +197,7 @@ async function fireWalletEvent(page: Page, eventName: string, data: any) {
             return;
         }
         window.postMessage({
-            type: 'event',
+            type: 'EVENT',
             from: 'content_script',
             to: 'external_page',
             payload: {
@@ -529,6 +531,23 @@ test.describe('Wallet SDK Integration', () => {
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
+
+            // The toolkit's accountChanged handler ignores the event payload
+            // (different extension versions wrap the selected account
+            // differently) and always re-queries getSelectedAccount() for
+            // ground truth. To simulate a locked wallet, the mock must
+            // surface that lock through the same RPC the handler calls.
+            await page.evaluate(() => {
+                (window as any).ultra.getSelectedAccount = async () => ({
+                    status: 'fail',
+                    data: null,
+                    message: 'Wallet is locked',
+                });
+                (window as any).ultra.getAccounts = async () => ({
+                    status: 'success',
+                    data: [],
+                });
+            });
 
             await fireWalletEvent(page, 'accountChanged', {
                 accounts: [],

@@ -174,8 +174,13 @@ function installWindowListener(): void {
     window.addEventListener('message', (event: MessageEvent) => {
         if (event.source !== window) return;
         const msg = event.data;
-        // Extension sends: { type: "event", from, to, payload: { event, origin, data }, id }
-        if (!msg || msg.type !== 'event' || !msg.payload) return;
+        // Extension's MessageType.EVENT serializes as the uppercase string 'EVENT'.
+        // Compare case-insensitively for forward compatibility with any SDK
+        // build that uses lowercase. A strict `!== 'event'` check would
+        // silently drop every accountChanged/networkChanged/disconnect.
+        if (!msg || !msg.payload) return;
+        const msgType = typeof msg.type === 'string' ? msg.type.toUpperCase() : '';
+        if (msgType !== 'EVENT') return;
         const eventName = msg.payload.event as WalletEventType;
         const data = msg.payload.data;
         if (!eventName) return;
