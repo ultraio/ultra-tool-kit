@@ -212,7 +212,7 @@ async function fireWalletEvent(page: Page, eventName: string, data: any) {
 
 async function connectWallet(page: Page) {
     await page.click('text=Login to Tool Kit');
-    await page.click('button:has-text("Ultra Wallet")');
+    await page.click('button:has-text("Ultra Wallet (Extension)")');
     await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible({ timeout: 5000 });
 }
 
@@ -251,21 +251,24 @@ test.describe('Wallet SDK Integration', () => {
             await page.click('text=Login to Tool Kit');
             await expect(page.locator('text=Select a Wallet Provider')).toBeVisible();
 
-            // All 3 wallet buttons present
-            await expect(page.locator('button:has-text("Ultra Wallet")')).toBeVisible();
+            // All 4 wallet provider buttons present (Extension, Web, Anchor, Ledger).
+            // Use the (Extension) suffix to disambiguate from the Web wallet entry.
+            const extensionBtn = page.locator('button:has-text("Ultra Wallet (Extension)")');
+            await expect(extensionBtn).toBeVisible();
+            await expect(page.locator('button:has-text("Ultra Wallet (Web)")')).toBeVisible();
             await expect(page.locator('button:has-text("Anchor")')).toBeVisible();
             await expect(page.locator('button:has-text("Ledger")')).toBeVisible();
 
-            // Ultra Wallet enabled (extension available)
-            await expect(page.locator('button:has-text("Ultra Wallet")')).toBeEnabled();
+            // Extension button enabled when window.ultra is injected
+            await expect(extensionBtn).toBeEnabled();
 
-            // Help buttons present
+            // One Help button per provider
             const helpButtons = page.locator('button:has-text("Help")');
-            expect(await helpButtons.count()).toBe(3);
+            expect(await helpButtons.count()).toBe(4);
             await screenshot(page, '02-login-modal-open');
 
-            // Step 3: Click Ultra Wallet → connecting → connected
-            await page.click('button:has-text("Ultra Wallet")');
+            // Step 3: Click the Extension button → connecting → connected
+            await extensionBtn.click();
 
             // Wait for account to appear
             await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible({ timeout: 5000 });
@@ -286,8 +289,10 @@ test.describe('Wallet SDK Integration', () => {
             // Step 5: No network mismatch warning (chains match)
             await expect(page.locator('text=Wallet network differs from endpoint')).not.toBeVisible();
 
-            // Step 6: Endpoint URL is displayed in the top bar (as a button)
-            await expect(page.locator('button').filter({ hasText: /https?:\/\// }).first()).toBeVisible();
+            // Step 6: Active network name is displayed in the top bar selector.
+            // The toolkit shows the human-readable network name ("Testnet" /
+            // "Mainnet"), not the raw URL.
+            await expect(page.locator('button', { hasText: /^(Mainnet|Testnet|Local:8888|Custom)$/ }).first()).toBeVisible();
         });
 
         test('connect with non-active permission shows account@permission', async ({ page }) => {
@@ -321,7 +326,7 @@ test.describe('Wallet SDK Integration', () => {
             await page.click('text=Login to Tool Kit');
             await screenshot(page, '05-connect-fail-modal');
 
-            await page.click('button:has-text("Ultra Wallet")');
+            await page.click('button:has-text("Ultra Wallet (Extension)")');
 
             // Wait for alert to fire
             await page.waitForTimeout(500);
@@ -350,13 +355,14 @@ test.describe('Wallet SDK Integration', () => {
 
             await page.click('text=Login to Tool Kit');
 
-            // Ultra Wallet button should be visually disabled
-            // (Button component uses CSS classes, not HTML disabled attribute)
-            const ultraBtn = page.locator('button:has-text("Ultra Wallet")');
-            await expect(ultraBtn).toHaveClass(/cursor-default/);
-            await expect(ultraBtn).not.toHaveClass(/cursor-pointer/);
+            // Only the Extension button is disabled when window.ultra is missing.
+            // The Web wallet, Anchor, and Ledger remain clickable — they don't
+            // depend on the extension being installed.
+            const extensionBtn = page.locator('button:has-text("Ultra Wallet (Extension)")');
+            await expect(extensionBtn).toHaveClass(/cursor-default/);
+            await expect(extensionBtn).not.toHaveClass(/cursor-pointer/);
 
-            // Anchor and Ledger should still be clickable (have cursor-pointer)
+            await expect(page.locator('button:has-text("Ultra Wallet (Web)")')).toHaveClass(/cursor-pointer/);
             await expect(page.locator('button:has-text("Anchor")')).toHaveClass(/cursor-pointer/);
             await expect(page.locator('button:has-text("Ledger")')).toHaveClass(/cursor-pointer/);
 
@@ -659,11 +665,19 @@ test.describe('Wallet SDK Integration', () => {
         test('wallet networkChanged to known chain auto-switches toolkit endpoint', async ({ page }) => {
             // Start with wallet on MAINNET (matching the default endpoint ultra.eosphere.io)
             await page.addInitScript({ content: walletMockScript({ chainId: MAINNET_CHAIN_ID, networkName: 'Mainnet' }) });
-            // Smart get_info: return chainId based on which endpoint URL is called
+            // Smart get_info: return chainId based on which endpoint URL is called.
+            // The toolkit auto-switches to the FIRST URL of the matched network
+            // (testnet.ultra.eosrio.io as of writing); the pattern must cover
+            // every testnet host in defaultNetworks or the post-switch /get_info
+            // returns mainnet's chainId and the mismatch warning re-fires.
             await page.route('**/v1/chain/get_info', async (route) => {
                 const url = route.request().url();
-                const isTestnet = url.includes('ultratest') || url.includes('ultra-testnet')
-                    || url.includes('api.testnet');
+                const isTestnet =
+                    url.includes('testnet.ultra') ||
+                    url.includes('ultratest') ||
+                    url.includes('ultra-testnet') ||
+                    url.includes('api.testnet') ||
+                    url.includes('test.ultra');
                 const chainId = isTestnet ? TESTNET_CHAIN_ID : MAINNET_CHAIN_ID;
                 await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
                     server_version: 'mock', chain_id: chainId, head_block_num: 100000,
@@ -996,9 +1010,9 @@ test.describe('Wallet SDK Integration', () => {
             await expect(ledgerBtn).toBeEnabled();
             await screenshot(page, '31-other-wallets-available');
 
-            // Help buttons work for each wallet
+            // One Help button per wallet provider (Extension, Web, Anchor, Ledger).
             const helpButtons = page.locator('button:has-text("Help")');
-            expect(await helpButtons.count()).toBe(3);
+            expect(await helpButtons.count()).toBe(4);
         });
     });
 });
