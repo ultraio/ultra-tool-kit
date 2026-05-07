@@ -287,19 +287,44 @@ async function setAccount(
 
     setPageState({ showLogin: false });
 
-    // Capture wallet chain ID for network mismatch detection
+    // Capture wallet chain ID for network mismatch detection. Issue 1: if
+    // the wallet is on a different chain than the toolkit's current
+    // endpoint at connect time (e.g. toolkit on Mainnet, wallet on
+    // Testnet), sync the toolkit's endpoint to the wallet's chain so
+    // chain-bound operations (get_account, balance, NFT API) hit the
+    // right network. This runs after every successful Ultra connection
+    // (fresh login from Login.vue AND silent restoreSession), so it's
+    // the single point that keeps the toolkit's endpoint following the
+    // wallet's chain selection.
     if (type === 'ultra' && Ultra.isAvailable()) {
         try {
             const chainIdResponse = await Ultra.getChainId();
             if (chainIdResponse.status === 'success') {
-                setAuthStateKeys({ chainId: chainIdResponse.data });
+                const walletChainId = chainIdResponse.data;
+                setAuthStateKeys({ chainId: walletChainId });
                 localStorage.setItem('authState', JSON.stringify(authState.value));
+
+                // Endpoint sync: only fires if the toolkit's current endpoint
+                // is on a different chain. userInvoked=false skips the
+                // Toolkit→Wallet switchNetwork echo in setEndpoint (this is
+                // wallet-driven; we follow, never push back).
+                const matched = getNetworkByChainId(walletChainId);
+                if (
+                    matched &&
+                    !matched.urls.includes(authState.value.endpoint) &&
+                    !isNetworkSyncing
+                ) {
+                    isNetworkSyncing = true;
+                    try {
+                        await setEndpoint(matched.urls[0], false);
+                    } finally {
+                        isNetworkSyncing = false;
+                    }
+                }
             }
         } catch {
             // Non-critical — chainId just enables mismatch warning
         }
-        // Wallet's accounts[] is now chain-resolved server-side — no toolkit
-        // filtering needed.
     }
 
     if (type === 'ultra-web') {
@@ -413,6 +438,17 @@ async function restoreSession() {
         populateWalletAccountsFromConnectResult(response.data);
         if (response.data.network) {
             restoredAuthState.chainId = response.data.network.chainId;
+            // Issue 1: if the wallet is on a different chain than the
+            // toolkit's last-saved endpoint, follow the wallet. Mutate
+            // restoredAuthState directly — the setAuthStateKeys(restoredAuthState)
+            // at the end of restoreSession will commit it, and initServices()
+            // (called from onMounted right after restoreSession) will pick
+            // up the new endpoint.
+            const matched = getNetworkByChainId(response.data.network.chainId);
+            if (matched && !matched.urls.includes(restoredAuthState.endpoint)) {
+                restoredAuthState.endpoint = matched.urls[0];
+                restoredAuthState.environment = matched.name;
+            }
         }
         // Trust the wallet's currently selected account over stale localStorage —
         // user may have switched accounts in the wallet between sessions.
@@ -507,9 +543,14 @@ function handleWalletAccountChanged(data: {
     setAvailableAccountsFromEvent(eventAccounts);
 
     if (eventAccounts.length === 0) {
-        // Wallet locked, untrusted on this chain, or no accounts here —
-        // log out the toolkit so it doesn't sit on a stale selection.
-        logout();
+        // Issue 3: empty accounts is NOT a logout signal. The wallet may
+        // be transiently locked (MV3 worker mid-restore), or the user may
+        // genuinely have no accounts on the active chain. Either way the
+        // `disconnect` event is the explicit logout trigger; calling
+        // logout() here removes the trusted-app entry and forces the user
+        // to re-approve connect on the next interaction. Clear the
+        // available-account list (dropdown shows nothing) and wait for
+        // either the next accountChanged with data or a real disconnect.
         return;
     }
 

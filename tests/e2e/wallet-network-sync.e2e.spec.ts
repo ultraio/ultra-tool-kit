@@ -879,6 +879,362 @@ test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
         }
     });
 
+    test('connect: toolkit endpoint adopts wallet chain when they differ (Issue 1)', async () => {
+        // Pins the user's observed failure: toolkit on Mainnet endpoint,
+        // wallet on Testnet, click Connect → toolkit kept Mainnet endpoint
+        // and `get_account` 404'd the testnet account name. Pre-fix, the
+        // sync was attempted from Login.vue via emit('set-endpoint', ...)
+        // — which was a silent no-op because <Login> in App.vue does not
+        // bind @set-endpoint. The right place is App.vue:setAccount,
+        // which runs after every successful Ultra connection (fresh login
+        // AND silent restoreSession) and already calls Ultra.getChainId().
+        // We exercise the silent-restore path here because it's
+        // deterministic from a pre-seeded authState (no UI clicks).
+        const userDataDir = fs.mkdtempSync(path.join('/tmp', 'pw-wallet-issue1-'));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+            headless: false,
+            args: [
+                `--disable-extensions-except=${EXTENSION_PATH}`,
+                `--load-extension=${EXTENSION_PATH}`,
+                '--no-first-run',
+            ],
+        });
+
+        try {
+            const sw = await getServiceWorker(context);
+            // Wallet is on testnet (vault unlocked, origin trusted on both
+            // envs so the toolkit's silent reconnect succeeds).
+            await seedExtensionState(sw, {
+                password: PASSWORD,
+                pubKey: PUB_KEY,
+                privKey: PRIV_KEY,
+                env: 'testnet',
+                origins: ['http://localhost:5172'],
+            });
+            await mockChainRPC(context);
+
+            const page = await context.newPage();
+            await page.goto('http://localhost:5172');
+            await page.waitForLoadState('load');
+
+            // Toolkit is preseeded on MAINNET endpoint with a testnet-shaped
+            // authState — emulates the user's scenario of having last left
+            // the toolkit on Mainnet while later switching the wallet to
+            // Testnet. Silent restoreSession will run Ultra.connect(true),
+            // which returns network={chainId: TESTNET_CHAIN}.
+            const MAINNET_URL = 'https://ultra.eosusa.io';
+            const TESTNET_URL = 'https://test.ultra.eosusa.io';
+            await page.evaluate(({ chainId, endpoint }) => {
+                localStorage.setItem('authState', JSON.stringify({
+                    type: 'ultra',
+                    accountName: 'tnetacct.test',
+                    accountPerm: 'active',
+                    isAdmin: false,
+                    endpoint,
+                    environment: 'Mainnet',
+                    chainId,
+                }));
+                localStorage.setItem('endpoint', endpoint);
+                localStorage.setItem('environment', 'Mainnet');
+            }, { chainId: MAINNET_CHAIN, endpoint: MAINNET_URL });
+            await page.reload();
+            await page.waitForLoadState('load');
+
+            // After silent reconnect + App.vue.setAccount runs, the toolkit
+            // endpoint must have flipped to a testnet URL (matched via
+            // getNetworkByChainId(TESTNET_CHAIN)). authState.chainId must
+            // also be the testnet chainId.
+            await expect.poll(
+                async () => await page.evaluate(() => {
+                    try {
+                        const a = JSON.parse(localStorage.getItem('authState') ?? '{}');
+                        return { endpoint: a?.endpoint, chainId: a?.chainId };
+                    } catch { return { endpoint: undefined, chainId: undefined }; }
+                }),
+                {
+                    timeout: 30_000,
+                    intervals: [200, 500, 1000],
+                    message: 'toolkit endpoint never synced to wallet chain on connect — Issue 1 regression',
+                },
+            ).toEqual({ endpoint: TESTNET_URL, chainId: TESTNET_CHAIN });
+        } finally {
+            await context.close();
+            fs.rmSync(userDataDir, { recursive: true, force: true });
+        }
+    });
+
+    test('vault locked transient does NOT broadcast accounts:[] and dapp keeps trust (Issue 3)', async () => {
+        // Pins the actual MV3 race the user hit: wallet briefly enters a
+        // "locked" state (e.g. service-worker just woke up and
+        // tryRestoreSession is still in flight) — pre-fix the BG hit the
+        // locked-fall-through and broadcast `accounts: []` to every trusted
+        // origin. The toolkit's handleWalletAccountChanged interpreted that
+        // as "wallet logged out", called logout() → Ultra.disconnect() →
+        // removeTrustedApp(). The next interaction prompted reconnect.
+        //
+        // Two-sided fix: BG returns early (no broadcast) when locked;
+        // toolkit no-ops on empty accounts (only `disconnect` is the
+        // logout signal). This test pins the BG side directly by clearing
+        // vault_session — same effect as a worker-relock.
+        const userDataDir = fs.mkdtempSync(path.join('/tmp', 'pw-wallet-issue3-'));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+            headless: false,
+            args: [
+                `--disable-extensions-except=${EXTENSION_PATH}`,
+                `--load-extension=${EXTENSION_PATH}`,
+                '--no-first-run',
+            ],
+        });
+
+        try {
+            const sw = await getServiceWorker(context);
+            await seedExtensionState(sw, {
+                password: PASSWORD,
+                pubKey: PUB_KEY,
+                privKey: PRIV_KEY,
+                env: 'testnet',
+                origins: ['http://localhost:5172'],
+            });
+            await mockChainRPC(context);
+
+            const page = await context.newPage();
+            await page.goto('http://localhost:5172');
+            await page.waitForLoadState('load');
+
+            await page.evaluate(({ chainId }) => {
+                localStorage.setItem('authState', JSON.stringify({
+                    type: 'ultra',
+                    accountName: 'tnetacct.test',
+                    accountPerm: 'active',
+                    isAdmin: false,
+                    endpoint: 'https://test.ultra.eosusa.io',
+                    environment: 'testnet',
+                    chainId,
+                }));
+                localStorage.setItem('endpoint', 'https://test.ultra.eosusa.io');
+                localStorage.setItem('environment', 'testnet');
+            }, { chainId: TESTNET_CHAIN });
+            await page.reload();
+            await page.waitForLoadState('load');
+
+            // Capture wallet events on the page.
+            await page.evaluate(() => {
+                interface CapturedEvent { event: string; data?: unknown }
+                const w = window as Window & { __capturedWalletEvents?: CapturedEvent[] };
+                w.__capturedWalletEvents = [];
+                window.addEventListener('message', (e: MessageEvent) => {
+                    if (e.source !== window) return;
+                    const msg = e.data;
+                    if (!msg || typeof msg !== 'object') return;
+                    const type = typeof msg.type === 'string' ? msg.type.toUpperCase() : '';
+                    if (type !== 'EVENT' || !msg.payload) return;
+                    w.__capturedWalletEvents!.push({
+                        event: String(msg.payload.event ?? ''),
+                        data: msg.payload.data,
+                    });
+                });
+            });
+
+            // Wait for silent restore + listener registration.
+            await expect.poll(
+                async () => await page.evaluate(() => {
+                    try {
+                        const a = JSON.parse(localStorage.getItem('authState') ?? '{}');
+                        return a?.type;
+                    } catch { return undefined; }
+                }),
+                { timeout: 30_000 },
+            ).toBe('ultra');
+
+            await expect.poll(
+                async () => await sw.evaluate(async () => {
+                    const r = await chrome.storage.session.get('EVENT_LISTENERS');
+                    return Object.keys(r?.EVENT_LISTENERS ?? {}).sort();
+                }),
+                { timeout: 30_000 },
+            ).toEqual(['accountChanged', 'disconnect', 'networkChanged']);
+
+            // Trigger the locked-vault transient: clear vault_session in
+            // chrome.storage.session. The BG's storage.session.onChanged
+            // listener fires emitAccountChanged with the vault locked.
+            await sw.evaluate(async () => {
+                await chrome.storage.session.remove('vault_session');
+            });
+
+            // Give the BG a beat to (correctly) NOT broadcast.
+            await page.waitForTimeout(2000);
+
+            // ASSERT 1: zero accountChanged events with empty accounts
+            // were delivered. Pre-fix, exactly one would arrive here.
+            const captured = await page.evaluate(() => {
+                interface CapturedEvent { event: string; data?: unknown }
+                const w = window as Window & { __capturedWalletEvents?: CapturedEvent[] };
+                return (w.__capturedWalletEvents ?? []).slice();
+            });
+            const emptyAcctEvents = captured.filter((e) => {
+                if (e.event !== 'accountChanged') return false;
+                const accounts = (e.data as { accounts?: unknown[] } | undefined)?.accounts;
+                return Array.isArray(accounts) && accounts.length === 0;
+            });
+            expect(
+                emptyAcctEvents,
+                `BG broadcast accounts:[] while locked — Issue 3 regression. captured=${JSON.stringify(captured)}`,
+            ).toEqual([]);
+
+            // ASSERT 2: TRUSTED_APPS still contains the toolkit origin on
+            // testnet. Pre-fix, logout() → Ultra.disconnect() → removeTrustedApp
+            // would have wiped this. With the toolkit-side fix, the
+            // origin must remain trusted regardless of what the BG did.
+            const trusted = await sw.evaluate(async () => {
+                const r = await chrome.storage.local.get('TRUSTED_APPS');
+                return r?.TRUSTED_APPS ?? null;
+            });
+            expect(trusted, 'TRUSTED_APPS missing or wrong shape').toBeTruthy();
+            expect(
+                (trusted as Record<string, string[]>).testnet ?? [],
+                'toolkit origin was removed from testnet trust on transient lock — Issue 3 regression',
+            ).toContain('http://localhost:5172');
+
+            // ASSERT 3: toolkit's authState.type is still 'ultra'. The
+            // empty-accounts handler must no-op, not call logout().
+            const stillUltra = await page.evaluate(() => {
+                try {
+                    const a = JSON.parse(localStorage.getItem('authState') ?? '{}');
+                    return a?.type;
+                } catch { return undefined; }
+            });
+            expect(stillUltra, 'toolkit logged itself out on empty accounts — Issue 3 regression').toBe('ultra');
+        } finally {
+            await context.close();
+            fs.rmSync(userDataDir, { recursive: true, force: true });
+        }
+    });
+
+    // Note: the cache-no-poisoning behavior (Issue 2) is unit-tested at
+    // libs/extension/src/lib/services/account-cache.service.spec.ts —
+    // those tests directly exercise fetchAndCache without the MV3 worker
+    // lifecycle noise that was making this an unreliable e2e shape.
+    test.skip('cache does NOT poison: empty fetch result is not stored, next call re-fetches (Issue 2)', async () => {
+        const userDataDir = fs.mkdtempSync(path.join('/tmp', 'pw-wallet-issue2-'));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+            headless: false,
+            args: [
+                `--disable-extensions-except=${EXTENSION_PATH}`,
+                `--load-extension=${EXTENSION_PATH}`,
+                '--no-first-run',
+            ],
+        });
+
+        try {
+            const sw = await getServiceWorker(context);
+            await seedExtensionState(sw, {
+                password: PASSWORD,
+                pubKey: PUB_KEY,
+                privKey: PRIV_KEY,
+                env: 'testnet',
+                origins: ['http://localhost:5172'],
+            });
+
+            // Clear the seeded account_resolution_cache — we want to drive
+            // the fetch path explicitly.
+            await sw.evaluate(async () => {
+                await chrome.storage.session.remove('account_resolution_cache');
+            });
+
+            // Mode 1: chain returns empty. Pre-fix this would poison the
+            // cache slot with entries:[] for 30s.
+            let returnEmpty = true;
+            await context.route('**/v1/chain/get_info', async (route) => {
+                const isTestnet = /testnet|test\./.test(new URL(route.request().url()).host);
+                await route.fulfill({
+                    status: 200, contentType: 'application/json',
+                    body: JSON.stringify({
+                        chain_id: isTestnet ? TESTNET_CHAIN : MAINNET_CHAIN,
+                        head_block_num: 1, last_irreversible_block_num: 1,
+                        head_block_time: '2026-04-04T00:00:00.000',
+                    }),
+                });
+            });
+            await context.route('**/v1/chain/get_accounts_by_authorizers', async (route) => {
+                if (returnEmpty) {
+                    await route.fulfill({
+                        status: 200, contentType: 'application/json',
+                        body: JSON.stringify({ accounts: [] }),
+                    });
+                } else {
+                    const isTestnet = /testnet|test\./.test(new URL(route.request().url()).host);
+                    await route.fulfill({
+                        status: 200, contentType: 'application/json',
+                        body: JSON.stringify({
+                            accounts: [{
+                                account_name: isTestnet ? 'tnetacct.test' : 'mnetacct.main',
+                                permission_name: 'active',
+                                authorizing_key: PUB_KEY,
+                            }],
+                        }),
+                    });
+                }
+            });
+            await context.route(/\/v1\/(chain|history|state)\//, async (route) => {
+                await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+            });
+
+            // First resolve: chain returns empty.
+            const firstResult = await sw.evaluate(async () => {
+                // Direct call into the BG context: we use chrome.runtime APIs
+                // to import the service. Easier: trigger a fetch via env
+                // change and inspect the cache afterwards.
+                await chrome.storage.local.set({ ENVIRONMENT: 'testnet' });
+                // Brief wait for emitAccountChanged → fetchAndCache.
+                await new Promise((r) => setTimeout(r, 1500));
+                const sess = await chrome.storage.session.get('account_resolution_cache');
+                return sess?.account_resolution_cache ?? null;
+            });
+
+            // ASSERT 1: cache must NOT have a testnet slot pinned to empty.
+            // Either no slot at all, or slot with non-empty entries.
+            if (firstResult && typeof firstResult === 'object') {
+                const slot = (firstResult as Record<string, { entries?: unknown[] }>)['testnet'];
+                if (slot) {
+                    expect(
+                        Array.isArray(slot.entries) && slot.entries.length > 0,
+                        `testnet cache slot was poisoned with empty entries: ${JSON.stringify(slot)}`,
+                    ).toBe(true);
+                }
+            }
+
+            // Now flip the mock to return real accounts and trigger another
+            // resolve. This must succeed — it would NOT pre-fix because the
+            // 30s cooldown on the empty slot would mask the chain.
+            returnEmpty = false;
+            await sw.evaluate(async () => {
+                // Force a fresh emit by toggling the env back and forth.
+                await chrome.storage.local.set({ ENVIRONMENT: 'mainnet' });
+                await new Promise((r) => setTimeout(r, 500));
+                await chrome.storage.local.set({ ENVIRONMENT: 'testnet' });
+                await new Promise((r) => setTimeout(r, 1500));
+            });
+
+            const cache = await sw.evaluate(async () => {
+                const sess = await chrome.storage.session.get('account_resolution_cache');
+                return sess?.account_resolution_cache ?? null;
+            });
+
+            // ASSERT 2: testnet slot now has the real account, proving the
+            // empty-result was NOT cached and the next call re-fetched.
+            const testnetSlot = cache && (cache as Record<string, { entries?: Array<{ account?: string }> }>)['testnet'];
+            expect(
+                testnetSlot,
+                `testnet cache never populated after recovery — pre-fix this fails because the empty result poisoned the slot for 30s. cache=${JSON.stringify(cache)}`,
+            ).toBeTruthy();
+            const accounts = (testnetSlot?.entries ?? []).map((e) => e.account).filter(Boolean);
+            expect(accounts).toContain('tnetacct.test');
+        } finally {
+            await context.close();
+            fs.rmSync(userDataDir, { recursive: true, force: true });
+        }
+    });
+
     test('cache: switching env back-and-forth within 30s does not re-fetch get_accounts_by_authorizers (Issue 2)', async () => {
         // Pins the `AccountCacheService.resolve` 30s cache contract: rapid
         // env switches read from cache instead of hitting the chain RPC.

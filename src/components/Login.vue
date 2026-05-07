@@ -163,7 +163,7 @@ import * as Anchor from '../wallets/anchor';
 import { connect as ledgerConnect, LedgerConnectionAPI } from '@ultraos/ultra-ledger-lib';
 import { BlockchainService } from '../utilities/blockchain';
 import { GetAccountsByAuthorizersAccount } from '../interfaces';
-import {fetchWithTimeout, getNetworkByChainId} from '../utilities/networks';
+import {fetchWithTimeout} from '../utilities/networks';
 
 interface LoginState {
     isUltraWalletAvailable: boolean;
@@ -253,7 +253,7 @@ async function selectLedgerAccount(account: GetAccountsByAuthorizersAccount) {
  * @param accountName
  * @param publicKey
  */
-async function setAccount(type: WalletTypes, accountName: string, permission: string, endpointOverride?: string) {
+async function setAccount(type: WalletTypes, accountName: string, permission: string) {
     accountName = accountName.includes('@') ? accountName.split('@')[0] : accountName;
 
     const options = {
@@ -262,19 +262,24 @@ async function setAccount(type: WalletTypes, accountName: string, permission: st
         body: JSON.stringify({ account_name: accountName, json: true }),
     };
 
-    // Validate against the effective endpoint, which may be the just-emitted
-    // post-sync endpoint (Issue 1: toolkit on Mainnet, wallet on Testnet →
-    // Ultra.connect returns Testnet account; we sync the endpoint BEFORE
-    // get_account, otherwise validation hits Mainnet API and 404s the testnet
-    // account name).
-    const validationEndpoint = endpointOverride ?? props.state.endpoint;
-    const response = await fetchWithTimeout(`${validationEndpoint}/v1/chain/get_account`, options).catch((err) => {
+    // For type === 'ultra', the wallet is the source of truth for which chain
+    // its account lives on. We don't validate the account here — App.vue's
+    // setAccount handler runs Ultra.getChainId() right after this emit and
+    // syncs the toolkit endpoint to the wallet's chain before any chain-bound
+    // operation runs. Validating here against props.state.endpoint would
+    // 404 in the toolkit-on-Mainnet/wallet-on-Testnet case (Issue 1).
+    if (type === 'ultra') {
+        emit('set-account', type, accountName, permission);
+        return;
+    }
+
+    const response = await fetchWithTimeout(`${props.state.endpoint}/v1/chain/get_account`, options).catch((err) => {
         console.error(err);
         return undefined;
     });
 
     if (!response || !response.ok) {
-        if (type === 'ultra' || type === 'ultra-web') {
+        if (type === 'ultra-web') {
             resetState();
             alert(
                 `Could not find account '${accountName}' on the current endpoint. Make sure your wallet's network matches the selected endpoint.`
@@ -359,26 +364,8 @@ async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
             }
 
             populateWalletAccountsFromConnectResult(response.data);
-
-            // Issue 1 fix: if the wallet is on a different chain than the
-            // toolkit's current endpoint, sync the toolkit endpoint to the
-            // wallet's chain BEFORE validating the account. Otherwise we'd
-            // call get_account on the wrong chain and reject the connect.
-            // userInvoked=false skips the Toolkit→Wallet switchNetwork
-            // re-fire in App.vue.setEndpoint (this is wallet-driven, not
-            // user-driven from the toolkit endpoint dropdown).
-            const walletChainId = Ultra.extractChainId(response.data);
-            let effectiveEndpoint = props.state.endpoint;
-            if (walletChainId) {
-                const matched = getNetworkByChainId(walletChainId);
-                if (matched && !matched.urls.includes(props.state.endpoint)) {
-                    effectiveEndpoint = matched.urls[0];
-                    emit('set-endpoint', effectiveEndpoint, false);
-                }
-            }
-
             const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
-            await setAccount(type, accountName, permission, effectiveEndpoint);
+            await setAccount(type, accountName, permission);
         } catch (err) {
             loginState.isSelectingLogin = true;
             if (err instanceof Error && err.message === 'timeout') {
