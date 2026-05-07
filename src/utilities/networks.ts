@@ -4,13 +4,16 @@ export const defaultNetworks = [
     {
         name: 'Mainnet',
         chainId: 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097',
+        // eosusa first — eosrio's gateway has broken CORS preflight
+        // (doesn't echo `Access-Control-Allow-Headers: content-type`),
+        // which makes the toolkit fail to talk to it from a browser dapp.
         urls: [
-            'https://ultra.eosrio.io',
-            'https://api.ultra.cryptolions.io',
             'https://ultra.eosusa.io',
+            'https://api.ultra.cryptolions.io',
             'https://api.ultra.eossweden.org',
             'https://ultra-api.eoseoul.io',
             'https://ultra.eosphere.io',
+            'https://ultra.eosrio.io',
         ],
         isPublic: true,
     },
@@ -18,11 +21,11 @@ export const defaultNetworks = [
         name: 'Testnet',
         chainId: '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9',
         urls: [
-            'https://testnet.ultra.eosrio.io',
             'https://test.ultra.eosusa.io',
             'https://api.ultra-testnet.cryptolions.io',
             'https://api.testnet.ultra.eossweden.org',
             'https://ultra-testnet.eosphere.io',
+            'https://testnet.ultra.eosrio.io',
         ],
         isPublic: true,
     },

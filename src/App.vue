@@ -69,8 +69,8 @@ import * as Ultra from './wallets/ultra';
 import * as UltraWeb from './wallets/ultra-web';
 import {
     populateWalletAccountsFromConnectResult,
-    validateAccountsAgainstEndpoint,
     clearWalletAccounts,
+    setAvailableAccountsFromEvent,
 } from './wallets/wallet-accounts';
 import * as I from './interfaces';
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
@@ -160,7 +160,21 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
         );
     }
 
-    if (authState.value.accountName) {
+    // Logout policy:
+    //   - Extension wallet (`ultra`): the wallet's session crosses chains;
+    //     we flip its current chain via `Ultra.switchNetwork` (below) and
+    //     refresh accounts, no logout needed.
+    //   - Web wallet (`ultra-web`): env is bound at SDK construction;
+    //     `shouldAutoReconnectWebWallet` either re-connects below or we
+    //     log out and the user picks again.
+    //   - Anchor / Ledger: sessions are env-bound, log out on env change.
+    const envChanged = previousEnvironment !== environment;
+    const shouldLogoutOnEndpointChange =
+        authState.value.accountName &&
+        previousType !== 'ultra' &&
+        !shouldAutoReconnectWebWallet &&
+        (envChanged || previousType !== 'ultra-web');
+    if (shouldLogoutOnEndpointChange) {
         logout();
     }
 
@@ -219,6 +233,21 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
                     try {
                         await Ultra.switchNetwork(endpointChainId);
                         setAuthStateKeys({ chainId: endpointChainId });
+                        // Re-issue connect on the new chain so the wallet
+                        // returns chain-resolved accounts and we update the
+                        // dropdown + active account locally. The BG also
+                        // emits accountChanged on env change
+                        // (belt-and-suspenders), but doing this synchronously
+                        // here removes the dependency on event timing for
+                        // the immediate UI update.
+                        const response = await Ultra.connect();
+                        if (response.status === 'success') {
+                            populateWalletAccountsFromConnectResult(response.data);
+                            const { accountName, permission } = await Ultra.resolveSelectedAccount(
+                                response.data
+                            );
+                            await setAccount('ultra', accountName, permission);
+                        }
                         localStorage.setItem('authState', JSON.stringify(authState.value));
                     } catch {
                         // User rejected the switch or wallet error — mismatch warning will show
@@ -269,9 +298,8 @@ async function setAccount(
         } catch {
             // Non-critical — chainId just enables mismatch warning
         }
-        // Filter the wallet's account list down to ones that exist on this
-        // network — the wallet returns testnet + mainnet accounts together.
-        validateAccountsAgainstEndpoint(authState.value.endpoint).catch(() => {});
+        // Wallet's accounts[] is now chain-resolved server-side — no toolkit
+        // filtering needed.
     }
 
     if (type === 'ultra-web') {
@@ -386,9 +414,6 @@ async function restoreSession() {
         if (response.data.network) {
             restoredAuthState.chainId = response.data.network.chainId;
         }
-        // Validate accounts against the restored endpoint so the
-        // dropdown only shows accounts that exist on this network.
-        validateAccountsAgainstEndpoint(restoredAuthState.endpoint).catch(() => {});
         // Trust the wallet's currently selected account over stale localStorage —
         // user may have switched accounts in the wallet between sessions.
         if (response.data.selectedAccount) {
@@ -457,35 +482,53 @@ function handleUpdateAppActions(updatedActions) {
     actions.value = updatedActions;
 }
 
-async function handleWalletAccountChanged() {
+/**
+ * Sync available accounts from the wallet — and ONLY the available list.
+ *
+ * The toolkit's selected account is a local override (the dropdown lets
+ * the developer pick any actor per-action, which is required for
+ * multi-signer EOSIO transactions). So we deliberately ignore
+ * `data.selected`. But the **available** account list is owned by the
+ * wallet — chain-resolved via `get_accounts_by_authorizers` — and the
+ * toolkit must mirror it so the dropdown only ever offers actors the
+ * user actually has keys for on the active chain.
+ *
+ * If the toolkit's currently-selected account disappears from the new
+ * list (user removed it in the wallet, or chain composition changed),
+ * fall back to the first available so signing keeps working.
+ */
+function handleWalletAccountChanged(data: {
+    accounts?: Array<{ accountName: string; permission?: string; publicKey?: string }>;
+    selected?: unknown;
+}) {
     if (authState.value.type !== 'ultra') return;
 
-    // Don't trust the event payload shape — different extension versions wrap the
-    // selected account differently (data.selected.accountName, data.accountName,
-    // data.selectedAccount.accountName, etc). Re-query the wallet for ground truth.
-    const selected = await Ultra.getSelectedAccount().catch((err) => {
-        console.warn('[ultra-tool-kit] getSelectedAccount failed:', err);
-        return null;
-    });
-    const selectedAccount =
-        selected && selected.status === 'success' && selected.data ? selected.data : null;
+    const eventAccounts = Array.isArray(data?.accounts) ? data.accounts : [];
+    setAvailableAccountsFromEvent(eventAccounts);
 
-    if (!selectedAccount) {
-        // Wallet locked or no account available — log out
+    if (eventAccounts.length === 0) {
+        // Wallet locked, untrusted on this chain, or no accounts here —
+        // log out the toolkit so it doesn't sit on a stale selection.
         logout();
         return;
     }
 
-    const activePerm = selectedAccount.permissions.find((p) => p.name === 'active');
-    const accountName = selectedAccount.accountName;
-    const permission = activePerm ? 'active' : (selectedAccount.permissions[0]?.name ?? 'active');
+    const currentName = authState.value.accountName;
+    const stillAvailable = eventAccounts.some((a) => a.accountName === currentName);
+    if (stillAvailable) return;
 
-    if (accountName !== authState.value.accountName || permission !== authState.value.accountPerm) {
-        setAuthStateKeys({ accountName, accountPerm: permission });
-        localStorage.setItem('authState', JSON.stringify(authState.value));
-        keyRouterUpdate.value += 1;
-        keyUserUpdate.value += 1;
-    }
+    // Local override is no longer valid on this chain — adopt the first
+    // available account as the new override.
+    const first = eventAccounts[0];
+    const permission = first.permission ?? 'active';
+    setAuthStateKeys({
+        accountName: first.accountName,
+        accountPerm: permission,
+        isAdmin: I.ELEVATED_ACCOUNTS.includes(first.accountName),
+    });
+    localStorage.setItem('authState', JSON.stringify(authState.value));
+    keyRouterUpdate.value += 1;
+    keyUserUpdate.value += 1;
 }
 
 async function handleWalletNetworkChanged(data: { chainId: string; name: string }) {
@@ -511,7 +554,6 @@ async function handleWalletNetworkChanged(data: { chainId: string; name: string 
                         const response = await Ultra.connect();
                         if (response.status === 'success') {
                             populateWalletAccountsFromConnectResult(response.data);
-                            validateAccountsAgainstEndpoint(authState.value.endpoint).catch(() => {});
                             const { accountName, permission } = await Ultra.resolveSelectedAccount(
                                 response.data
                             );
@@ -544,7 +586,21 @@ onMounted(async () => {
 
     emitter.on('updateAppActions', handleUpdateAppActions);
 
-    // Wallet event listeners
+    // Wallet event listeners.
+    //
+    // `accountChanged`: subscribed for its `accounts` payload only — the
+    // toolkit treats wallet's available-accounts list as authoritative and
+    // mirrors it. The `selected` half of the payload is intentionally
+    // ignored: the toolkit's active account is a local override (developer
+    // picks any actor per-action via UserOverlay's dropdown, supporting
+    // multi-signer transactions where different actions need different
+    // `actor@permission` authorities).
+    //
+    // `networkChanged`: re-runs `Ultra.connect()` on the new chain to
+    // refresh both available accounts and the active account (the prior
+    // chain's override is invalid on the new chain).
+    //
+    // `disconnect`: logs the toolkit out.
     Ultra.on('accountChanged', handleWalletAccountChanged);
     Ultra.on('networkChanged', handleWalletNetworkChanged);
     Ultra.on('disconnect', handleWalletDisconnect);

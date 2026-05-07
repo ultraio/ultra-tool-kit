@@ -36,12 +36,21 @@ export function isAvailable(): boolean {
 /**
  * Get or create the SDK singleton.
  * Returns null if extension is not available.
+ *
+ * Side effect: every call ensures the extension has our event listeners
+ * registered. Cheap (idempotent BG-side; no RPC if no local subscriptions),
+ * and runs on every Ultra method call. This piggybacks listener recovery
+ * on RPC traffic so the toolkit recovers from extension-reload faster than
+ * the heartbeat alone would (heartbeat is the ceiling, this is the floor).
  */
 export function getSDK(): UltraWalletSDK | null {
     if (!isAvailable()) return null;
     if (!sdk) {
         sdk = new UltraWalletSDK({ provider: 'extension' });
     }
+    // Defer to a microtask so we don't block the synchronous getSDK return
+    // path on the registration round-trip.
+    Promise.resolve().then(heartbeatTick);
     return sdk;
 }
 
@@ -57,6 +66,13 @@ export async function connect(onlyIfTrusted = false): Promise<UltraResponse<Conn
     if (!wallet) throw new Error('Ultra Wallet extension is not installed');
     const result = await wallet.connect({ onlyIfTrusted });
     if (result.status === 'success') {
+        // Any pre-connect registration attempts silently no-op'd in the
+        // extension because the origin wasn't trusted yet — but `Ultra.on`
+        // marks `listenerIds` optimistically before awaiting the response,
+        // so without this clear `registerAllListenersWithExtension` would
+        // see those stale ids and skip re-registration. Result: events
+        // never get delivered. Clear so the post-connect register runs.
+        listenerIds.clear();
         registerAllListenersWithExtension();
     }
     return result;
@@ -166,6 +182,14 @@ export async function getAvailableAuthorizations(): Promise<UltraResponse<Availa
 
 const localListeners = new Map<WalletEventType, Set<(data: any) => void>>();
 const listenerIds = new Map<string, string>(); // eventName → listenerId
+// `accountChanged` is subscribed for its `accounts` payload only. The
+// toolkit treats wallet's available-accounts list as authoritative
+// (chain-resolved by the wallet) but keeps `selected` as a local
+// override — the developer can pick any available account per-action,
+// supporting multi-signer transactions where different actions need
+// different `actor@permission` authorities. App.vue's handler must
+// touch only the available list, never overwrite `authState.accountName`
+// from the event's `selected` field.
 const SUPPORTED_EVENTS: WalletEventType[] = ['accountChanged', 'networkChanged', 'disconnect'];
 let windowListenerInstalled = false;
 
@@ -184,7 +208,6 @@ function installWindowListener(): void {
         const eventName = msg.payload.event as WalletEventType;
         const data = msg.payload.data;
         if (!eventName) return;
-        console.log('[ultra-tool-kit] wallet event received:', eventName, data);
         const callbacks = localListeners.get(eventName);
         if (callbacks) callbacks.forEach((cb) => cb(data));
     });
@@ -204,8 +227,22 @@ function generateId(): string {
 
 /**
  * Register all currently-known event types with the extension.
- * Called after connect() succeeds (the extension only accepts listener registration
- * from trusted origins, which is established via connect()).
+ *
+ * Called after connect() succeeds AND from a periodic heartbeat. The BG
+ * service worker keeps its listener map in `chrome.storage.session`, which
+ * is wiped on every extension reload (and MV3 may also restart the worker
+ * when idle, though session storage survives that). After an extension
+ * reload, the toolkit's `window.ultra` is re-injected and works for RPCs,
+ * but the BG has forgotten our event-listener registrations — events fire
+ * and silently drop because no tab is registered.
+ *
+ * The fix is idempotent re-registration: every call reissues
+ * `addExtensionListener` (no `listenerIds.has` gate). The BG's
+ * `EventsService.registerListener` appends a uuid to its listeners array
+ * for the (event, tab) slot, but `sendEventMessage` only checks
+ * `listeners.length > 0` and sends one message per tab — duplicates in the
+ * array don't cause duplicate event delivery. Worst case the array grows
+ * a few entries until the next page reload.
  */
 function registerAllListenersWithExtension(): void {
     if (!isAvailable()) return;
@@ -214,23 +251,48 @@ function registerAllListenersWithExtension(): void {
         const callbacks = localListeners.get(eventName);
         if (!callbacks || callbacks.size === 0) continue;
 
-        // If already registered, skip (id is cached)
-        if (listenerIds.has(eventName)) continue;
-
-        const listenerId = generateId();
+        const listenerId = listenerIds.get(eventName) ?? generateId();
         listenerIds.set(eventName, listenerId);
         try {
             const result = (window as any).ultra.addExtensionListener(eventName, listenerId);
             if (result && typeof result.catch === 'function') {
-                result.catch(() => {
-                    // Registration failed — drop the cached id so a retry is possible
-                    listenerIds.delete(eventName);
-                });
+                // Don't drop the id on rejection — the heartbeat will retry.
+                result.catch(() => undefined);
             }
         } catch {
-            listenerIds.delete(eventName);
+            // Same: leave the id in place for heartbeat retry.
         }
     }
+}
+
+// Heartbeat: re-register every 2s. Idempotent on the BG side (storage.session
+// write only when a local subscription exists), cheap.
+//
+// Recovery story: when the extension is reloaded, the BG's listenersMap
+// (chrome.storage.session.EVENT_LISTENERS) is wiped. Events fire from the
+// BG and silently drop because no tab is registered. Without the
+// heartbeat, registration only re-runs on the next `Ultra.connect()` —
+// which the user may not trigger before they switch network in the wallet.
+//
+// 2s cadence puts an upper bound on recovery time at ~2s. Combined with
+// the RPC piggyback in `getSDK()`, any toolkit interaction also triggers
+// a registration tick.
+const HEARTBEAT_INTERVAL_MS = 2_000;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+function heartbeatTick(): void {
+    if (!isAvailable()) return;
+    let hasAny = false;
+    for (const cbs of localListeners.values()) {
+        if (cbs.size > 0) {
+            hasAny = true;
+            break;
+        }
+    }
+    if (hasAny) registerAllListenersWithExtension();
+}
+function ensureHeartbeat(): void {
+    if (heartbeatTimer != null || typeof window === 'undefined') return;
+    heartbeatTimer = setInterval(heartbeatTick, HEARTBEAT_INTERVAL_MS);
 }
 
 /**
@@ -243,12 +305,14 @@ function registerAllListenersWithExtension(): void {
  */
 export function on(event: WalletEventType, callback: (data: any) => void): void {
     installWindowListener();
+    ensureHeartbeat();
     const existing = localListeners.get(event) ?? new Set();
     existing.add(callback);
     localListeners.set(event, existing);
 
-    // If we're already connected (trusted), register immediately
-    if (isAvailable() && !listenerIds.has(event)) {
+    // Always attempt to register; idempotent on BG side and recovers from
+    // any prior failed registration (untrusted-origin no-op, etc).
+    if (isAvailable()) {
         registerAllListenersWithExtension();
     }
 }

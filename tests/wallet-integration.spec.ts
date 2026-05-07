@@ -464,10 +464,14 @@ test.describe('Wallet SDK Integration', () => {
                 (window as any).__walletConfig.accountName = newAccount;
             }, { newAccount: TEST_ACCOUNT_2 });
 
-            // Fire accountChanged
+            // Fire accountChanged. The BG emits the denormalized shape
+            // (one row per account+permission, with a singular `permission`
+            // field) — see `background.ts:emitAccountChanged`. This mock
+            // mirrors that contract so the toolkit handler decodes it
+            // correctly via `setAvailableAccountsFromEvent`.
             await fireWalletEvent(page, 'accountChanged', {
-                accounts: [{ accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] }],
-                selected: { accountName: TEST_ACCOUNT_2, permissions: [{ name: 'active', publicKeys: [TEST_PUBKEY] }] },
+                accounts: [{ accountName: TEST_ACCOUNT_2, permission: 'active', publicKey: TEST_PUBKEY }],
+                selected: { accountName: TEST_ACCOUNT_2, permission: 'active', publicKey: TEST_PUBKEY },
             });
 
             // UI updates
@@ -495,9 +499,12 @@ test.describe('Wallet SDK Integration', () => {
                 (window as any).__walletConfig.permission = 'owner';
             }, { newAccount: TEST_ACCOUNT_2 });
 
+            // Singular `permission` per row matches the BG's emitAccountChanged
+            // contract; the toolkit's setAvailableAccountsFromEvent + fallback
+            // both read `permission` (not the legacy plural `permissions[]`).
             await fireWalletEvent(page, 'accountChanged', {
-                accounts: [{ accountName: TEST_ACCOUNT_2, permissions: [{ name: 'owner', publicKeys: [TEST_PUBKEY] }] }],
-                selected: { accountName: TEST_ACCOUNT_2, permissions: [{ name: 'owner', publicKeys: [TEST_PUBKEY] }] },
+                accounts: [{ accountName: TEST_ACCOUNT_2, permission: 'owner', publicKey: TEST_PUBKEY }],
+                selected: { accountName: TEST_ACCOUNT_2, permission: 'owner', publicKey: TEST_PUBKEY },
             });
 
             // Should show "otheraccount@owner" since permission is non-active
