@@ -320,6 +320,42 @@ test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
             await page.reload();
             await page.waitForLoadState('networkidle');
 
+            // Capture every wallet event message that crosses the
+            // content-script → page bridge. The BG's EventsService dispatches
+            // `MessageType.EVENT` messages via the content script, which then
+            // re-emits them as window.postMessage. Listening in the page
+            // context is the most reliable end-to-end proof that BG dispatch
+            // worked: the toolkit's wallet-sdk listener path is the one and
+            // only consumer of these messages, so if our listener catches
+            // them, every other path that depends on event delivery will too.
+            //
+            // We assert on this AFTER the env-switch transitions instead of
+            // log-substring matching — Playwright's sw.on('console') does NOT
+            // capture spontaneous SW console calls (only logs from inside
+            // sw.evaluate blocks), so the BG's [DIAG bg.*] / [DIAG
+            // EventsService.*] lines never reach swLogs even when dispatch
+            // succeeds. State-based asserts don't have that limitation.
+            await page.evaluate(() => {
+                interface CapturedEvent { event: string; origin?: string; data?: unknown }
+                interface PageWithCaptures extends Window {
+                    __capturedWalletEvents?: CapturedEvent[];
+                }
+                const w = window as PageWithCaptures;
+                w.__capturedWalletEvents = [];
+                window.addEventListener('message', (e: MessageEvent) => {
+                    if (e.source !== window) return;
+                    const msg = e.data;
+                    if (!msg || typeof msg !== 'object') return;
+                    const type = typeof msg.type === 'string' ? msg.type.toUpperCase() : '';
+                    if (type !== 'EVENT' || !msg.payload) return;
+                    w.__capturedWalletEvents!.push({
+                        event: String(msg.payload.event ?? ''),
+                        origin: msg.payload.origin,
+                        data: msg.payload.data,
+                    });
+                });
+            });
+
             const waitForAccountName = async (expected: string, label: string) => {
                 const values: (string | undefined)[] = [];
                 try {
@@ -408,22 +444,44 @@ test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
             await setWalletEnv(sw, 'testnet');
             await waitForAccountName('tnetacct.test', 'after mainnet→testnet');
 
-            // For maintainability — surface a slice of toolkit logs if the test ever
-            // fails so a future developer can see what arrived.
             // sanity-check: the extension id we got is real
             expect(extId).toMatch(/^[a-z]{32}$/);
 
-            // Sanity: the event-pipeline diag logs confirm the BG actually
-            // dispatched a delivered accountChanged and the toolkit's
-            // handler consumed it (not just the toolkit's local re-connect
-            // re-querying). If these are missing, the test passed for the
-            // wrong reason and the assertions above are stale.
-            expect(swLogs.some((l) =>
-                l.includes('event= accountChanged') &&
-                l.includes('mapHasEvent= true') &&
-                l.includes('tabsForEvent='),
-            )).toBe(true);
-            expect(toolkitLogs.some((l) => l.includes('[DIAG toolkit.accountChanged]'))).toBe(true);
+            // The waitForAccountName transitions above prove the toolkit
+            // ended up on the right state. This block proves it got there
+            // via real BG event dispatch (not via some re-query path) by
+            // inspecting the actual MessageType.EVENT messages bridged from
+            // the content script to the page. App.vue has no polling, so
+            // the only way authState.accountName flips between chains is
+            // through one of the event handlers — but verifying the message
+            // arrival directly defends against future regressions where
+            // someone might add a polling re-query.
+            const capturedEvents = await page.evaluate(() => {
+                interface CapturedEvent { event: string; origin?: string; data?: unknown }
+                return ((window as unknown as { __capturedWalletEvents?: CapturedEvent[] })
+                    .__capturedWalletEvents ?? []).slice();
+            });
+            const eventNames = capturedEvents.map((e) => e.event);
+            expect(eventNames, `events captured during chain switches: ${JSON.stringify(eventNames)}`)
+                .toEqual(expect.arrayContaining(['accountChanged', 'networkChanged']));
+
+            // Account-list payload sanity: at least one accountChanged
+            // delivered the new chain's account name. This catches a
+            // regression where the BG dispatches but with a stale/empty
+            // payload — the toolkit could still flip via re-query and
+            // the test would otherwise pass for the wrong reason.
+            const acctEventAccounts = capturedEvents
+                .filter((e) => e.event === 'accountChanged')
+                .flatMap((e) => {
+                    const data = e.data as { accounts?: Array<{ accountName?: string }> } | undefined;
+                    return Array.isArray(data?.accounts)
+                        ? data.accounts.map((a) => a?.accountName)
+                        : [];
+                })
+                .filter((n): n is string => typeof n === 'string');
+            expect(acctEventAccounts).toEqual(
+                expect.arrayContaining(['mnetacct.main', 'tnetacct.test']),
+            );
         } finally {
             // Dump logs always so we can diagnose failures.
             const dumpDiag = (label: string, logs: string[]) => {
