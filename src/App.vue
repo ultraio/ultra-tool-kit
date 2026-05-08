@@ -341,24 +341,13 @@ async function setAccount(
 }
 
 /**
- *
- * Removes local storage, and resets current session.
+ * Reset the toolkit's local session state. Does NOT call into any wallet
+ * RPC — used both for local-only logout (after the wallet broadcasts
+ * `disconnect` to us; we just mirror) and as the tail of the wallet-bound
+ * logout flows below.
  */
-async function logout() {
-    if (authState.value.type === 'ultra') {
-        await Ultra.disconnect();
-    }
-
-    if (authState.value.type === 'ultra-web') {
-        await UltraWeb.disconnect();
-    }
-
-    if (authState.value.type === 'anchor') {
-        await Anchor.logout();
-    }
-
+function resetLocalSession() {
     clearWalletAccounts();
-
     setAuthStateKeys({
         type: undefined,
         accountName: undefined,
@@ -368,6 +357,32 @@ async function logout() {
     });
     localStorage.setItem('authState', JSON.stringify(authState.value));
     resetPageState();
+}
+
+/**
+ * User-initiated logout: tell the wallet, then reset local state.
+ *
+ * `Ultra.disconnect()` on the BG side is idempotent — even if the user
+ * disconnected from the wallet UI moments earlier (so we're already
+ * untrusted), the call resolves successfully. We always run the local
+ * reset afterwards so a transient RPC failure doesn't leave the toolkit
+ * stuck in a half-connected state.
+ */
+async function logout() {
+    try {
+        if (authState.value.type === 'ultra') {
+            await Ultra.disconnect();
+        } else if (authState.value.type === 'ultra-web') {
+            await UltraWeb.disconnect();
+        } else if (authState.value.type === 'anchor') {
+            await Anchor.logout();
+        }
+    } catch {
+        // Wallet RPC failed — proceed with local cleanup anyway. A failed
+        // disconnect on a session the user wants ended must not block
+        // their UI from clearing.
+    }
+    resetLocalSession();
 }
 
 function setTransaction(newActions: I.Action[]) {
@@ -619,7 +634,12 @@ async function handleWalletNetworkChanged(data: { chainId: string; name: string 
 
 function handleWalletDisconnect() {
     if (authState.value.type !== 'ultra') return;
-    logout();
+    // The wallet already removed trust on its side (this event is its
+    // notification to us). Don't call `Ultra.disconnect()` again — that
+    // would be a redundant RPC, and historically the BG short-circuited it
+    // with USER_REJECTED_REQUEST when the origin was no longer trusted,
+    // leaving the toolkit's local state un-reset. Just mirror locally.
+    resetLocalSession();
 }
 
 onMounted(async () => {
