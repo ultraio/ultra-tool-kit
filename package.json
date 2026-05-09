@@ -8,7 +8,10 @@
         "preview": "vite preview",
         "prepare": "husky install",
         "buildonly": "vue-tsc && vite build -- --pages",
-        "format": "prettier --check ./src && prettier --write ./src && git add -A ./src"
+        "format": "prettier --check ./src && prettier --write ./src && git add -A ./src",
+        "test:e2e": "playwright test",
+        "test:e2e:install": "playwright install --with-deps chromium",
+        "test:e2e:headed": "playwright test --headed"
     },
     "dependencies": {
         "@fortawesome/fontawesome-svg-core": "^6.4.0",

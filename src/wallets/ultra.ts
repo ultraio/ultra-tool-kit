@@ -296,6 +296,21 @@ function ensureHeartbeat(): void {
 }
 
 /**
+ * Stop the listener-recovery heartbeat. Call from a Vue `onUnmounted` hook
+ * so the 2s timer doesn't keep ticking (and doesn't keep writing to
+ * `chrome.storage.session` via `registerAllListenersWithExtension` if any
+ * listener is still registered) after the page is gone.
+ *
+ * Safe to call when no heartbeat was started.
+ */
+export function dispose(): void {
+    if (heartbeatTimer != null) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    }
+}
+
+/**
  * Register a wallet event listener.
  * Events: 'accountChanged', 'networkChanged', 'disconnect'
  *

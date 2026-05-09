@@ -687,6 +687,11 @@ onUnmounted(async () => {
     Ultra.off('accountChanged', handleWalletAccountChanged);
     Ultra.off('networkChanged', handleWalletNetworkChanged);
     Ultra.off('disconnect', handleWalletDisconnect);
+    // Stop the SDK-recovery heartbeat. Without this the 2s setInterval keeps
+    // ticking after the page is gone — benign-but-leaky. Combined with the
+    // Ultra.off(...) calls above (which clear local listeners) the heartbeat
+    // would short-circuit anyway, but we'd rather not pay the timer overhead.
+    Ultra.dispose();
 });
 
 </script>

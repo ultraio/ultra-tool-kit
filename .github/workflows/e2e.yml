@@ -1,0 +1,113 @@
+name: Wallet E2E
+
+# Runs the Playwright wallet-extension e2e suite (7 specs at tests/e2e/)
+# against a freshly-built browser-extension-wallet from the web-app monorepo.
+#
+# The suite is the regression contract for the redesigned wallet's critical
+# paths (onboarding, vault unlock, EBA registration, sign-transaction,
+# key-manager, network-sync, disconnect-connect). Keeping it in CI is the
+# only thing that prevents drift in the workaround layer in src/wallets/ultra.ts.
+#
+# REQUIREMENTS:
+#  - The web-app repo lives at ultraio/web-app and is private. To clone it
+#    in CI you need a `WEB_APP_TOKEN` repo secret (a fine-grained PAT or a
+#    deploy key) with read access. Without it the workflow short-circuits
+#    cleanly and reports "skipped — missing WEB_APP_TOKEN".
+#  - The web-app build pinned via `WEB_APP_REF` (default: master). Pin to a
+#    tag/commit if you want a stable extension build.
+#  - Local-Pop run: `npm run test:e2e` after `npx nx build
+#    browser-extension-wallet` in a sibling web-app checkout.
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      web_app_ref:
+        description: 'web-app branch/tag/SHA to build extension from'
+        required: false
+        default: 'master'
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      WEB_APP_REF: ${{ github.event.inputs.web_app_ref || 'master' }}
+
+    steps:
+      - name: Check WEB_APP_TOKEN secret
+        id: have-token
+        run: |
+          if [ -z "${{ secrets.WEB_APP_TOKEN }}" ]; then
+            echo "::warning::WEB_APP_TOKEN not configured — wallet e2e cannot build the extension. Skipping."
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout ultra-tool-kit
+        if: steps.have-token.outputs.have_token == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: ultra-tool-kit
+
+      - name: Checkout web-app (private)
+        if: steps.have-token.outputs.have_token == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ultraio/web-app
+          token: ${{ secrets.WEB_APP_TOKEN }}
+          ref: ${{ env.WEB_APP_REF }}
+          path: web-app
+
+      - name: Setup Node 20
+        if: steps.have-token.outputs.have_token == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install web-app deps
+        if: steps.have-token.outputs.have_token == 'true'
+        working-directory: web-app
+        run: npm ci
+
+      - name: Build browser-extension-wallet
+        if: steps.have-token.outputs.have_token == 'true'
+        working-directory: web-app
+        run: |
+          rm -rf .angular tmp
+          npx nx build browser-extension-wallet --skip-nx-cache
+          test -f dist/browser-extension-wallet/manifest.json
+
+      - name: Install ultra-tool-kit deps
+        if: steps.have-token.outputs.have_token == 'true'
+        working-directory: ultra-tool-kit
+        run: npm ci
+
+      - name: Install Playwright browsers
+        if: steps.have-token.outputs.have_token == 'true'
+        working-directory: ultra-tool-kit
+        run: npm run test:e2e:install
+
+      - name: Run wallet e2e suite
+        if: steps.have-token.outputs.have_token == 'true'
+        working-directory: ultra-tool-kit
+        run: npm run test:e2e
+
+      - name: Upload Playwright artifacts on failure
+        if: ${{ steps.have-token.outputs.have_token == 'true' && failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            ultra-tool-kit/test-results
+            ultra-tool-kit/playwright-report
+          retention-days: 7
