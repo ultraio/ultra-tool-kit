@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Node, Tree } from 'web-tree-sitter';
+import { fetchAbiWithFallback, hashAbi, type Abi } from './abi.js';
 import { collectByType, lineRange, nodeText, parseCpp, walk } from './cpp-parser.js';
 import { buildMacroTable, type MacroTable } from './macros.js';
 import { collapseWhitespace, collectCaptures, findHelperCalls, type Capture } from './patterns.js';
@@ -31,13 +31,6 @@ type AbiAction = {
     params: AbiParam[];
 };
 
-type AbiResponse = {
-    chain_id?: string;
-    abi: {
-        actions: Array<{ name: string; type: string }>;
-        structs: Array<{ name: string; fields: Array<{ name: string; type: string }> }>;
-    };
-};
 
 type FunctionDef = {
     name: string;
@@ -74,49 +67,9 @@ export async function resolveContractDir(name: string, sourceRoot: string): Prom
     });
 }
 
-// ─── ABI fetching ─────────────────────────────────────────────────────────────
+// ─── ABI extraction (fetch logic lives in ./abi.ts so other scripts can reuse it) ─
 
-async function fetchAbi(name: string, url: string, log: Logger): Promise<AbiResponse> {
-    const endpoint = `${url.replace(/\/$/, '')}/v1/chain/get_abi`;
-    log(`[extract] Fetching ABI from ${endpoint} for ${name}`);
-    const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_name: name }),
-    });
-    if (!res.ok) throw new ExtractError(`ABI fetch failed: ${res.status} ${res.statusText}`, { endpoint });
-    const json = (await res.json()) as { account_name: string; abi?: AbiResponse['abi'] };
-    if (!json.abi || !Array.isArray(json.abi.actions)) {
-        throw new ExtractError(`ABI response missing abi.actions for ${name}`, { endpoint });
-    }
-    let chainId = '';
-    try {
-        const infoRes = await fetch(`${url.replace(/\/$/, '')}/v1/chain/get_info`);
-        if (infoRes.ok) {
-            const info = (await infoRes.json()) as { chain_id?: string };
-            chainId = info.chain_id ?? '';
-        }
-    } catch {
-        // chain_id is best-effort metadata; missing is non-fatal.
-    }
-    return { chain_id: chainId, abi: json.abi };
-}
-
-async function fetchAbiWithFallback(
-    name: string,
-    mainnetUrl: string,
-    testnetUrl: string,
-    log: Logger
-): Promise<AbiResponse> {
-    try {
-        return await fetchAbi(name, mainnetUrl, log);
-    } catch (err) {
-        log(`[extract] Mainnet ABI fetch failed (${(err as Error).message}); falling back to testnet`);
-        return await fetchAbi(name, testnetUrl, log);
-    }
-}
-
-function extractAbiActions(abi: AbiResponse['abi']): AbiAction[] {
+function extractAbiActions(abi: Abi): AbiAction[] {
     const structByName = new Map(abi.structs.map((s) => [s.name, s] as const));
     return abi.actions.map((a) => {
         const struct = structByName.get(a.type);
@@ -445,7 +398,7 @@ export async function extractContract(input: ExtractInput): Promise<CatalogFile>
     log(`[extract] Contract dir: ${contractDir}`);
 
     const abiResponse = await fetchAbiWithFallback(input.name, input.mainnetUrl, input.testnetUrl, log);
-    const abiHash = createHash('sha256').update(JSON.stringify(abiResponse.abi)).digest('hex');
+    const abiHash = hashAbi(abiResponse.abi);
     const abiActions = extractAbiActions(abiResponse.abi);
     log(`[extract] ABI actions: ${abiActions.map((a) => a.name).join(', ')}`);
 
@@ -510,7 +463,7 @@ export async function extractContract(input: ExtractInput): Promise<CatalogFile>
     return {
         contract: input.name,
         abi_hash: abiHash,
-        abi_chain_id: abiResponse.chain_id ?? '',
+        abi_chain_id: abiResponse.chainId,
         abi_fetched_at: new Date().toISOString(),
         source_path: contractDir,
         actions,

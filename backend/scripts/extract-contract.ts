@@ -96,7 +96,7 @@ async function main(): Promise<void> {
         throw new ExtractError('Usage: tsx scripts/extract-contract.ts <contract-name>… [--source <root>] [--source-dir <dir>]');
     }
 
-    const mainnetUrl = process.env.MAINNET_URL ?? 'https://ultra.api.eosnation.io';
+    const mainnetUrl = process.env.MAINNET_URL ?? 'https://ultra.eosusa.io';
     const testnetUrl = process.env.TESTNET_URL ?? 'https://test.ultra.eosusa.io';
 
     const here = dirname(fileURLToPath(import.meta.url));
