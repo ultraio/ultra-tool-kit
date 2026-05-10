@@ -93,6 +93,13 @@ const handleUpdateAbiActions = (updatedActions) => {
     localStorage.setItem('abiRenderState', JSON.stringify(updatedActions));
 };
 
+// AI handoff: append a fully-formed proposal to userActions. The chat drawer
+// emits this after the contract finishes loading on the builder page.
+const handleAiAddAction = (action: I.Action) => {
+    userActions.value.push(action);
+    localStorage.setItem('abiRenderState', JSON.stringify(userActions.value));
+};
+
 function removeAction(index: number) {
     userActions.value.splice(index, 1);
     localStorage.setItem('abiRenderState', JSON.stringify(userActions.value));
@@ -145,6 +152,7 @@ onMounted(async () => {
     loading.value = true;
 
     emitter.on('updateAbiActions', handleUpdateAbiActions);
+    emitter.on('aiAddAction', handleAiAddAction);
 
     const jsonData = localStorage.getItem('abiRenderState');
     if (jsonData) {
@@ -215,5 +223,6 @@ onMounted(async () => {
 
 onUnmounted(async () => {
     emitter.off('updateAbiActions', handleUpdateAbiActions);
+    emitter.off('aiAddAction', handleAiAddAction);
 });
 </script>

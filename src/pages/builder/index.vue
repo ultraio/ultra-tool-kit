@@ -3,6 +3,20 @@
         <div class="text-3xl font-bold">Transaction Builder</div>
         <div>Add all the contract accounts you want to use, before building a transaction.</div>
 
+        <!-- AI handoff status banner -->
+        <div
+            v-if="aiHandoffStatus"
+            class="rounded border px-3 py-2 text-xs"
+            :class="
+                aiHandoffStatus.kind === 'error'
+                    ? 'border-red-700 bg-red-900/30 text-red-200'
+                    : 'border-purple-700 bg-purple-900/20 text-purple-200'
+            "
+            data-testid="ai-handoff-banner"
+        >
+            {{ aiHandoffStatus.message }}
+        </div>
+
         <!-- Quick Add -->
         <div class="text-2xl font-bold mt-4">Add Contract Accounts</div>
         <div class="flex flex-col">
@@ -53,19 +67,25 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router/auto';
 import * as I from '../../interfaces/index';
 import { BlockchainService } from '../../utilities/blockchain';
+import { aiHandoff } from '../../composables/useAiChat';
+import { emitter } from '../../eventBus';
 
 const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
+const route = useRoute();
 const accounts = ref<I.TransactionBuilderContract[]>([]);
 const contractNameInput = ref<string>('');
 
 const inputCount = ref<number>(0);
 
 const quickAdds = ref<string[]>(['eosio', 'eosio.token', 'eosio.nft.ft', 'eosio.group', 'ultra.avatar', 'ultra.tools']);
+
+const aiHandoffStatus = ref<{ kind: 'pending' | 'ready' | 'error'; message: string } | null>(null);
 
 async function addContract(name: string) {
     if (name) {
@@ -109,22 +129,68 @@ async function validateAccounts() {
     }
 }
 
-onMounted(async () => {
-    const jsonData = localStorage.getItem('transactionBuilderState');
-    if (!jsonData) {
-        return;
+async function processAiHandoff() {
+    if (route.query.ai !== 'pending') return;
+    const handoff = aiHandoff.value;
+    if (!handoff) return;
+
+    aiHandoff.value = null;
+    aiHandoffStatus.value = {
+        kind: 'pending',
+        message: `Loading ${handoff.contract} for the AI proposal…`,
+    };
+
+    if (!accounts.value.find((acc) => acc.account === handoff.contract)) {
+        await addContract(handoff.contract);
+    } else {
+        await update();
     }
 
-    try {
-        const data = JSON.parse(jsonData);
-        if (!Array.isArray(data)) {
-            localStorage.setItem('transactionBuilderState', JSON.stringify([]));
-        }
+    const stop = watch(
+        accounts,
+        (list) => {
+            const entry = list.find((acc) => acc.account === handoff.contract);
+            if (!entry) return;
+            if (entry.status === 'found') {
+                emitter.emit('aiAddAction', {
+                    contract: handoff.contract,
+                    action: handoff.action,
+                    data: handoff.data,
+                    authorization: [handoff.authorization],
+                });
+                aiHandoffStatus.value = {
+                    kind: 'ready',
+                    message: `AI proposal queued: ${handoff.contract}::${handoff.action}. Click "Review 1 Action(s)" to send.`,
+                };
+                stop();
+            } else if (entry.status === 'not found') {
+                aiHandoffStatus.value = {
+                    kind: 'error',
+                    message: `Contract ${handoff.contract} was not found on this endpoint.`,
+                };
+                stop();
+            }
+        },
+        { deep: true, immediate: true }
+    );
+}
 
-        accounts.value = data;
-        for (let acc of accounts.value) acc.status = 'loading';
-        await validateAccounts();
-        inputCount.value += 1;
-    } catch (err) {}
+onMounted(async () => {
+    const jsonData = localStorage.getItem('transactionBuilderState');
+    if (jsonData) {
+        try {
+            const data = JSON.parse(jsonData);
+            if (!Array.isArray(data)) {
+                localStorage.setItem('transactionBuilderState', JSON.stringify([]));
+            } else {
+                accounts.value = data;
+                for (let acc of accounts.value) acc.status = 'loading';
+                await validateAccounts();
+                inputCount.value += 1;
+            }
+        } catch (err) {}
+    }
+
+    await processAiHandoff();
 });
 </script>

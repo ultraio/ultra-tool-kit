@@ -41,6 +41,11 @@ import TransactionVue from './components/Transaction.vue';
 import AbiRenderVue from './components/AbiRender.vue';
 import NavigationVue from './components/Navigation.vue';
 
+import ChatDrawerVue from './components/ai/ChatDrawer.vue';
+import MessageBubbleVue from './components/ai/MessageBubble.vue';
+import ProposalCardVue from './components/ai/ProposalCard.vue';
+import CostBadgeVue from './components/ai/CostBadge.vue';
+
 import AnchorHelpVue from './components/help/AnchorHelp.vue';
 import UltraWalletHelpVue from './components/help/UltraWalletHelp.vue';
 import LedgerHelpVue from './components/help/LedgerHelp.vue';
@@ -61,6 +66,12 @@ app.component('UserOverlay', UserOverlayVue);
 app.component('Transaction', TransactionVue);
 app.component('AbiRender', AbiRenderVue);
 app.component('Navigation', NavigationVue);
+
+// AI assistant
+app.component('ChatDrawer', ChatDrawerVue);
+app.component('MessageBubble', MessageBubbleVue);
+app.component('ProposalCard', ProposalCardVue);
+app.component('CostBadge', CostBadgeVue);
 
 // Register Utility Components
 app.component('Modal', ModalVue);

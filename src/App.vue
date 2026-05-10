@@ -14,9 +14,20 @@
                 </div>
                 <span>Ultra Tool Kit</span>
             </router-link>
-            <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
-                {{ authState.environment }}
-            </Button>
+            <div class="flex items-center gap-3">
+                <CostBadge />
+                <button
+                    class="p-2 rounded-md bg-neutral-900 border border-neutral-700 hover:border-purple-500 text-neutral-200"
+                    title="Open AI assistant"
+                    data-testid="ai-chat-open"
+                    @click="aiOpen = true"
+                >
+                    <Icon icon="fa-comments" />
+                </button>
+                <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
+                    {{ authState.environment }}
+                </Button>
+            </div>
         </div>
 
         <!-- Main Content Row -->
@@ -60,6 +71,9 @@
             @transaction-executed="transactionExecuted"
             :allowProposal="actions[0]?.contract == 'eosio.msig' ? false : true"
         />
+
+        <!-- AI chat drawer is mounted once at the app root so it persists across route changes. -->
+        <ChatDrawer :open="aiOpen" :state="authState" @close="aiOpen = false" />
     </div>
 </template>
 
@@ -85,6 +99,7 @@ import { emitter } from './eventBus';
 let pageState = ref<I.PageState>({});
 
 let actions = ref<I.Action[] | undefined>(undefined);
+let aiOpen = ref<boolean>(false);
 let keyRouterUpdate = ref<number>(1);
 let keyUserUpdate = ref<number>(1);
 let isNetworkSyncing = false; // Prevents circular sync between wallet↔toolkit
