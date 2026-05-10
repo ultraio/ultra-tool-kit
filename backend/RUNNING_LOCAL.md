@@ -1,15 +1,14 @@
 # Running locally (Phase 1)
 
-Free, single-user, on-your-laptop setup. Postgres via the Supabase CLI; LLM via
-Ollama. Use this for the demo and day-to-day development.
+Free, single-user, on-your-laptop setup. Postgres + pgvector via a single Docker
+container; LLM via Ollama. Use this for the demo and day-to-day development.
 
 ## Prerequisites
 
 | Tool | Why | Install |
 |------|-----|---------|
 | Node 22+ | Backend runtime | `brew install node@22` |
-| Docker Desktop | Supabase + the ingest test container | https://docs.docker.com/desktop/ |
-| Supabase CLI | Spins up Postgres + pgvector + Studio in one Docker stack | `brew install supabase/tap/supabase` |
+| Docker Desktop | Postgres container + the ingest test container | https://docs.docker.com/desktop/ |
 | Ollama | Local LLM | `brew install ollama` (or https://ollama.com/download) |
 | `psql` (optional) | Quick SQL inspection | comes with `postgresql` on Homebrew |
 | `~/ultra/eosio.contracts` | C++ source the extractor reads | `git clone <eosio.contracts repo> ~/ultra/eosio.contracts` (already in place if you set up the toolkit normally) |
@@ -21,26 +20,41 @@ cd backend
 npm install
 ```
 
-## 2. Start Postgres + pgvector via Supabase
+## 2. Start Postgres + pgvector
 
-From the repo root:
-
-```bash
-supabase start
-```
-
-This boots a Docker stack that includes Postgres 17 with `pgvector` preinstalled,
-exposes Postgres on `127.0.0.1:54322` by default, and prints a `DB URL` line you
-can copy into `backend/.env`. Studio (browser DB UI) ships at
-`http://localhost:54323`.
-
-If you've never run `supabase init` in this repo before, run it once:
+One container, one command:
 
 ```bash
-supabase init
+docker run -d --name ultra-pg17 \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 54322:5432 \
+  --restart unless-stopped \
+  pgvector/pgvector:pg17
 ```
 
-It writes a `supabase/` directory at the repo root with default config.
+This is the same image the ingest test uses, so it's already cached if you've
+run `npm test` once. Boots in ~2 seconds; pgvector 0.8.x is preinstalled.
+
+Verify:
+
+```bash
+docker exec ultra-pg17 pg_isready -U postgres
+docker exec ultra-pg17 psql -U postgres -c "select version();"
+```
+
+To stop or destroy later:
+
+```bash
+docker stop ultra-pg17       # pause; data persists in the container
+docker rm -f ultra-pg17      # destroy; everything gone
+```
+
+> **Why not Supabase?** The Supabase CLI bundles Studio, GoTrue, Storage,
+> Realtime, and a Datadog-Vector log shipper alongside Postgres — none of which
+> the toolkit demo uses. A bare pgvector container boots in seconds and avoids
+> ECR Public outages that occasionally break `supabase start`. If you want
+> Supabase Studio for browsing data, install [pgweb](https://github.com/sosedoff/pgweb)
+> or use any Postgres GUI pointed at `127.0.0.1:54322`.
 
 ## 3. Configure `.env`
 
@@ -51,7 +65,7 @@ cp backend/.env.example backend/.env
 Edit `backend/.env`:
 
 ```env
-# From `supabase start` output
+# Matches the docker run command above
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:54322/postgres
 
 # Where your eosio.contracts checkout lives
@@ -204,8 +218,12 @@ The ingest test pulls `pgvector/pgvector:pg17` the first time you run it
 
 ## Common issues
 
-**`supabase start` fails with port conflicts.** Some other Postgres is on 54322.
-Run `supabase stop` first, or change the port in `supabase/config.toml`.
+**`docker run` fails with `port is already allocated`.** Something else is on
+54322. Either stop it (`docker ps | grep 54322`) or pick a different host port
+(`-p 54323:5432` and update `DATABASE_URL` to match).
+
+**`docker exec ultra-pg17 ...` says "no such container".** The container was
+never started or got removed. Re-run the `docker run` from §2.
 
 **`Error: connect ECONNREFUSED 127.0.0.1:11434` from ingest.** Ollama isn't
 running. Start `ollama serve` in another terminal.
@@ -227,16 +245,20 @@ contracts ingested it stops complaining.
 
 ## Resetting
 
-Wipe the database and re-apply:
+Wipe the schema and re-apply (data + ingested catalog gone, container intact):
 
 ```bash
 npm run db:reset
 ```
 
-Or destroy the entire Supabase stack (everything: data, auth, storage):
+Or nuke the container entirely (faster than `db:reset` for a fresh start):
 
 ```bash
-supabase stop --no-backup
-supabase start
+docker rm -f ultra-pg17
+docker run -d --name ultra-pg17 \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 54322:5432 \
+  --restart unless-stopped \
+  pgvector/pgvector:pg17
 npm run db:migrate
 ```

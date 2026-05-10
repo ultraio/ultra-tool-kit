@@ -19,7 +19,7 @@ Two operating modes — pick the one that matches your situation:
 
 | Mode | When to use | Guide |
 |------|------|------|
-| **Local** | Demoing on your laptop. Free. Postgres via Supabase CLI, LLM via Ollama. | [RUNNING_LOCAL.md](RUNNING_LOCAL.md) |
+| **Local** | Demoing on your laptop. Free. Postgres + pgvector via a single Docker container, LLM via Ollama. | [RUNNING_LOCAL.md](RUNNING_LOCAL.md) |
 | **Live** | Hosted Phase-2 deployment. Managed Postgres + Anthropic + OpenAI embeddings, optionally via Cloudflare AI Gateway. | [RUNNING_LIVE.md](RUNNING_LIVE.md) |
 
 Both modes use the same code and the same SQL schema — only env vars change.
