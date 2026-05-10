@@ -1,0 +1,18 @@
+{
+    "contract": "fixture",
+    "action": "issue",
+    "params": [
+        { "name": "issuer", "type": "name" },
+        { "name": "quantity", "type": "asset" }
+    ],
+    "auths": [{ "actor": "$issuer", "permission": "active" }],
+    "preconditions": [],
+    "field_constraints": {
+        "quantity": [
+            { "expr": ".amount > 0", "message": "amount must be positive" },
+            { "expr": ".symbol.is_valid()", "message": "symbol precision mismatch" }
+        ]
+    },
+    "recipients": [],
+    "source": { "path": "assertion-check.cpp", "lines": [5, 10] }
+}

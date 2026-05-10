@@ -1,0 +1,18 @@
+{
+    "contract": "fixture",
+    "action": "transfer",
+    "params": [
+        { "name": "from", "type": "name" },
+        { "name": "to", "type": "name" },
+        { "name": "quantity", "type": "asset" },
+        { "name": "memo", "type": "string" }
+    ],
+    "auths": [{ "actor": "$from", "permission": "active" }],
+    "preconditions": [{ "kind": "cross_field", "expr": "from != to", "message": "cannot transfer to self" }],
+    "field_constraints": {
+        "quantity": [{ "expr": ".amount > 0", "message": "must transfer positive quantity" }],
+        "memo": [{ "expr": ".size() <= 256", "message": "memo has more than 256 bytes" }]
+    },
+    "recipients": [],
+    "source": { "path": "simple-transfer.cpp", "lines": [5, 11] }
+}

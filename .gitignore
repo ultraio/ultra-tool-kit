@@ -30,3 +30,6 @@ playwright-report/
 
 # Claude Code
 .claude/
+
+# Local-only design docs (not committed)
+backend/docs/

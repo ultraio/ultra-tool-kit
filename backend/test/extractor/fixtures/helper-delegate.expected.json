@@ -1,0 +1,13 @@
+{
+    "contract": "fixture",
+    "action": "setconrecv",
+    "params": [
+        { "name": "payer", "type": "name" },
+        { "name": "receiver", "type": "name" }
+    ],
+    "auths": [{ "actor": "$payer", "permission": "active" }],
+    "preconditions": [{ "kind": "state", "expr": "is_account(receiver)", "message": "receiver account does not exist" }],
+    "field_constraints": {},
+    "recipients": [],
+    "source": { "path": "helper-delegate.cpp", "lines": [5, 8] }
+}

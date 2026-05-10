@@ -1,0 +1,20 @@
+{
+    "contract": "fixture",
+    "action": "open",
+    "params": [
+        { "name": "owner", "type": "name" },
+        { "name": "sym", "type": "symbol" },
+        { "name": "ram_payer", "type": "name" }
+    ],
+    "auths": [{ "actor": "$ram_payer", "permission": "active" }],
+    "preconditions": [
+        {
+            "kind": "state",
+            "expr": "is_account(owner) && sym.is_valid() && sym.precision() <= 18",
+            "message": "owner account does not exist or symbol invalid"
+        }
+    ],
+    "field_constraints": {},
+    "recipients": [],
+    "source": { "path": "multi-line-check.cpp", "lines": [5, 14] }
+}
