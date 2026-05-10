@@ -43,12 +43,20 @@ export async function classifyIntent(
     const provider = deps?.provider ?? getProvider('classifier');
     const userContent = ['Conversation:', renderConversation(messages)].join('\n');
 
-    const res = await provider.chat({
-        system: SYSTEM_PROMPT,
-        user: userContent,
-        toolSchema: OUTPUT_SCHEMA,
-        maxTokens: 4,
-    });
+    // 16 tokens fits `{"label":"OFF_TOPIC"}` plus slack on Ollama, which counts the JSON
+    // envelope. Hosted tool_use ignores the cap for short structured outputs, so this
+    // doesn't change cost on Anthropic / OpenAI.
+    let res;
+    try {
+        res = await provider.chat({
+            system: SYSTEM_PROMPT,
+            user: userContent,
+            toolSchema: OUTPUT_SCHEMA,
+            maxTokens: 16,
+        });
+    } catch {
+        return { label: 'AMBIGUOUS', usage: { input: 0, output: 0 }, modelTag: provider.modelTag() };
+    }
 
     const candidate = (res.json as { label?: unknown } | null | undefined)?.label;
     const label: IntentLabel = isIntentLabel(candidate) ? candidate : 'AMBIGUOUS';

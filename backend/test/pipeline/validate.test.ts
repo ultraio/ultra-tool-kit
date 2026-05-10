@@ -136,12 +136,12 @@ describe('validateProposal', () => {
         expect(fake.rows[0]?.detail.reason).toBe('regex-fail');
     });
 
-    it('refuses admin action under non-admin context', async () => {
+    it('proposes admin action under non-admin context (wallet/chain is the gate)', async () => {
         const raw = {
             kind: 'propose',
             contract: 'eosio.token',
             action: 'create',
-            data: { issuer: 'eosio.token', maximum_supply: '1000.0000 UOS' },
+            data: { issuer: 'eosio.token', maximum_supply: '1000.00000000 UOS' },
             authorization: { actor: 'eosio.token', permission: 'active' },
             rationale: 'Create a token.',
         };
@@ -149,12 +149,8 @@ describe('validateProposal', () => {
             { raw, retrieved: [adminRetrieved], context: baseContext, userId: null, sessionId: null },
             { db: fake.db }
         );
-        expect(r).toEqual({
-            kind: 'refuse',
-            reason: 'That action requires elevated permissions on this account.',
-        });
-        expect(fake.rows).toHaveLength(1);
-        expect(fake.rows[0]?.kind).toBe('admin-blocked');
+        expect(r.kind).toBe('propose');
+        expect(fake.rows).toHaveLength(0);
     });
 
     it('downgrades to ask when a required field is missing', async () => {

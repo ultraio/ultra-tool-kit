@@ -112,6 +112,21 @@ describe('buildPrompt', () => {
         expect(catalogBlock.length).toBeLessThanOrEqual(3500);
     });
 
+    it('renders the Known symbols block from catalog/known-symbols.json', async () => {
+        const result = await buildPrompt({
+            retrieved: [makeRetrieved(transferRules)],
+            context: baseContext,
+            conversation: [],
+        });
+
+        // UOS is shipped in catalog/known-symbols.json with precision=8.
+        expect(result.system).toContain('Known symbols');
+        expect(result.system).toContain('UOS (8 decimals, eosio.token)');
+        expect(result.system).toContain('1.00000000 UOS');
+        // Rule 2 must mention asking when symbol isn't listed.
+        expect(result.system).toMatch(/symbols not in this list require an "ask"/);
+    });
+
     it('produces a tool schema containing the three discriminator kinds', async () => {
         const result = await buildPrompt({
             retrieved: [makeRetrieved(transferRules)],

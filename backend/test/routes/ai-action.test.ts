@@ -354,10 +354,10 @@ describe('POST /api/ai-action (integration)', () => {
         expect(inc.length).toBeGreaterThanOrEqual(1);
     }, 60_000);
 
-    it('admin-action: non-admin user cannot get a propose for the admin-only `create` action', async () => {
-        // retrieve() filters is_admin=true rows when ctx.isAdmin=false, so even
-        // if the LLM tries to propose `create`, validate's catalog-membership
-        // check refuses it (the admin row never landed in `retrieved`).
+    it('admin-action: any user (admin or not) can get a propose; the wallet/chain is the gate', async () => {
+        // The backend no longer pre-filters by is_admin. The wallet (no key)
+        // and the chain (rejects unauthorized sigs) enforce signing privileges,
+        // so this layer just translates intent → JSON and lets the user decide.
         embedStub.vector = ADMIN_VECTOR;
         chatStub.next = {
             json: {
@@ -370,35 +370,14 @@ describe('POST /api/ai-action (integration)', () => {
             },
             usage: { input: 30, output: 20 },
         };
-        const { status, body } = await postBody(
-            makeBody({ messages: [{ role: 'user', content: 'create a new token' }], isAdmin: false })
-        );
-        expect(status).toBe(200);
-        expect(body.kind).toBe('refuse');
-        // schema-fail catalog-membership incident must be logged
-        const inc = await db.select().from(incidents).where(eq(incidents.kind, 'schema-fail'));
-        expect(inc.length).toBeGreaterThanOrEqual(1);
-    }, 60_000);
-
-    it('admin-action: admin user passes retrieval and gets a propose', async () => {
-        embedStub.vector = ADMIN_VECTOR;
-        chatStub.next = {
-            json: {
-                kind: 'propose',
-                contract: 'eosio.token',
-                action: 'create',
-                data: { issuer: 'acc1' },
-                authorization: { actor: 'eosio.token', permission: 'active' },
-                rationale: 'admin create',
-            },
-            usage: { input: 30, output: 20 },
-        };
-        const { status, body } = await postBody(
-            makeBody({ messages: [{ role: 'user', content: 'create a new token' }], isAdmin: true })
-        );
-        expect(status).toBe(200);
-        expect(body.kind).toBe('propose');
-        expect(body.action).toBe('create');
+        for (const isAdmin of [false, true]) {
+            const { status, body } = await postBody(
+                makeBody({ messages: [{ role: 'user', content: 'create a new token' }], isAdmin })
+            );
+            expect(status).toBe(200);
+            expect(body.kind).toBe('propose');
+            expect(body.action).toBe('create');
+        }
     }, 60_000);
 
     it('rate-limit refusal: 7th request in a row returns refuse with HTTP 200 and no chat call', async () => {

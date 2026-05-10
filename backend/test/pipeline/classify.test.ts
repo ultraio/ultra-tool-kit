@@ -34,7 +34,7 @@ describe('classifyIntent', () => {
             expect(r.label).toBe(label);
             expect(r.modelTag).toBe('stub:classifier');
             expect(r.usage).toEqual({ input: 50, output: 1 });
-            expect(stub.lastRequest?.maxTokens).toBe(4);
+            expect(stub.lastRequest?.maxTokens).toBe(16);
             // Last 3 turns should appear in the user content
             expect(stub.lastRequest?.user).toContain('to acc2');
         });
@@ -50,5 +50,17 @@ describe('classifyIntent', () => {
         const stub = new StubClassifier({ label: 'MAYBE' });
         const r = await classifyIntent(conversation, { provider: stub });
         expect(r.label).toBe('AMBIGUOUS');
+    });
+
+    it('defaults to AMBIGUOUS when the provider throws (e.g. truncated JSON on Ollama)', async () => {
+        const stub: ChatProvider = {
+            chat: () => Promise.reject(new Error('Ollama returned non-JSON content')),
+            embed: () => Promise.reject(new Error('not used')),
+            modelTag: () => 'stub:classifier',
+            vectorDim: () => 768,
+        };
+        const r = await classifyIntent(conversation, { provider: stub });
+        expect(r.label).toBe('AMBIGUOUS');
+        expect(r.modelTag).toBe('stub:classifier');
     });
 });

@@ -37,9 +37,10 @@
       "Amount is a signed decimal; |amount * 10^precision| must fit in int64 (≤ 2^62 - 1)",
       "Number of fractional digits must equal the symbol's precision (0-18)",
       "Symbol code is 1-7 uppercase letters (A-Z) only",
-      "Examples must match the precision used at issuance — '1 UOS' is invalid for the 4-decimal core symbol; use '1.0000 UOS'"
+      "Number of fractional digits must equal the symbol's precision exactly — '1 UOS' is invalid; UOS uses 8 decimals so use '1.00000000 UOS'",
+      "Known symbol precisions on Ultra: UOS = 8 decimals (issued by eosio.token). When the user names UOS without explicit decimals, format as '<integer>.<8 fractional digits> UOS' (e.g. '100.00000000 UOS')"
     ],
-    "examples": ["1.0000 UOS", "10.50 USDT", "0 EOS", "-2.5000 UOS", "1234567890.123456789012345678 BIG"]
+    "examples": ["1.00000000 UOS", "100.00000000 UOS", "0.00000001 UOS", "-2.50000000 UOS", "10.500000 USDT"]
   },
   "extended_asset": {
     "description": "An `asset` qualified by the issuing contract account. JSON form is { quantity: asset, contract: account_name }.",
@@ -49,8 +50,8 @@
       "Used when the same symbol can be issued by multiple contracts and the contract must be disambiguated"
     ],
     "examples": [
-      "{\"quantity\": \"1.0000 UOS\", \"contract\": \"eosio.token\"}",
-      "{\"quantity\": \"10.50 USDT\", \"contract\": \"tethertether\"}"
+      "{\"quantity\": \"1.00000000 UOS\", \"contract\": \"eosio.token\"}",
+      "{\"quantity\": \"10.500000 USDT\", \"contract\": \"tethertether\"}"
     ]
   },
   "symbol": {
@@ -61,7 +62,7 @@
       "Precision is an integer 0-18 (max_precision in chain/symbol.hpp)",
       "Symbol code is 1-7 uppercase letters (A-Z)"
     ],
-    "examples": ["4,UOS", "0,EOS", "8,BTC", "18,WEI"]
+    "examples": ["8,UOS", "0,EOS", "8,BTC", "18,WEI"]
   },
   "symbol_code": {
     "description": "The currency code portion of a symbol, without precision.",
@@ -79,7 +80,7 @@
       "Both fields are required and validated by their underlying type rules"
     ],
     "examples": [
-      "{\"sym\": \"4,UOS\", \"contract\": \"eosio.token\"}",
+      "{\"sym\": \"8,UOS\", \"contract\": \"eosio.token\"}",
       "{\"sym\": \"8,BTC\", \"contract\": \"btctokencntr\"}"
     ]
   },

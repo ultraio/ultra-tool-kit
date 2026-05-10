@@ -182,15 +182,11 @@ describe('retrieveActions (against pgvector pg17)', () => {
         expect(results[0]!.bestDistance).toBeLessThan(results[1]!.bestDistance);
     }, 60_000);
 
-    it('hides admin actions when isAdmin is false', async () => {
+    it('returns admin actions regardless of isAdmin (wallet/chain is the gate)', async () => {
         const provider = new FixedEmbedProvider(unitVector(2));
-        const results = await retrieveActions('create token', { isAdmin: false }, { db, provider });
-        expect(results.find((r) => r.action === 'create')).toBeUndefined();
-    }, 60_000);
-
-    it('shows admin actions when isAdmin is true', async () => {
-        const provider = new FixedEmbedProvider(unitVector(2));
-        const results = await retrieveActions('create token', { isAdmin: true }, { db, provider });
-        expect(results.find((r) => r.action === 'create')).toBeDefined();
+        const nonAdmin = await retrieveActions('create token', { isAdmin: false }, { db, provider });
+        const asAdmin = await retrieveActions('create token', { isAdmin: true }, { db, provider });
+        expect(nonAdmin.find((r) => r.action === 'create')).toBeDefined();
+        expect(asAdmin.find((r) => r.action === 'create')).toBeDefined();
     }, 60_000);
 });

@@ -97,7 +97,12 @@ export async function retrieveActions(
     const column = provider.vectorDim() === 768 ? 'embedding_768' : 'embedding_1536';
     const vecLiteral = toVectorLiteral(queryVector);
     const colExpr = sql.raw(`ch.${column}`);
-    const adminFilter = ctx.isAdmin ? sql`` : sql`and a.is_admin = false`;
+
+    // The wallet/chain is the source of truth for whether the user can sign an
+    // action — we don't filter by `is_admin` here. The column is kept for
+    // analytics only. `ctx.isAdmin` stays in the signature so callers can pass
+    // future per-user UX hints without touching this contract again.
+    void ctx;
 
     const rows = (await db.execute(sql`
         select distinct on (a.id)
@@ -115,7 +120,6 @@ export async function retrieveActions(
         join actions a on a.id = ch.action_id
         join contracts c on c.id = a.contract_id
         where a.unresolved = false
-          ${adminFilter}
           and ${colExpr} is not null
         order by a.id, distance
         limit ${sql.raw(String(RAW_FETCH_LIMIT))}
