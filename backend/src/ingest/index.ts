@@ -108,17 +108,18 @@ async function enrichAction(
 }
 
 function buildChunks(rules: ActionRules, types: EosioTypesFile, enrichment: IngestEnrichment | null): PendingChunk[] {
-    const out: PendingChunk[] = [];
     const description = enrichment?.description || null;
     const firstExample = enrichment?.examples[0] ?? null;
-    out.push({ kind: 'summary', text: renderSummaryChunk(rules, description, firstExample) });
-    out.push({ kind: 'rules', text: renderRulesChunk(rules, types) });
+    const chunks: PendingChunk[] = [
+        { kind: 'summary', text: renderSummaryChunk(rules, description, firstExample) },
+        { kind: 'rules', text: renderRulesChunk(rules, types) },
+    ];
     if (enrichment) {
         for (const ex of enrichment.examples) {
-            out.push({ kind: 'example', text: ex });
+            chunks.push({ kind: 'example', text: ex });
         }
     }
-    return out;
+    return chunks;
 }
 
 type EmbeddedChunk = {
@@ -133,18 +134,17 @@ async function embedChunks(embedProviders: ChatProvider[], chunks: PendingChunk[
     if (new Set(dims).size !== dims.length) {
         throw new Error('embedProviders must have distinct vectorDim() values');
     }
-    const out: EmbeddedChunk[] = [];
-    for (const c of chunks) {
-        let v768: number[] | null = null;
-        let v1536: number[] | null = null;
-        for (const p of embedProviders) {
-            const r = await p.embed(c.text);
-            if (p.vectorDim() === 768) v768 = r.vector;
-            else v1536 = r.vector;
+    const embedded: EmbeddedChunk[] = [];
+    for (const chunk of chunks) {
+        const result: EmbeddedChunk = { kind: chunk.kind, text: chunk.text, vector768: null, vector1536: null };
+        for (const provider of embedProviders) {
+            const r = await provider.embed(chunk.text);
+            if (provider.vectorDim() === 768) result.vector768 = r.vector;
+            else result.vector1536 = r.vector;
         }
-        out.push({ kind: c.kind, text: c.text, vector768: v768, vector1536: v1536 });
+        embedded.push(result);
     }
-    return out;
+    return embedded;
 }
 
 async function upsertContract(db: Db, file: CatalogFile): Promise<bigint> {
@@ -181,7 +181,6 @@ async function upsertAction(
     contractAccount: string
 ): Promise<bigint> {
     const defaultAuth = rules.auths[0] ?? null;
-    const sourceRef = `${rules.source.path}:${rules.source.lines[0]}-${rules.source.lines[1]}`;
     const values = {
         contractId,
         name: rules.action,
@@ -191,7 +190,7 @@ async function upsertAction(
         isAdmin: isAdminAction(contractAccount, defaultAuth),
         description: enrichment?.description ?? null,
         examples: enrichment ? enrichment.examples : null,
-        sourceRef,
+        sourceRef: `${rules.source.path}:${rules.source.lines[0]}-${rules.source.lines[1]}`,
         unresolved: rules.unresolved === true,
     };
     const existing = await db
@@ -199,19 +198,8 @@ async function upsertAction(
         .from(actions)
         .where(and(eq(actions.contractId, contractId), eq(actions.name, rules.action)));
     if (existing.length > 0) {
-        await db
-            .update(actions)
-            .set({
-                fields: values.fields,
-                rules: values.rules,
-                defaultAuth: values.defaultAuth,
-                isAdmin: values.isAdmin,
-                description: values.description,
-                examples: values.examples,
-                sourceRef: values.sourceRef,
-                unresolved: values.unresolved,
-            })
-            .where(eq(actions.id, existing[0]!.id));
+        const { contractId: _c, name: _n, ...updatable } = values;
+        await db.update(actions).set(updatable).where(eq(actions.id, existing[0]!.id));
         return existing[0]!.id;
     }
     const inserted = await db.insert(actions).values(values).returning({ id: actions.id });
@@ -239,8 +227,12 @@ async function pruneOrphans(
     log: Logger
 ): Promise<number> {
     if (keepNames.length === 0) return 0;
-    const existing = await db.select({ id: actions.id, name: actions.name }).from(actions).where(eq(actions.contractId, contractId));
-    const toDeleteIds = existing.filter((a) => !keepNames.includes(a.name)).map((a) => a.id);
+    const keep = new Set(keepNames);
+    const existing = await db
+        .select({ id: actions.id, name: actions.name })
+        .from(actions)
+        .where(eq(actions.contractId, contractId));
+    const toDeleteIds = existing.filter((a) => !keep.has(a.name)).map((a) => a.id);
     if (toDeleteIds.length === 0) return 0;
     await db.delete(actions).where(inArray(actions.id, toDeleteIds));
     log.info({ count: toDeleteIds.length, contractId: contractId.toString() }, '[ingest] pruned orphan actions');
@@ -267,16 +259,15 @@ export async function ingestCatalogFile(opts: {
 
     for (const [name, rawRules] of Object.entries(file.actions)) {
         const override = await loadActionOverride(catalogDir, file.contract, name);
-        const merged = applyOverride(rawRules, override);
+        const rules = applyOverride(rawRules, override);
         keepNames.push(name);
 
-        const enrichment = enrich && merged.unresolved !== true
-            ? await enrichAction(chatProvider, file.contract, merged, log)
-            : null;
-        const actionId = await upsertAction(db, contractId, merged, enrichment, file.contract);
+        const enrichment =
+            enrich && rules.unresolved !== true ? await enrichAction(chatProvider, file.contract, rules, log) : null;
+        const actionId = await upsertAction(db, contractId, rules, enrichment, file.contract);
         actionsUpserted++;
 
-        const chunks = buildChunks(merged, eosioTypes, enrichment);
+        const chunks = buildChunks(rules, eosioTypes, enrichment);
         const embedded = await embedChunks(embedProviders, chunks);
         chunksWritten += await replaceChunks(db, actionId, embedded);
     }

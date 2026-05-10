@@ -54,8 +54,7 @@ export function renderRulesChunk(rules: ActionRules, types: EosioTypesFile): str
             typedLines.push(renderTypeRules(tr));
         }
         if (typedLines.length > 0) {
-            lines.push('Type rules:');
-            for (const l of typedLines) lines.push(l);
+            lines.push('Type rules:', ...typedLines);
         }
     }
 

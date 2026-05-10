@@ -19,9 +19,8 @@ let cached: EosioTypesFile | null = null;
 export async function loadEosioTypes(): Promise<EosioTypesFile> {
     if (cached) return cached;
     const raw = await readFile(CATALOG_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as EosioTypesFile;
-    cached = parsed;
-    return parsed;
+    cached = JSON.parse(raw) as EosioTypesFile;
+    return cached;
 }
 
 export function eosioTypesPath(): string {

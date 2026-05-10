@@ -121,6 +121,7 @@ backend/
 - **Tests live next to fixtures.** `test/extractor/fixtures/transfer.cpp` is a real synthetic input; the test asserts byte-exact JSON output. No stochastic LLM calls in unit tests; mock at the `ChatProvider` boundary.
 - **Don't add a feature without a doc reference.** If the design docs don't mention it, raise it before building. The docs are the spec.
 - **One commit per milestone.** Milestones in `docs/04-roadmap.md` are sized to land in one focused session and one commit on the feature branch. Don't open PRs — the user is on `task/ai-enhance-demo` and merges manually.
+- **Simplify before committing a feature.** Once tests pass and typecheck is clean, dispatch the `code-simplifier` subagent over the files just touched (`git diff --name-only HEAD`) and let it tighten naming, drop scaffolding, and remove defensive code that proved unnecessary. Re-run tests + typecheck afterward, then commit. Skip only for trivial one-liners, doc-only commits, or hotfixes — and call out the skip explicitly.
 - **Migrations are forward-only.** Drizzle generates idempotent up-migrations; we don't write down-migrations. Local resets are either `npm run db:reset` (drops + re-applies migrations on the live container) or `docker rm -f ultra-pg17 && docker run ...` for a from-scratch container (see `RUNNING_LOCAL.md` §Resetting).
 
 ## Pre-built skills you can use

@@ -23,8 +23,6 @@ export function anthropicConfigFromEnv(): AnthropicConfig {
 
 const STRUCTURED_TOOL_NAME = 'emit_structured_response';
 
-type ToolBlock = { type: 'tool_use'; name: string; input: unknown };
-
 export class AnthropicProvider implements ChatProvider {
     private _client: Anthropic | null = null;
 
@@ -65,10 +63,9 @@ export class AnthropicProvider implements ChatProvider {
         });
 
         const tool = res.content.find(
-            (block): block is ToolBlock & Anthropic.ContentBlock =>
-                block.type === 'tool_use' && block.name === STRUCTURED_TOOL_NAME
+            (block) => block.type === 'tool_use' && block.name === STRUCTURED_TOOL_NAME
         );
-        if (!tool) {
+        if (!tool || tool.type !== 'tool_use') {
             throw new ProviderError('Anthropic response did not include the structured tool_use block', {
                 provider: 'anthropic',
                 model: this.config.chatModel,

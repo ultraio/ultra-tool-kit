@@ -31,12 +31,12 @@ export async function loadActionOverride(
 
 export function applyOverride(rules: ActionRules, override: ActionOverride | null): ActionRules {
     if (!override) return rules;
-    const out: ActionRules = { ...rules };
-    if (override.auths !== undefined) out.auths = override.auths;
-    if (override.preconditions !== undefined) out.preconditions = override.preconditions;
-    if (override.field_constraints !== undefined) out.field_constraints = override.field_constraints;
-    if (override.recipients !== undefined) out.recipients = override.recipients;
-    if (override.notes !== undefined) out.notes = override.notes;
-    if (override.unresolved !== undefined) out.unresolved = override.unresolved;
-    return out;
+    const merged: ActionRules = { ...rules };
+    if (override.auths !== undefined) merged.auths = override.auths;
+    if (override.preconditions !== undefined) merged.preconditions = override.preconditions;
+    if (override.field_constraints !== undefined) merged.field_constraints = override.field_constraints;
+    if (override.recipients !== undefined) merged.recipients = override.recipients;
+    if (override.notes !== undefined) merged.notes = override.notes;
+    if (override.unresolved !== undefined) merged.unresolved = override.unresolved;
+    return merged;
 }

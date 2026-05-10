@@ -14,9 +14,8 @@ export type OpenAIConfig = {
 };
 
 export function openAIConfigFromEnv(): OpenAIConfig {
-    const apiKey = process.env.OPENAI_API_KEY ?? '';
     return {
-        apiKey,
+        apiKey: process.env.OPENAI_API_KEY ?? '',
         embedModel: process.env.OPENAI_EMBED_MODEL ?? 'text-embedding-3-small',
         chatModel: process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o-mini',
     };

@@ -23,16 +23,17 @@ async function main(): Promise<void> {
             const result = await fetchAbiWithFallback(row.account, mainnetUrl, testnetUrl);
             const liveHash = hashAbi(result.abi);
             const stored = row.abiHash ?? '';
-            const fetchedAt = row.abiFetchedAt ? row.abiFetchedAt.getTime() : 0;
+            const fetchedAt = row.abiFetchedAt?.getTime() ?? 0;
             const stale = fetchedAt > 0 && Date.now() - fetchedAt > SEVEN_DAYS_MS;
-            if (liveHash === stored) {
-                if (stale) console.log(`⚠ ${row.account} — hash matches but fetched at ${row.abiFetchedAt?.toISOString()}`);
-                else console.log(`✓ ${row.account}`);
-            } else {
+            if (liveHash !== stored) {
                 driftCount++;
                 console.log(`✗ ${row.account} — drift detected`);
                 console.log(`    stored: ${stored}`);
                 console.log(`    live  : ${liveHash}`);
+            } else if (stale) {
+                console.log(`⚠ ${row.account} — hash matches but fetched at ${row.abiFetchedAt?.toISOString()}`);
+            } else {
+                console.log(`✓ ${row.account}`);
             }
         } catch (err) {
             driftCount++;

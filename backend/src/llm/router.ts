@@ -11,7 +11,7 @@ export type RouterBundle = {
     classifier: ChatProvider;
 };
 
-const PROVIDER_VALUES: readonly Provider[] = ['anthropic', 'openai', 'ollama'] as const;
+const PROVIDER_VALUES: readonly Provider[] = ['anthropic', 'openai', 'ollama'];
 
 const cache = new Map<Provider, ChatProvider>();
 
@@ -24,36 +24,35 @@ function readEnv(varName: string): string | undefined {
     return raw && raw.length > 0 ? raw : undefined;
 }
 
-function resolveProviderName(role: Role): Provider {
-    const chatDefault: Provider = (() => {
-        const raw = readEnv('LLM_PROVIDER') ?? 'ollama';
-        if (!isProvider(raw)) {
-            throw new ProviderError(`Unknown LLM_PROVIDER: ${raw}`, { provider: raw });
-        }
-        return raw;
-    })();
-    if (role === 'chat') return chatDefault;
-    const envVar = role === 'embed' ? 'EMBED_PROVIDER' : 'CLASSIFIER_PROVIDER';
-    const raw = readEnv(envVar) ?? chatDefault;
+function parseProvider(envVar: string, raw: string): Provider {
     if (!isProvider(raw)) {
         throw new ProviderError(`Unknown ${envVar}: ${raw}`, { provider: raw });
     }
     return raw;
 }
 
+function resolveProviderName(role: Role): Provider {
+    const chatDefault = parseProvider('LLM_PROVIDER', readEnv('LLM_PROVIDER') ?? 'ollama');
+    if (role === 'chat') return chatDefault;
+    const envVar = role === 'embed' ? 'EMBED_PROVIDER' : 'CLASSIFIER_PROVIDER';
+    return parseProvider(envVar, readEnv(envVar) ?? chatDefault);
+}
+
 function instantiate(name: Provider): ChatProvider {
     const cached = cache.get(name);
     if (cached) return cached;
-    const created: ChatProvider = (() => {
-        switch (name) {
-            case 'anthropic':
-                return new AnthropicProvider();
-            case 'openai':
-                return new OpenAIProvider();
-            case 'ollama':
-                return new OllamaProvider();
-        }
-    })();
+    let created: ChatProvider;
+    switch (name) {
+        case 'anthropic':
+            created = new AnthropicProvider();
+            break;
+        case 'openai':
+            created = new OpenAIProvider();
+            break;
+        case 'ollama':
+            created = new OllamaProvider();
+            break;
+    }
     cache.set(name, created);
     return created;
 }

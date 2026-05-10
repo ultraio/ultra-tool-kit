@@ -5,17 +5,11 @@ import * as schema from './schema.js';
 let _sql: Sql | null = null;
 let _db: PostgresJsDatabase<typeof schema> | null = null;
 
-function getDatabaseUrl(): string {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-        throw new Error('DATABASE_URL is required.');
-    }
-    return url;
-}
-
 export function getSql(): Sql {
     if (!_sql) {
-        _sql = postgres(getDatabaseUrl(), { prepare: false });
+        const url = process.env.DATABASE_URL;
+        if (!url) throw new Error('DATABASE_URL is required.');
+        _sql = postgres(url, { prepare: false });
     }
     return _sql;
 }
