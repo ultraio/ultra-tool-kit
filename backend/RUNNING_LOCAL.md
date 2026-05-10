@@ -303,11 +303,12 @@ psql "$DATABASE_URL" -c "
 # Expect: classify=1, no chat row.
 ```
 
-**Admin-blocked — non-admin requests an admin-only action.** Use a request
-that retrieves an admin action (e.g. `eosio.token::create` or `setconfig`,
-both of which are flagged `is_admin=true` because they require
-`eosio.token@active`). Expected: `kind: 'refuse'`, `reason: 'admin-blocked'`,
-plus an `incidents` row.
+**Privileged action (no backend gate).** The backend does NOT filter by
+`actions.is_admin` — a non-admin user can ask for any catalog action and
+the AI will propose it. The wallet (no key → can't sign) and the chain
+(rejects unauthorized sigs) are the actual signing gate. Expected:
+`kind: 'propose'` for `eosio.token::create`. The user's wallet then either
+fails to sign (no `eosio.token@active` key) or the chain rejects.
 
 ```bash
 SID=$(uuidgen)
@@ -325,10 +326,8 @@ curl -sS -X POST http://127.0.0.1:8787/api/ai-action \
   }
 }
 JSON
-
-psql "$DATABASE_URL" -c "
-  select kind, count(*) from incidents
-  where kind = 'admin-blocked' group by 1;"
+# Expect kind=propose with action=create. Asset shape coercion may vary
+# under small models; downgrade to ask is also acceptable.
 ```
 
 **Inspect persistence + usage.** Both turns should be in `chat_messages`,

@@ -36,11 +36,13 @@ Don't repeat work the docs already specify; if the docs and your instinct disagr
 
 5. **Phase-1 single-user mode binds to `127.0.0.1` only.** No auth in Phase 1 → no LAN exposure. If you find yourself listening on `0.0.0.0`, you're in Phase 2 territory and need wallet-JWT auth.
 
-6. **Validate before returning.** Every LLM proposal goes through `backend/src/pipeline/validate.ts`: catalog membership, regex format, admin gate. If validation fails, downgrade to `kind: ask` or `kind: refuse` — never pass a half-validated proposal to the frontend.
+6. **Validate before returning.** Every LLM proposal goes through `backend/src/pipeline/validate.ts`: catalog membership, field-key whitelist, required-field check, regex format. If validation fails, downgrade to `kind: ask` or `kind: refuse` — never pass a half-validated proposal to the frontend. The validator also runs `coerceLlmShape` first to repair common small-model output errors (auth-leak `{actor, permission}` on `name` fields, decomposed assets `{amount, precision, symbol}`, single-key envelopes like `{string: "..."}`); see `validate.ts` for the full list.
 
-7. **Cost rows are immutable.** When provider prices change, update `PRICING` in `cost.ts` and let new rows in `usage_log` use the new rates. Never back-fill historical rows.
+7. **The wallet/chain is the signing gate, not the AI.** The backend does NOT filter by `actions.is_admin` — a non-admin user can ask for any catalog action; if their wallet lacks the key the chain will reject the signed tx. The `is_admin` column is kept for analytics. Phase 1 has no reliable way to authenticate "admin" anyway. If we need stricter UX gating later, prefer an advisory rationale over a hard refuse.
 
-8. **CORS is explicit.** `ALLOWED_ORIGINS` env var; never `*`. Phase 1 default is `http://localhost:5172`.
+8. **Cost rows are immutable.** When provider prices change, update `PRICING` in `cost.ts` and let new rows in `usage_log` use the new rates. Never back-fill historical rows.
+
+9. **CORS is explicit.** `ALLOWED_ORIGINS` env var; never `*`. Phase 1 default is `http://localhost:5172`.
 
 ## Stack
 
@@ -89,7 +91,7 @@ backend/
       classify.ts               # Layer-3 intent classifier
       retrieve.ts               # pgvector top-K (excludes unresolved=true by default)
       prompt.ts                 # System prompt builder
-      validate.ts               # Catalog + format + admin gate
+      validate.ts               # coerceLlmShape + catalog + format + required-field
       cost.ts                   # PRICING table → cost_usd
     middleware/
       auth.ts                   # JWT verify (Phase 2)
