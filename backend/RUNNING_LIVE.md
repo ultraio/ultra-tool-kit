@@ -158,10 +158,8 @@ re-run Stage B.
 
 ## 8. Cost monitoring
 
-Every chat call writes a row to `usage_log` with `cost_usd` precomputed.
-The per-call cost rate comes from the `PRICING` table in `pipeline/cost.ts`
-(coming in M3). Until the runtime is in place, you can already inspect
-embedding spend by counting embed calls during `ingest --enrich`:
+Every chat call writes a row to `usage_log` with `cost_usd` precomputed
+from the `PRICING` table in `pipeline/cost.ts`. Inspect:
 
 ```sql
 select model, request_kind, count(*), sum(input_tokens), sum(output_tokens), sum(cost_usd)
@@ -169,8 +167,8 @@ from usage_log
 group by model, request_kind;
 ```
 
-(The runtime fills `usage_log`; ingest alone does not log here. Nothing
-to query yet on a fresh DB.)
+The runtime route `GET /api/ai-usage` returns the same data aggregated for the
+current user (lifetime / today / per-model breakdown).
 
 ## 9. Optional: Cloudflare AI Gateway
 
@@ -209,6 +207,51 @@ When promoting an existing local-mode deployment to hosted:
 - [ ] Cron set up for nightly `catalog:check`.
 - [ ] (Optional) AI Gateway base URLs in place; verify via `ANTHROPIC_BASE_URL`
       logging in `usage_log.model`.
+
+## 11. Run the chat API
+
+Same code path as local mode; only the provider env vars differ. Start the
+backend:
+
+```bash
+npm run start
+# → listening on 127.0.0.1:8787  (front this with a reverse proxy + JWT in Phase 2)
+```
+
+Phase 2 still binds loopback by default — flip to `0.0.0.0` only after the
+wallet-JWT verifier replaces `src/middleware/auth.ts`'s Phase-1 stub. Until
+then the entry point throws on `BIND_HOST=0.0.0.0`.
+
+Once an HTTPS proxy is in front, the same four acceptance flows work
+unchanged. From a host that can reach the backend (substitute the public URL
+for `http://127.0.0.1:8787`):
+
+**Propose:**
+
+```bash
+SID=$(uuidgen)
+curl -sS -X POST https://<host>/api/ai-action \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $JWT" \
+  -d @- <<JSON | jq .
+{
+  "sessionId": "$SID",
+  "messages": [{"role":"user","content":"transfer 100 UOS from acc1 to acc2"}],
+  "context": {
+    "account": "acc1", "permission": "active",
+    "endpoint": "https://ultra.eosusa.io",
+    "chainId": "8fc6dce7942189f842170de953932b1f66693ad3788f766e777b6f9d22335c02",
+    "isAdmin": false, "knownAccounts": ["acc1","acc2"]
+  }
+}
+JSON
+```
+
+**Missing field, off-topic, admin-blocked:** identical to the local-mode
+curls in `RUNNING_LOCAL.md §11`, swapping the host and adding the bearer
+token. The `/api/ai-usage` query returns nonzero `actualUsd` under hosted
+providers (Anthropic/OpenAI rates from `PRICING`), unlike the Ollama-only
+local run.
 
 ## Common issues
 

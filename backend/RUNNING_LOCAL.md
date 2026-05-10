@@ -209,12 +209,139 @@ compares the sha256. Exits 1 if any contract has drifted.
 ## 10. Tests + typecheck
 
 ```bash
-npm test         # 16 tests, including a pgvector pg17 testcontainer
+npm test         # full suite, including pgvector pg17 testcontainers
 npm run typecheck
 ```
 
 The ingest test pulls `pgvector/pgvector:pg17` the first time you run it
 (~200 MB); subsequent runs reuse the cached image and complete in ~25 s.
+
+## 11. Run the chat API
+
+Once the catalog is ingested (steps 6–7) and Ollama is up (step 4), start the
+backend:
+
+```bash
+npm run dev
+# → listening on 127.0.0.1:8787
+```
+
+Phase 1 binds to loopback only — `BIND_HOST=0.0.0.0` is rejected while the
+auth stub is active. CORS allows `http://localhost:5172` by default
+(`ALLOWED_ORIGINS`).
+
+In a second terminal, exercise the four acceptance flows. Each curl uses a
+different session UUID so the rate limiter doesn't bleed between cases.
+
+**Propose — happy path.** Expected: `kind: 'propose'` for `eosio.token::transfer`.
+
+```bash
+SID=$(uuidgen)
+curl -sS -X POST http://127.0.0.1:8787/api/ai-action \
+  -H 'content-type: application/json' \
+  -d @- <<JSON | jq .
+{
+  "sessionId": "$SID",
+  "messages": [{"role":"user","content":"transfer 100 UOS from acc1 to acc2"}],
+  "context": {
+    "account": "acc1",
+    "permission": "active",
+    "endpoint": "https://test.ultra.eosusa.io",
+    "chainId": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7c1e774",
+    "isAdmin": false,
+    "knownAccounts": ["acc1","acc2"]
+  }
+}
+JSON
+```
+
+**Missing field — downgrade to `ask`.** Expected: `kind: 'ask'` with a
+`question` mentioning the missing `from`.
+
+```bash
+SID=$(uuidgen)
+curl -sS -X POST http://127.0.0.1:8787/api/ai-action \
+  -H 'content-type: application/json' \
+  -d @- <<JSON | jq .
+{
+  "sessionId": "$SID",
+  "messages": [{"role":"user","content":"send 100 UOS to acc2"}],
+  "context": {
+    "account": "acc1", "permission": "active",
+    "endpoint": "https://test.ultra.eosusa.io",
+    "chainId": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7c1e774",
+    "isAdmin": false, "knownAccounts": ["acc2"]
+  }
+}
+JSON
+```
+
+**Off-topic — classifier short-circuit.** Expected: `kind: 'refuse'`,
+`reason: 'off-topic'`. Verify only the classifier wrote a `usage_log` row
+(no chat row):
+
+```bash
+SID=$(uuidgen)
+curl -sS -X POST http://127.0.0.1:8787/api/ai-action \
+  -H 'content-type: application/json' \
+  -d @- <<JSON | jq .
+{
+  "sessionId": "$SID",
+  "messages": [{"role":"user","content":"what is the weather today?"}],
+  "context": {
+    "account": "acc1", "permission": "active",
+    "endpoint": "https://test.ultra.eosusa.io",
+    "chainId": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7c1e774",
+    "isAdmin": false, "knownAccounts": []
+  }
+}
+JSON
+
+psql "$DATABASE_URL" -c "
+  select request_kind, count(*) from usage_log
+  where session_id = '$SID' group by 1;"
+# Expect: classify=1, no chat row.
+```
+
+**Admin-blocked — non-admin requests an admin-only action.** Use a request
+that retrieves an admin action (e.g. `eosio.token::create` or `setconfig`,
+both of which are flagged `is_admin=true` because they require
+`eosio.token@active`). Expected: `kind: 'refuse'`, `reason: 'admin-blocked'`,
+plus an `incidents` row.
+
+```bash
+SID=$(uuidgen)
+curl -sS -X POST http://127.0.0.1:8787/api/ai-action \
+  -H 'content-type: application/json' \
+  -d @- <<JSON | jq .
+{
+  "sessionId": "$SID",
+  "messages": [{"role":"user","content":"create a new token symbol UOS with max supply 1000000000"}],
+  "context": {
+    "account": "acc1", "permission": "active",
+    "endpoint": "https://test.ultra.eosusa.io",
+    "chainId": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7c1e774",
+    "isAdmin": false, "knownAccounts": ["acc1"]
+  }
+}
+JSON
+
+psql "$DATABASE_URL" -c "
+  select kind, count(*) from incidents
+  where kind = 'admin-blocked' group by 1;"
+```
+
+**Inspect persistence + usage.** Both turns should be in `chat_messages`,
+and `/api/ai-usage` should report nonzero `today.calls` with `actualUsd = 0`
+(Ollama) and `projectedUsd > 0` (Haiku rates):
+
+```bash
+psql "$DATABASE_URL" -c "
+  select role, jsonb_typeof(content) from chat_messages
+  where session_id = '$SID' order by id;"
+
+curl -sS http://127.0.0.1:8787/api/ai-usage | jq .
+```
 
 ## Common issues
 
