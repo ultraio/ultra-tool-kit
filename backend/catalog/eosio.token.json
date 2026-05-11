@@ -1,8 +1,8 @@
 {
   "contract": "eosio.token",
   "abi_hash": "6409d3c8fb3ce3b47a32fcd194362afb7fd004b22bc2b05939c89c99c76c9c38",
-  "abi_chain_id": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9",
-  "abi_fetched_at": "2026-05-10T10:22:32.879Z",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-10T15:23:50.950Z",
   "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.token",
   "actions": {
     "burn": {
