@@ -127,13 +127,20 @@ export async function getChainId(): Promise<UltraResponse<string>> {
 /**
  * Request the wallet to switch to a different network.
  * Shows a confirmation popup to the user.
- * Calls window.ultra directly (the SDK class also exposes this, but we
- * standardize on the window method for parity with the listener calls below).
+ *
+ * Routes through the SDK rather than `window.ultra` directly. The SDK's
+ * `switchNetwork` is a one-line forward to `window.ultra.switchNetwork`
+ * (verified at `wallet-sdk/.../extension.provider.ts:116-118`) — same
+ * runtime behavior, but consistent with all other RPC calls in this file.
+ * The earlier `window.ultra` direct call existed for "parity with the
+ * listener calls below"; once those listener workarounds are removed
+ * (see WALLET_DEFERRED_ITEMS_2026-05-09.md S3), the direct-window pattern
+ * disappears entirely.
  */
 export async function switchNetwork(chainId: string): Promise<UltraResponse<void>> {
-    const ultraWindow = getUltraWindow();
-    if (!ultraWindow) throw new Error('Ultra Wallet extension is not installed');
-    return ultraWindow.switchNetwork(chainId);
+    const wallet = getSDK();
+    if (!wallet) throw new Error('Ultra Wallet extension is not installed');
+    return wallet.switchNetwork(chainId);
 }
 
 /**

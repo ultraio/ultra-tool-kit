@@ -538,40 +538,59 @@ test.describe('Wallet SDK Integration', () => {
             expect(authState.chainId).toBeFalsy();
         });
 
-        test('wallet lock (null selected) triggers logout', async ({ page }) => {
+        test('accountChanged with empty accounts does NOT trigger logout (Issue 3b regression guard)', async ({
+            page,
+        }) => {
+            // PINS the deliberate 2026-05-07 Issue-3b fix.
+            //
+            // Production behavior:
+            //   - When the wallet's vault is locked, the BG explicitly does
+            //     NOT broadcast `accountChanged{accounts:[]}` (see web-app
+            //     `background.ts emitAccountChanged` — "Issue 3: do NOT
+            //     broadcast accounts:[] when the vault is locked").
+            //   - Lock is communicated to dapps via the explicit `disconnect`
+            //     event (covered by the test above), or via RPC failure on
+            //     the next sign attempt.
+            //   - An `accountChanged{accounts:[]}` event is treated as a
+            //     transient signal (e.g. a misbehaving wallet, an MV3 SW
+            //     mid-restore that slipped through the BG guard, or a
+            //     network with zero resolved accounts). The toolkit must
+            //     NOT log out on it — pre-Issue-3b that race fired once
+            //     every ~10 chain switches and forced a reconnect popup.
+            //
+            // This test fires the empty-accounts event AND asserts the
+            // toolkit stays logged in. If a future change makes empty
+            // accounts trigger logout, this test fails and the regression
+            // is caught at PR time, not at the user's keyboard.
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // The toolkit's accountChanged handler ignores the event payload
-            // (different extension versions wrap the selected account
-            // differently) and always re-queries getSelectedAccount() for
-            // ground truth. To simulate a locked wallet, the mock must
-            // surface that lock through the same RPC the handler calls.
-            await page.evaluate(() => {
-                (window as any).ultra.getSelectedAccount = async () => ({
-                    status: 'fail',
-                    data: null,
-                    message: 'Wallet is locked',
-                });
-                (window as any).ultra.getAccounts = async () => ({
-                    status: 'success',
-                    data: [],
-                });
-            });
+            // Sanity: logged in.
+            await expect(page.locator('text=Logout')).toBeVisible();
+            const stateBefore = await getAuthState(page);
+            expect(stateBefore.accountName).toBeTruthy();
+            await screenshot(page, '16a-before-empty-accountChanged');
 
+            // Fire the transient empty-accounts event the BG would NEVER
+            // emit on lock, but a buggy/older wallet might. The toolkit
+            // must absorb it without logging out.
             await fireWalletEvent(page, 'accountChanged', {
                 accounts: [],
                 selected: null,
             });
+            await page.waitForTimeout(500);
 
-            await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
-            await screenshot(page, '16-events-wallet-locked');
+            // Still logged in. Login screen NOT visible.
+            await expect(page.locator('text=Logout')).toBeVisible();
+            await expect(page.locator('text=Login to Tool Kit')).not.toBeVisible();
+            await screenshot(page, '16b-after-empty-accountChanged-still-logged-in');
 
-            const authState = await getAuthState(page);
-            expect(authState.accountName).toBeFalsy();
+            const stateAfter = await getAuthState(page);
+            expect(stateAfter.accountName).toBe(stateBefore.accountName);
+            expect(stateAfter.type).toBe(stateBefore.type);
         });
 
         test('networkChanged updates chainId in localStorage', async ({ page }) => {
