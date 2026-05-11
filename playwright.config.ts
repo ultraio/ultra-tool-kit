@@ -23,6 +23,11 @@ export default defineConfig({
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
     },
+    // AI chat e2e specs run against deterministic route stubs in
+    // `tests/fixtures/ai-stub.ts`, so CI never needs the backend (Hono,
+    // Postgres, Ollama) up. For a real end-to-end pass against a running
+    // backend, follow backend/README.md and run `npm --prefix backend run dev`
+    // alongside Vite.
     webServer: {
         command: 'npm run dev -- --host',
         port: 5172,

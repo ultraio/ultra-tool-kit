@@ -13,6 +13,10 @@ Ultra Tool Kit allows you to interact with Ultra Blockchain through your browser
 -   Query [Ultra API](https://developers.ultra.io/products/nft-api/introduction.html)
 -   Validate Uniq and Factory Metadata JSONs
 
+## Phase 1 AI demo
+
+The toolkit ships an experimental AI chat panel that turns plain-English requests ("transfer 100 UOS from acc1 to acc2") into validated contract actions, with **Sign now** routing into the existing Transaction modal and **Open in Builder** pre-filling the builder page. Phase 1 runs entirely on the dev laptop — Postgres in Docker, LLM via Ollama, zero ongoing cost. See [backend/README.md](backend/README.md) for the 15-minute quickstart and the three demo prompts that exercise the propose / ask / refuse paths.
+
 ## How to use
 
 We provide a deployed version of this Web application at https://toolkit.ultra.io/. You don't need to build and install it locally.

@@ -8,6 +8,7 @@
         "start": "tsx src/index.ts",
         "extract": "tsx scripts/extract-contract.ts",
         "ingest": "tsx scripts/ingest-catalog.ts",
+        "seed-demo": "tsx scripts/seed-demo.ts",
         "catalog:check": "tsx scripts/catalog-check.ts",
         "verify:similarity": "tsx scripts/verify-similarity.ts",
         "db:generate": "drizzle-kit generate",

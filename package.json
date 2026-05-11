@@ -11,7 +11,12 @@
         "format": "prettier --check ./src && prettier --write ./src && git add -A ./src",
         "test:e2e": "playwright test",
         "test:e2e:install": "playwright install --with-deps chromium",
-        "test:e2e:headed": "playwright test --headed"
+        "test:e2e:headed": "playwright test --headed",
+        "demo:db:start": "docker start ultra-pg17 || docker run -d --name ultra-pg17 -e POSTGRES_PASSWORD=postgres -p 54322:5432 --restart unless-stopped pgvector/pgvector:pg17",
+        "demo:seed": "npm --prefix backend run seed-demo",
+        "demo:start": "npm run demo:db:start && concurrently -n web,api 'npm run dev' 'npm --prefix backend run dev'",
+        "demo:stop": "docker stop ultra-pg17 || true",
+        "demo:clean": "docker rm -f ultra-pg17 && rm -rf backend/catalog/*.json"
     },
     "dependencies": {
         "@fortawesome/fontawesome-svg-core": "^6.4.0",
@@ -44,6 +49,7 @@
         "@types/node": "^20.4.2",
         "@vitejs/plugin-vue": "^4.2.3",
         "autoprefixer": "^10.4.16",
+        "concurrently": "^9.2.1",
         "husky": "^8.0.0",
         "postcss": "^8.4.31",
         "prettier": "^3.0.3",
