@@ -149,51 +149,92 @@ app.post('/', async (c) => {
     });
 
     const chatProvider = getProvider('chat');
-    let chatRes: Awaited<ReturnType<typeof chatProvider.chat>>;
-    try {
-        chatRes = await chatProvider.chat({
-            system: prompt.system,
-            user: prompt.user,
-            toolSchema: prompt.toolSchema,
-            maxTokens: 800,
-        });
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error({ err: message }, '[ai-action] chat provider failed');
-        await db.insert(incidents).values({
-            userId,
-            kind: 'schema-fail',
-            detail: { reason: 'provider-error', message },
-        });
-        const reply = { kind: 'refuse' as const, reason: 'provider-error' };
-        await appendMessage(body.sessionId, 'assistant', reply);
-        return c.json(reply);
+
+    async function runChatPass(
+        systemOverride?: string
+    ): Promise<
+        | { ok: true; validated: Awaited<ReturnType<typeof validateProposal>>; rawKind: unknown }
+        | { ok: false; reply: { kind: 'refuse'; reason: 'provider-error' } }
+    > {
+        let chatRes: Awaited<ReturnType<typeof chatProvider.chat>>;
+        try {
+            chatRes = await chatProvider.chat({
+                system: systemOverride ?? prompt.system,
+                user: prompt.user,
+                toolSchema: prompt.toolSchema,
+                maxTokens: 800,
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error({ err: message }, '[ai-action] chat provider failed');
+            await db.insert(incidents).values({
+                userId,
+                kind: 'schema-fail',
+                detail: { reason: 'provider-error', message },
+            });
+            return { ok: false, reply: { kind: 'refuse' as const, reason: 'provider-error' } };
+        }
+
+        const validated = await validateProposal(
+            {
+                raw: chatRes.json,
+                retrieved,
+                context: body.context,
+                userId,
+                sessionId: body.sessionId,
+            },
+            { db, log: logger }
+        );
+
+        await recordUsage(
+            { db },
+            {
+                sessionId: body.sessionId,
+                userId,
+                modelTag: chatProvider.modelTag(),
+                usage: chatRes.usage,
+                requestKind: 'chat',
+            }
+        );
+
+        const rawKind =
+            chatRes.json && typeof chatRes.json === 'object'
+                ? (chatRes.json as Record<string, unknown>).kind
+                : undefined;
+        return { ok: true, validated, rawKind };
     }
 
-    const validated = await validateProposal(
-        {
-            raw: chatRes.json,
-            retrieved,
-            context: body.context,
-            userId,
-            sessionId: body.sessionId,
-        },
-        { db, log: logger }
-    );
+    const first = await runChatPass();
+    if (!first.ok) {
+        await appendMessage(body.sessionId, 'assistant', first.reply);
+        return c.json(first.reply);
+    }
 
-    await recordUsage(
-        { db },
-        {
-            sessionId: body.sessionId,
-            userId,
-            modelTag: chatProvider.modelTag(),
-            usage: chatRes.usage,
-            requestKind: 'chat',
-        }
-    );
+    let final = first.validated;
+    // Retry once if the LLM thought it had a proposal but the validator downgraded
+    // it (shape error the coercer couldn't recover). Small local models drop into
+    // this state regularly; a second pass with a corrective coda usually fixes it.
+    if (first.rawKind === 'propose' && final.kind !== 'propose') {
+        const retry = await runChatPass(prompt.system + '\n\n' + RETRY_CODA);
+        if (retry.ok && retry.validated.kind === 'propose') final = retry.validated;
+    }
 
-    await appendMessage(body.sessionId, 'assistant', validated);
-    return c.json(validated);
+    await appendMessage(body.sessionId, 'assistant', final);
+    return c.json(final);
 });
+
+const RETRY_CODA = [
+    'YOUR PREVIOUS RESPONSE FAILED VALIDATION. Re-emit the JSON with strict',
+    'discipline:',
+    '- Every value in `data` is a PRIMITIVE string or number — never an object.',
+    '- `quantity` (or any `asset` field) is exactly a string like "100.00000000 UOS".',
+    '  Never {amount, precision, symbol}, never {amount, precision, symbol_code},',
+    '  never {actor, permission}, never any other object shape.',
+    '- `authorization` is one {actor, permission} object at the TOP LEVEL, not',
+    '  inside `data`.',
+    '- If a required value is genuinely missing from the user request, respond',
+    '  with kind="ask" and ONE question. Otherwise, emit kind="propose" with all',
+    '  fields filled.',
+].join('\n');
 
 export default app;

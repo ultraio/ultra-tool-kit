@@ -55,11 +55,13 @@ class EmbedStub implements ChatProvider {
 
 class ConfigurableChatStub implements ChatProvider {
     public next: ChatResponse = { json: { kind: 'refuse', reason: 'unset' }, usage: { input: 0, output: 0 } };
+    public queue: ChatResponse[] = [];
     public callCount = 0;
     constructor(public readonly tag: string) {}
     async chat(_req: ChatRequest): Promise<ChatResponse> {
         this.callCount += 1;
-        return this.next;
+        const queued = this.queue.shift();
+        return queued ?? this.next;
     }
     embed(): Promise<{ vector: number[]; usage: { input: number } }> {
         return Promise.reject(new Error(`${this.tag}: embed not implemented`));
@@ -253,6 +255,7 @@ describe('POST /api/ai-action (integration)', () => {
         };
         classifierStub.callCount = 0;
         chatStub.next = { json: { kind: 'refuse', reason: 'unset' }, usage: { input: 0, output: 0 } };
+        chatStub.queue = [];
         chatStub.callCount = 0;
     });
 
@@ -352,6 +355,72 @@ describe('POST /api/ai-action (integration)', () => {
 
         const inc = await db.select().from(incidents).where(eq(incidents.kind, 'schema-fail'));
         expect(inc.length).toBeGreaterThanOrEqual(1);
+    }, 60_000);
+
+    it('retry: recovers a propose when the first pass had a non-coercible shape error', async () => {
+        // Small local models (qwen2.5:7b/14b) occasionally emit objects in
+        // primitive slots — e.g. quantity = {actor, permission} from an attention
+        // failure. The validator can't coerce that, so it downgrades to `ask`;
+        // we retry once with a stricter system coda and accept the second pass
+        // if it's clean.
+        const bad = {
+            json: {
+                kind: 'propose',
+                contract: 'eosio.token',
+                action: 'transfer',
+                data: {
+                    from: 'acc1',
+                    to: 'acc2',
+                    quantity: { actor: 'acc1', permission: 'active' },
+                    memo: '',
+                },
+                authorization: { actor: 'acc1', permission: 'active' },
+                rationale: 'first pass',
+            },
+            usage: { input: 50, output: 30 },
+        };
+        const good = {
+            json: {
+                kind: 'propose',
+                contract: 'eosio.token',
+                action: 'transfer',
+                data: { from: 'acc1', to: 'acc2', quantity: '100.00000000 UOS', memo: '' },
+                authorization: { actor: 'acc1', permission: 'active' },
+                rationale: 'second pass',
+            },
+            usage: { input: 60, output: 30 },
+        };
+        chatStub.queue = [bad, good];
+
+        const { status, body } = await postBody(makeBody());
+        expect(status).toBe(200);
+        expect(body.kind).toBe('propose');
+        expect(body.data.quantity).toBe('100.00000000 UOS');
+        expect(chatStub.callCount).toBe(2);
+
+        // Both chat passes get cost-logged.
+        const usage = await db.select().from(usageLog).where(eq(usageLog.userId, TEST_USER_ID));
+        const chatRows = usage.filter((u) => u.requestKind === 'chat');
+        expect(chatRows.length).toBe(2);
+    }, 60_000);
+
+    it('retry: does not fire when first pass already returns a clean propose', async () => {
+        chatStub.next = {
+            json: {
+                kind: 'propose',
+                contract: 'eosio.token',
+                action: 'transfer',
+                data: { from: 'acc1', to: 'acc2', quantity: '100.00000000 UOS', memo: '' },
+                authorization: { actor: 'acc1', permission: 'active' },
+                rationale: 'clean first pass',
+            },
+            usage: { input: 50, output: 30 },
+        };
+
+        const { status, body } = await postBody(makeBody());
+        expect(status).toBe(200);
+        expect(body.kind).toBe('propose');
+        expect(chatStub.callCount).toBe(1);
     }, 60_000);
 
     it('admin-action: any user (admin or not) can get a propose; the wallet/chain is the gate', async () => {
