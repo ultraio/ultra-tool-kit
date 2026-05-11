@@ -172,6 +172,32 @@ describe('validateProposal', () => {
         expect(fake.rows[0]?.detail.reason).toBe('missing-field');
     });
 
+    it('coerces a {amount, precision, symbol_code} asset shape into a canonical string', async () => {
+        // qwen2.5 sometimes emits `symbol_code` instead of `symbol`; coerceLlmShape
+        // must normalize so the asset regex sees `"100.00000000 UOS"`.
+        const raw = {
+            kind: 'propose',
+            contract: 'eosio.token',
+            action: 'transfer',
+            data: {
+                from: 'alice',
+                to: 'bob',
+                quantity: { amount: 100, precision: 8, symbol_code: 'UOS' },
+                memo: '',
+            },
+            authorization: { actor: 'alice', permission: 'active' },
+            rationale: 'transfer 100 UOS',
+        };
+        const r = await validateProposal(
+            { raw, retrieved: [transferRetrieved], context: baseContext, userId: null, sessionId: null },
+            { db: fake.db }
+        );
+        expect(r.kind).toBe('propose');
+        if (r.kind !== 'propose') return;
+        expect(r.data.quantity).toBe('100.00000000 UOS');
+        expect(fake.rows).toHaveLength(0);
+    });
+
     it('refuses on malformed shape with no further validation', async () => {
         const raw = { kind: 'banana' };
         const r = await validateProposal(

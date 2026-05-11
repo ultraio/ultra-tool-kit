@@ -102,17 +102,15 @@ function coerceLlmShape(value: unknown, type: string, fieldName: string): unknow
     }
 
     if (type === 'asset') {
-        // Structured decomposition: `{amount: 100, precision: 8, symbol: "UOS"}`.
-        if (
-            typeof obj.amount === 'number' &&
-            typeof obj.precision === 'number' &&
-            typeof obj.symbol === 'string'
-        ) {
-            return `${obj.amount.toFixed(obj.precision)} ${obj.symbol}`;
+        // Symbol may surface as `symbol` (common) or `symbol_code` (qwen variant).
+        const sym = typeof obj.symbol === 'string' ? obj.symbol : typeof obj.symbol_code === 'string' ? obj.symbol_code : null;
+        // Structured decomposition: `{amount: 100, precision: 8, symbol|symbol_code: "UOS"}`.
+        if (typeof obj.amount === 'number' && typeof obj.precision === 'number' && sym !== null) {
+            return `${obj.amount.toFixed(obj.precision)} ${sym}`;
         }
         // String amount + symbol.
-        if (typeof obj.amount === 'string' && typeof obj.symbol === 'string') {
-            return `${obj.amount} ${obj.symbol}`;
+        if (typeof obj.amount === 'string' && sym !== null) {
+            return `${obj.amount} ${sym}`;
         }
         // extended_asset envelope: `{quantity: "100.0 UOS", contract: "..."}`.
         if (typeof obj.quantity === 'string') return obj.quantity;
