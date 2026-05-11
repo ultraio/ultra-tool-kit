@@ -80,8 +80,9 @@ LLM_PROVIDER=ollama
 EMBED_PROVIDER=ollama
 CLASSIFIER_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=qwen2.5:7b
+OLLAMA_CHAT_MODEL=qwen3:14b
 OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_KEEP_ALIVE=30m
 ```
 
 Leave the `ANTHROPIC_*` / `OPENAI_*` blocks blank — they're not used in local mode.
@@ -90,7 +91,7 @@ Leave the `ANTHROPIC_*` / `OPENAI_*` blocks blank — they're not used in local 
 
 ```bash
 ollama serve &                       # keep this running in a separate terminal
-ollama pull qwen2.5:7b               # ~4.4 GB
+ollama pull qwen3:14b                # ~9 GB; best JSON / tool-use at this size
 ollama pull nomic-embed-text         # ~270 MB
 ```
 

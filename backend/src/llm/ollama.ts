@@ -11,13 +11,18 @@ export type OllamaConfig = {
     baseUrl: string;
     chatModel: string;
     embedModel: string;
+    keepAlive: string;
 };
 
 export function ollamaConfigFromEnv(): OllamaConfig {
     return {
         baseUrl: process.env.OLLAMA_URL ?? 'http://localhost:11434',
-        chatModel: process.env.OLLAMA_CHAT_MODEL ?? 'qwen2.5:7b',
+        chatModel: process.env.OLLAMA_CHAT_MODEL ?? 'qwen3:14b',
         embedModel: process.env.OLLAMA_EMBED_MODEL ?? 'nomic-embed-text',
+        // Per-request override of Ollama's default 5-min unload; keeps the model
+        // resident across chat + classifier turns so the user never pays
+        // first-load latency mid-conversation.
+        keepAlive: process.env.OLLAMA_KEEP_ALIVE ?? '30m',
     };
 }
 
@@ -42,6 +47,7 @@ export class OllamaProvider implements ChatProvider {
                 { role: 'user', content: req.user },
             ],
             options: req.maxTokens ? { num_predict: req.maxTokens } : undefined,
+            keep_alive: this.config.keepAlive,
             stream: false,
         });
         const content = res.message?.content ?? '';
@@ -69,6 +75,7 @@ export class OllamaProvider implements ChatProvider {
         const res = await this.client.embeddings({
             model: this.config.embedModel,
             prompt: text,
+            keep_alive: this.config.keepAlive,
         });
         return {
             vector: res.embedding,

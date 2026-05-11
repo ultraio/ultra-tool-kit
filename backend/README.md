@@ -20,7 +20,7 @@ Free, local, single-user. From the repo root:
 # 1. Models (~10 min, mostly download)
 brew install ollama
 ollama serve &
-ollama pull qwen2.5:7b
+ollama pull qwen3:14b              # ~9 GB; comfortable on 16 GB+ laptops
 ollama pull nomic-embed-text
 
 # 2. Postgres + backend + frontend
