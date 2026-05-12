@@ -68,7 +68,9 @@ export class AiClientError extends Error {
 
 const DEFAULT_BASE_URL = 'http://localhost:8787';
 const REQUEST_TIMEOUT_MS = 60_000;
-const WARMING_HINT_MS = 5_000;
+// Local Ollama turns commonly run 3–8 s with the retry pass; 5 s caused the
+// hint to fire on every turn. 10 s catches genuine slowness without nagging.
+const WARMING_HINT_MS = 10_000;
 
 export function getBaseUrl(): string {
     const fromEnv = (import.meta as any).env?.VITE_AI_BACKEND_URL as string | undefined;

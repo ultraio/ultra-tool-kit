@@ -46,7 +46,7 @@
                         class="px-4 py-2 text-xs text-amber-300 bg-amber-900/20 border-b border-amber-800/40"
                         data-testid="ai-warming"
                     >
-                        Model warming up — first request takes a few seconds.
+                        Still working — local models can take a few seconds per turn.
                     </div>
 
                     <!-- Messages -->
