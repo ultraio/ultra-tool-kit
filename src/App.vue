@@ -222,42 +222,49 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
     }
 
     // Toolkit→Wallet sync: only applies to the extension (web provider can't switchNetwork).
-    if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable() && !isNetworkSyncing) {
+    //
+    // Atomicity: claim isNetworkSyncing BEFORE the first await (fetchWithTimeout).
+    // The old shape gate-checked the flag at the top of the if-clause but only
+    // flipped it inside the inner block after two awaits — a second concurrent
+    // setEndpoint call could pass the outer gate and start its own
+    // fetch/switchNetwork RPC. With the flag set up-front and a single outer
+    // try/finally, any throw path (fetch reject, JSON parse, switchNetwork
+    // reject) resets the flag — preventing a latent deadlock that would have
+    // wedged subsequent syncs.
+    if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable()) {
+        if (isNetworkSyncing) return;
+        isNetworkSyncing = true;
         try {
             const res = await fetchWithTimeout(`${endpoint}/v1/chain/get_info`);
             if (res?.ok) {
                 const info = await res.json();
                 const endpointChainId = info.chain_id;
                 if (endpointChainId && endpointChainId !== authState.value.chainId) {
-                    isNetworkSyncing = true;
-                    try {
-                        await Ultra.switchNetwork(endpointChainId);
-                        setAuthStateKeys({ chainId: endpointChainId });
-                        // Re-issue connect on the new chain so the wallet
-                        // returns chain-resolved accounts and we update the
-                        // dropdown + active account locally. The BG also
-                        // emits accountChanged on env change
-                        // (belt-and-suspenders), but doing this synchronously
-                        // here removes the dependency on event timing for
-                        // the immediate UI update.
-                        const response = await Ultra.connect();
-                        if (response.status === 'success') {
-                            populateWalletAccountsFromConnectResult(response.data);
-                            const { accountName, permission } = await Ultra.resolveSelectedAccount(
-                                response.data
-                            );
-                            await setAccount('ultra', accountName, permission);
-                        }
-                        localStorage.setItem('authState', JSON.stringify(authState.value));
-                    } catch {
-                        // User rejected the switch or wallet error — mismatch warning will show
-                    } finally {
-                        isNetworkSyncing = false;
+                    await Ultra.switchNetwork(endpointChainId);
+                    setAuthStateKeys({ chainId: endpointChainId });
+                    // Re-issue connect on the new chain so the wallet
+                    // returns chain-resolved accounts and we update the
+                    // dropdown + active account locally. The BG also
+                    // emits accountChanged on env change
+                    // (belt-and-suspenders), but doing this synchronously
+                    // here removes the dependency on event timing for
+                    // the immediate UI update.
+                    const response = await Ultra.connect();
+                    if (response.status === 'success') {
+                        populateWalletAccountsFromConnectResult(response.data);
+                        const { accountName, permission } = await Ultra.resolveSelectedAccount(
+                            response.data
+                        );
+                        await setAccount('ultra', accountName, permission);
                     }
+                    localStorage.setItem('authState', JSON.stringify(authState.value));
                 }
             }
         } catch {
-            // Endpoint unreachable — can't determine chainId
+            // Endpoint unreachable, user rejected the switch, or wallet error
+            // — mismatch warning will show on the next render.
+        } finally {
+            isNetworkSyncing = false;
         }
     }
 }
