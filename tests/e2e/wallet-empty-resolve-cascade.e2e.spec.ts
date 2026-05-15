@@ -382,7 +382,9 @@ test.describe('Empty-resolve cascade — regression guards', () => {
             );
 
             // Toolkit's handleWalletAccountChanged must adopt the new
-            // selection into authState.accountName.
+            // selection into authState.accountName AND default to the
+            // 'active' permission (not 'owner') even when the walker
+            // returned both for this key.
             await expect
                 .poll(
                     async () => {
@@ -393,15 +395,118 @@ test.describe('Empty-resolve cascade — regression guards', () => {
                                 return {};
                             }
                         });
-                        return auth?.accountName ?? null;
+                        return { name: auth?.accountName ?? null, perm: auth?.accountPerm ?? null };
                     },
                     {
                         timeout: 30_000,
                         intervals: [200, 500, 1000],
-                        message: 'authState.accountName did not adopt wallet-emitted `selected.accountName`',
+                        message: 'authState did not adopt wallet-emitted `selected` with active permission',
                     },
                 )
-                .toBe('switched.test');
+                .toEqual({ name: 'switched.test', perm: 'active' });
+        } finally {
+            await context.close();
+        }
+    });
+
+    test('Reg 2b: when the walker returns both owner and active for a key, active wins', async () => {
+        const userDataDir = fs.mkdtempSync(path.join('/tmp', 'pw-empty-cascade-reg2b-'));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+            headless: false,
+            args: [
+                `--disable-extensions-except=${EXTENSION_PATH}`,
+                `--load-extension=${EXTENSION_PATH}`,
+                '--no-first-run',
+            ],
+        });
+
+        try {
+            const sw = await getServiceWorker(context);
+
+            await seedExtensionState(sw, {
+                password: PASSWORD,
+                pubKey: PUB_KEY,
+                privKey: PRIV_KEY,
+                env: 'testnet',
+                origins: [TOOLKIT_ORIGIN],
+                selectedAccountByChain: { [TESTNET_CHAIN]: 'initial.test' },
+                accountResolutionCache: {
+                    testnet: {
+                        entries: [
+                            { account: 'initial.test', permission: 'active', authorizing_key: PUB_KEY },
+                            // owner BEFORE active in walker order — pre-fix
+                            // bug picked the first match, which would be
+                            // owner if the chain returned it first.
+                            { account: 'multiperm.test', permission: 'owner', authorizing_key: PUB_KEY },
+                            { account: 'multiperm.test', permission: 'active', authorizing_key: PUB_KEY },
+                        ],
+                        publicKeys: [PUB_KEY],
+                    },
+                },
+            });
+
+            // Chain mock returns BOTH owner and active for multiperm.test
+            // (owner row first — the order the bug hinges on).
+            await mockChainRPC(context, [
+                { account_name: 'initial.test', permission_name: 'active', authorizing_key: PUB_KEY },
+                { account_name: 'multiperm.test', permission_name: 'owner', authorizing_key: PUB_KEY },
+                { account_name: 'multiperm.test', permission_name: 'active', authorizing_key: PUB_KEY },
+            ]);
+
+            const page = await context.newPage();
+            await page.goto(TOOLKIT_ORIGIN);
+            await page.waitForLoadState('load');
+            await page.evaluate(({ chainId }) => {
+                localStorage.setItem(
+                    'authState',
+                    JSON.stringify({
+                        type: 'ultra',
+                        accountName: 'initial.test',
+                        accountPerm: 'active',
+                        isAdmin: false,
+                        endpoint: 'https://api.testnet.ultra.io',
+                        environment: 'testnet',
+                        chainId,
+                    }),
+                );
+                localStorage.setItem('endpoint', 'https://api.testnet.ultra.io');
+                localStorage.setItem('environment', 'testnet');
+            }, { chainId: TESTNET_CHAIN });
+            await page.reload();
+            await page.waitForLoadState('load');
+
+            // Drive a switch to the multi-permission account. BG emits
+            // accountChanged with `selected = first matching entry from
+            // trustedAccounts` — which will be the owner row (it's first
+            // in the resolved cache). Toolkit MUST prefer active anyway.
+            await sw.evaluate(
+                async ({ chainId }) => {
+                    await chrome.storage.local.set({
+                        SELECTED_ACCOUNTS_BY_CHAIN: { [chainId]: 'multiperm.test' },
+                    });
+                },
+                { chainId: TESTNET_CHAIN },
+            );
+
+            await expect
+                .poll(
+                    async () => {
+                        const auth = await page.evaluate(() => {
+                            try {
+                                return JSON.parse(localStorage.getItem('authState') ?? '{}');
+                            } catch {
+                                return {};
+                            }
+                        });
+                        return { name: auth?.accountName ?? null, perm: auth?.accountPerm ?? null };
+                    },
+                    {
+                        timeout: 30_000,
+                        intervals: [200, 500, 1000],
+                        message: 'authState did not prefer active permission when both owner and active are available',
+                    },
+                )
+                .toEqual({ name: 'multiperm.test', perm: 'active' });
         } finally {
             await context.close();
         }

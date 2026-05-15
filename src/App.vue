@@ -586,15 +586,9 @@ function handleWalletAccountChanged(data: {
     // so this write doesn't disturb in-flight per-action overrides.
     const selectedName = data?.selected?.accountName;
     if (selectedName && selectedName !== authState.value.accountName) {
-        // Permission: prefer the explicit permission from `selected`'s
-        // first permission entry; fall back to matching the eventAccounts
-        // row, else 'active'.
-        const fromSelected = data?.selected?.permissions?.[0]?.name;
-        const fromAvailable = eventAccounts.find((a) => a.accountName === selectedName)?.permission;
-        const permission = fromSelected ?? fromAvailable ?? 'active';
         setAuthStateKeys({
             accountName: selectedName,
-            accountPerm: permission,
+            accountPerm: preferActivePermission(selectedName, eventAccounts),
             isAdmin: I.ELEVATED_ACCOUNTS.includes(selectedName),
         });
         localStorage.setItem('authState', JSON.stringify(authState.value));
@@ -612,15 +606,37 @@ function handleWalletAccountChanged(data: {
     if (stillAvailable) return;
 
     const first = eventAccounts[0];
-    const permission = first.permission ?? 'active';
     setAuthStateKeys({
         accountName: first.accountName,
-        accountPerm: permission,
+        accountPerm: preferActivePermission(first.accountName, eventAccounts),
         isAdmin: I.ELEVATED_ACCOUNTS.includes(first.accountName),
     });
     localStorage.setItem('authState', JSON.stringify(authState.value));
     keyRouterUpdate.value += 1;
     keyUserUpdate.value += 1;
+}
+
+/**
+ * Pick the preferred permission for `accountName` from the BG's flat
+ * `accountChanged` event payload (one row per `(account, permission)` pair).
+ * Mirrors the pre-fix `validatedAccounts` sort: prefer 'active' when the
+ * key authorizes both `active` and `owner` for the same account, fall
+ * back to the first listed permission, fall back to 'active' as the
+ * EOSIO default.
+ *
+ * This is the default signing permission for actions where the
+ * transaction builder doesn't specify one. The user can still override
+ * per-action via each form's local authorizer dropdown.
+ */
+function preferActivePermission(
+    accountName: string,
+    eventAccounts: Array<{ accountName: string; permission?: string }>,
+): string {
+    const matches = eventAccounts.filter((a) => a.accountName === accountName);
+    const active = matches.find((m) => m.permission === 'active');
+    if (active) return 'active';
+    const firstPermissioned = matches.find((m) => !!m.permission);
+    return firstPermissioned?.permission ?? 'active';
 }
 
 async function handleWalletNetworkChanged(data: { chainId: string; name: string }) {

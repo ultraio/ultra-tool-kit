@@ -68,11 +68,11 @@ const emit = defineEmits<UserOverlayEmits>();
 // the global UserOverlay header.
 
 const displayName = computed(() => {
-    if (!props.state.accountName) return '';
-    if (props.state.accountPerm && props.state.accountPerm !== 'active') {
-        return `${props.state.accountName}@${props.state.accountPerm}`;
-    }
-    return props.state.accountName;
+    // Show only the wallet-selected account name. Permission is not part
+    // of the user identity — it's a per-action signing detail surfaced in
+    // each transaction form's authorizer row, not in the global header.
+    // (2026-05-15 design directive.)
+    return props.state.accountName ?? '';
 });
 
 const isNetworkMismatch = computed(() => {
