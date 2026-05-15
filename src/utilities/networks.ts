@@ -3,44 +3,46 @@ import { BlockchainService } from "./blockchain";
 export const defaultNetworks = [
     {
         name: 'Mainnet',
+        chainId: 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097',
+        // eosusa first — eosrio's gateway has broken CORS preflight
+        // (doesn't echo `Access-Control-Allow-Headers: content-type`),
+        // which makes the toolkit fail to talk to it from a browser dapp.
         urls: [
-            //'https://api.mainnet.ultra.io', - does not support get_accounts_by_authorizer
-            'https://ultra.api.eosnation.io',
-            //'https://ultra.eosrio.io', - CORS error
-            'https://api.ultra.cryptolions.io',
             'https://ultra.eosusa.io',
+            'https://api.ultra.cryptolions.io',
             'https://api.ultra.eossweden.org',
             'https://ultra-api.eoseoul.io',
+            'https://ultra.eosphere.io',
+            'https://ultra.eosrio.io',
         ],
         isPublic: true,
     },
     {
         name: 'Testnet',
+        chainId: '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9',
         urls: [
-            //'https://api.testnet.ultra.io/', - get_accounts_by_authorizer
-            'https://ultratest.api.eosnation.io',
-            //'https://testnet.ultra.eosrio.io', - CORS error
-            'https://api.ultra-testnet.cryptolions.io',
             'https://test.ultra.eosusa.io',
+            'https://api.ultra-testnet.cryptolions.io',
             'https://api.testnet.ultra.eossweden.org',
-            'https://ultratest-api.eoseoul.io',
+            'https://ultra-testnet.eosphere.io',
+            'https://testnet.ultra.eosrio.io',
         ],
         isPublic: true,
     },
-    { name: 'Diablo', urls: ['https://api-diablo.dfuse.ultra.io'], isPublic: false },
-    { name: 'Preprod', urls: ['https://api-preprod.dfuse.ultra.io'], isPublic: false },
-    { name: 'Dev', urls: ['https://api-dev.dfuse.ultra.io'], isPublic: false },
-    { name: 'QA', urls: ['https://api-qa.dfuse.ultra.io'], isPublic: false },
     { name: 'Local:8888', urls: ['http://localhost:8888'], isPublic: true },
 ];
+
+/**
+ * Find a network config by its chain ID.
+ * Returns undefined if no known network matches (custom/internal networks).
+ */
+export function getNetworkByChainId(chainId: string) {
+    return defaultNetworks.find((net) => (net as any).chainId === chainId);
+}
 
 export const defaultExplorers = {
     Mainnet: 'https://explorer.mainnet.ultra.io',
     Testnet: 'https://explorer.testnet.ultra.io',
-    Diablo: 'https://eosq-diablo.dfuse.ultra.io',
-    Preprod: 'https://eosq-preprod.dfuse.ultra.io',
-    Dev: 'https://eosq-dev.dfuse.ultra.io',
-    QA: 'https://eosq-qa.dfuse.ultra.io',
 };
 
 export function getTransactionLink(env: string, hash: string) {

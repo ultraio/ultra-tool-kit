@@ -16,18 +16,6 @@ let ENV: keyof typeof credentials = 'dev';
  */
 export function setEnvironment(state: I.AuthState) {
     switch (state.environment) {
-        case 'Dev': {
-            ENV = 'dev';
-            break;
-        }
-        case 'QA': {
-            ENV = 'qa';
-            break;
-        }
-        case 'Preprod': {
-            ENV = 'preprod';
-            break;
-        }
         case 'Testnet': {
             ENV = 'staging';
             break;

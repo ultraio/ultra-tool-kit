@@ -6,24 +6,71 @@
             <span>Refresh</span>
         </Button>
         <LoadingSpinner v-if="isRefreshing" />
-        <!-- Active Endpoints -->
-        <div v-for="endpoint in activeEndpoints" class="flex flex-row items-center gap-2">
-            <div class="flex items-center justify-center w-12 h-12 bg-emerald-800 rounded">
-                <Icon icon="fa-check" />
-            </div>
-            <Button class="w-full text-left" @click="selectEndpoint(endpoint.value)"
-                >{{ endpoint.text }} - {{ endpoint.value }}</Button
+
+        <!-- Grouped Public Networks (Mainnet, Testnet) -->
+        <template v-for="group in publicGroups" :key="group.name">
+            <div class="pt-2 text-lg font-semibold">{{ group.name }}</div>
+            <div
+                v-for="endpoint in group.endpoints"
+                :key="endpoint.value"
+                class="flex flex-row items-center gap-2 rounded"
+                :class="isActiveSelection(endpoint.value) ? 'ring-2 ring-purple-400 p-1' : ''"
             >
-        </div>
-        <!-- Inactive Endpoints -->
-        <div v-for="endpoint in inactiveEndpoints" class="flex flex-row items-center gap-2">
-            <div class="flex items-center justify-center w-12 h-12 bg-red-800 rounded">
-                <Icon icon="fa-times" />
+                <div
+                    class="flex items-center justify-center w-12 h-12 rounded flex-shrink-0"
+                    :class="endpoint.active ? 'bg-emerald-800' : 'bg-red-800'"
+                >
+                    <Icon :icon="endpoint.active ? 'fa-check' : 'fa-times'" />
+                </div>
+                <Button
+                    :disabled="!endpoint.active"
+                    class="w-full text-left flex items-center justify-between gap-2"
+                    @click="endpoint.active && selectEndpoint(endpoint.value)"
+                >
+                    <span>{{ endpoint.value }}</span>
+                    <span
+                        v-if="isActiveSelection(endpoint.value)"
+                        class="text-xs font-semibold uppercase text-purple-300"
+                    >
+                        Selected
+                    </span>
+                </Button>
             </div>
-            <Button :disabled="true" class="w-full text-left">{{ endpoint.text }} - {{ endpoint.value }}</Button>
-        </div>
+        </template>
+
+        <!-- Local -->
+        <template v-if="localEndpoints.length">
+            <div class="pt-2 text-lg font-semibold">Local</div>
+            <div
+                v-for="endpoint in localEndpoints"
+                :key="endpoint.value"
+                class="flex flex-row items-center gap-2 rounded"
+                :class="isActiveSelection(endpoint.value) ? 'ring-2 ring-purple-400 p-1' : ''"
+            >
+                <div
+                    class="flex items-center justify-center w-12 h-12 rounded flex-shrink-0"
+                    :class="endpoint.active ? 'bg-emerald-800' : 'bg-red-800'"
+                >
+                    <Icon :icon="endpoint.active ? 'fa-check' : 'fa-times'" />
+                </div>
+                <Button
+                    :disabled="!endpoint.active"
+                    class="w-full text-left flex items-center justify-between gap-2"
+                    @click="endpoint.active && selectEndpoint(endpoint.value)"
+                >
+                    <span>{{ endpoint.text }} - {{ endpoint.value }}</span>
+                    <span
+                        v-if="isActiveSelection(endpoint.value)"
+                        class="text-xs font-semibold uppercase text-purple-300"
+                    >
+                        Selected
+                    </span>
+                </Button>
+            </div>
+        </template>
+
         <!-- Custom Endpoint -->
-        <div class="pt-2 text-lg">Use Custom Endpoint</div>
+        <div class="pt-2 text-lg font-semibold">Use Custom Endpoint</div>
         <div class="flex flex-row justify-between w-full gap-4">
             <input
                 v-model="customEndpoint"
@@ -47,20 +94,27 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { SharedEmits, PageState } from '../interfaces';
+import { SharedEmits, AuthState } from '../interfaces';
 import { defaultNetworks, fetchWithTimeout } from '../utilities/networks';
 
 interface EndpointEmits extends SharedEmits {}
 
+const props = defineProps<{ state: AuthState }>();
 const emit = defineEmits<EndpointEmits>();
 
-let isRefreshing = ref<boolean>(false);
-let activeEndpoints = ref<{ text: string; value: string }[]>([]);
-let inactiveEndpoints = ref<{ text: string; value: string }[]>([]);
-let hiddenEndpoints = ref<{ text: string; value: string }[]>([]);
+function isActiveSelection(url: string) {
+    return props.state.endpoint === url;
+}
 
-let customEndpoint = ref<string>('');
-let isCustomValid = ref<boolean>(false);
+type EndpointStatus = { text: string; value: string; active: boolean };
+type PublicGroup = { name: string; endpoints: EndpointStatus[] };
+
+const isRefreshing = ref<boolean>(false);
+const publicGroups = ref<PublicGroup[]>([]);
+const localEndpoints = ref<EndpointStatus[]>([]);
+
+const customEndpoint = ref<string>('');
+const isCustomValid = ref<boolean>(false);
 
 async function testCustomEndpoint() {
     isCustomValid.value = await isEndpointValid(customEndpoint.value);
@@ -68,95 +122,66 @@ async function testCustomEndpoint() {
 
 async function isEndpointValid(url: string): Promise<boolean> {
     try {
-        if (!isValidUrl(url)) {
-            return false;
-        }
-
+        if (!isValidUrl(url)) return false;
         const request = await fetchWithTimeout(`${url}/v1/chain/get_info`);
-        if (!request || !request.ok) {
-            return false;
-        }
-
-        return true;
-    } catch (err) {}
-
-    return false;
+        return !!(request && request.ok);
+    } catch {
+        return false;
+    }
 }
 
-const isValidUrl = (str: string) => {
+function isValidUrl(str: string) {
     try {
         new URL(str);
         return true;
-    } catch (err) {
+    } catch {
         return false;
     }
-};
+}
 
 async function selectEndpoint(url: string) {
     let endpoints = localStorage.getItem('endpoints');
-
-    if (!endpoints) {
-        endpoints = url;
-    }
-
-    if (!endpoints.includes(url)) {
-        endpoints += `,${url}`;
-    }
-
+    if (!endpoints) endpoints = url;
+    if (!endpoints.includes(url)) endpoints += `,${url}`;
     localStorage.setItem('endpoints', endpoints);
 
     emit('set-endpoint', url, true);
     emit('set-page-state', { showEndpoint: false });
 }
 
+async function checkUrl(text: string, url: string): Promise<EndpointStatus> {
+    const active = await isEndpointValid(url);
+    return { text, value: url, active };
+}
+
 async function refreshEndpoints() {
-    if (isRefreshing.value) {
-        return;
-    }
+    if (isRefreshing.value) return;
 
     isRefreshing.value = true;
-    activeEndpoints.value = [];
-    inactiveEndpoints.value = [];
-    hiddenEndpoints.value = [];
+    publicGroups.value = [];
+    localEndpoints.value = [];
 
-    const promises = defaultNetworks.map((data) => {
-        return new Promise<void>(async (resolve, reject) => {
-            isEndpointValid(data.urls[0]).then(async (isActive) => {
-                if (isActive) {
-                    if (data.name === 'Diablo') hiddenEndpoints.value.push({ text: data.name, value: data.urls[0] }); 
-                    else activeEndpoints.value.push({ text: data.name, value: data.urls[0] });
-                } else {
-                    // if it's a public endpoint, retry with other URLs
-                    if (data.isPublic) {
-                        let success = false;
-                        for (const url of data.urls.slice(1)) {
-                            console.log(`Retrying for ${data.name} with url: ${url}`);
-                            const _isActive = await isEndpointValid(url); // non-parallel request
-                            if (_isActive) {
-                                activeEndpoints.value.push({ text: data.name, value: url });
-                                success = true;
-                                break;
-                            }
-                        }
+    const nextPublicGroups: PublicGroup[] = [];
+    const nextLocal: EndpointStatus[] = [];
 
-                        if (!success) {
-                            inactiveEndpoints.value.push({ text: data.name, value: data.urls[0] });
-                        }
-                    }
-                    // if not a public endpoint, and it's not active, don't add it to active/inactive list because we don't want to display it
-                }
-                resolve();
-            });
-        });
-    });
+    await Promise.all(
+        defaultNetworks.map(async (net) => {
+            const isLocal = net.name.startsWith('Local');
+            const endpoints = await Promise.all(net.urls.map((url) => checkUrl(net.name, url)));
+            if (isLocal) {
+                nextLocal.push(...endpoints);
+            } else {
+                nextPublicGroups.push({ name: net.name, endpoints });
+            }
+        })
+    );
 
-    await Promise.all(promises);
+    // Preserve the order declared in defaultNetworks for public groups
+    const order = defaultNetworks.filter((n) => !n.name.startsWith('Local')).map((n) => n.name);
+    nextPublicGroups.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
 
-    // hide Diablo network manually
-    if (activeEndpoints.value.find((e) => e.text == 'Dev' || e.text == 'QA')) {
-        let diablo = hiddenEndpoints.value.find((e) => e.text == 'Diablo');
-        if (diablo) activeEndpoints.value.push(diablo);
-    }
+    publicGroups.value = nextPublicGroups;
+    localEndpoints.value = nextLocal;
     isRefreshing.value = false;
 }
 

@@ -23,3 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 .husky
+
+# Playwright
+test-results/
+playwright-report/
+
+# Claude Code
+.claude/

@@ -41,11 +41,16 @@ library.add(
     solid.faImage,
     solid.faChevronRight,
     solid.faChevronDown,
+    solid.faChevronUp,
     solid.faBox,
     solid.faRefresh,
     solid.faPaperPlane,
     solid.faPencil,
     solid.faBan,
+    solid.faPuzzlePiece,
+    solid.faGlobe,
+    solid.faAnchor,
+    solid.faMicrochip,
     // brands
     brands.faUsb
 );
