@@ -1,0 +1,791 @@
+{
+  "contract": "eosio.token",
+  "abi_hash": "6409d3c8fb3ce3b47a32fcd194362afb7fd004b22bc2b05939c89c99c76c9c38",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-21T09:14:29.722Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.token",
+  "actions": {
+    "burn": {
+      "contract": "eosio.token",
+      "action": "burn",
+      "params": [
+        {
+          "name": "amount",
+          "type": "asset"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "get_sender() == \"eosio.token\"_n",
+          "message": "sender must be esoio.token"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          382,
+          385
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.token.cpp:382 but no require_auth/require_auth2 captured."
+    },
+    "close": {
+      "contract": "eosio.token",
+      "action": "close",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "symbol",
+          "type": "symbol"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "it != acnts.end()",
+          "message": "Balance row already deleted or never existed. Action won't have any effect."
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it->balance.amount == 0",
+          "message": "Cannot close because the balance is not zero."
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          195,
+          203
+        ]
+      }
+    },
+    "configburn": {
+      "contract": "eosio.token",
+      "action": "configburn",
+      "params": [
+        {
+          "name": "trigger_supply",
+          "type": "asset"
+        },
+        {
+          "name": "rate_bp",
+          "type": "uint16"
+        },
+        {
+          "name": "whitelisted_accounts",
+          "type": "name[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        },
+        {
+          "actor": "\"ultra\"_n",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "rate_bp < 10000",
+          "message": "rate must be less than 100 percent"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "st.supply.symbol == trigger_supply.symbol",
+          "message": "symbol precision mismatch"
+        },
+        {
+          "kind": "state",
+          "expr": "has_auth(st.issuer) || has_auth(\"ultra\"_n)",
+          "message": "missing issuer or ultra authority"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "config->strategy == 1",
+          "message": "cannot change token config strategy"
+        }
+      ],
+      "field_constraints": {
+        "trigger_supply": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid trigger supply amount"
+          },
+          {
+            "expr": ".amount < st.max_supply.amount",
+            "message": "trigger quantity exceeds maximum supply"
+          }
+        ],
+        "whitelisted_accounts": [
+          {
+            "expr": ".size() <= 32",
+            "message": "whitelist has more than 32 accounts"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          303,
+          339
+        ]
+      }
+    },
+    "configtax": {
+      "contract": "eosio.token",
+      "action": "configtax",
+      "params": [
+        {
+          "name": "trigger_supply",
+          "type": "asset"
+        },
+        {
+          "name": "rate_bp",
+          "type": "uint16"
+        },
+        {
+          "name": "tax_receiver",
+          "type": "name"
+        },
+        {
+          "name": "whitelisted_accounts",
+          "type": "name[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        },
+        {
+          "actor": "\"ultra\"_n",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "is_account(tax_receiver)",
+          "message": "tax receviver account does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rate_bp < 10000",
+          "message": "rate must be less than 100 percent"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "st.supply.symbol == trigger_supply.symbol",
+          "message": "symbol precision mismatch"
+        },
+        {
+          "kind": "state",
+          "expr": "has_auth(st.issuer) || has_auth(\"ultra\"_n)",
+          "message": "missing issuer or ultra authority"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "config->strategy == 2",
+          "message": "cannot change token config strategy"
+        }
+      ],
+      "field_constraints": {
+        "trigger_supply": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid trigger supply amount"
+          },
+          {
+            "expr": ".amount < st.max_supply.amount",
+            "message": "trigger quantity exceeds maximum supply"
+          }
+        ],
+        "whitelisted_accounts": [
+          {
+            "expr": ".size() <= 32",
+            "message": "whitelist has more than 32 accounts"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          341,
+          380
+        ]
+      }
+    },
+    "create": {
+      "contract": "eosio.token",
+      "action": "create",
+      "params": [
+        {
+          "name": "issuer",
+          "type": "name"
+        },
+        {
+          "name": "maximum_supply",
+          "type": "asset"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "existing == statstable.end()",
+          "message": "token with symbol already exists"
+        }
+      ],
+      "field_constraints": {
+        "maximum_supply": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid supply"
+          },
+          {
+            "expr": ".amount >= 0",
+            "message": "max-supply must not be negative"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          6,
+          24
+        ]
+      }
+    },
+    "issue": {
+      "contract": "eosio.token",
+      "action": "issue",
+      "params": [
+        {
+          "name": "to",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "sym.is_valid()",
+          "message": "invalid symbol name"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing != statstable.end()",
+          "message": "token with symbol does not exist, create token before issue"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ],
+        "quantity": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid quantity"
+          },
+          {
+            "expr": ".amount > 0",
+            "message": "must issue positive quantity"
+          },
+          {
+            "expr": ".symbol == st.supply.symbol",
+            "message": "symbol precision mismatch"
+          },
+          {
+            "expr": ".amount <= st.max_supply.amount - st.supply.amount",
+            "message": "quantity exceeds available supply"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          27,
+          52
+        ]
+      }
+    },
+    "nettransfer": {
+      "contract": "eosio.token",
+      "action": "nettransfer",
+      "params": [
+        {
+          "name": "from",
+          "type": "name"
+        },
+        {
+          "name": "to",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "get_sender() == \"eosio.token\"_n",
+          "message": "sender must be esoio.token"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [
+        "$from",
+        "$to"
+      ],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          205,
+          212
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.token.cpp:205 but no require_auth/require_auth2 captured."
+    },
+    "open": {
+      "contract": "eosio.token",
+      "action": "open",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "symbol",
+          "type": "symbol"
+        },
+        {
+          "name": "ram_payer",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$ram_payer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "is_account( owner )",
+          "message": "owner account does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "st.supply.symbol == symbol",
+          "message": "symbol precision mismatch"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          175,
+          193
+        ]
+      }
+    },
+    "retire": {
+      "contract": "eosio.token",
+      "action": "retire",
+      "params": [
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "sym.is_valid()",
+          "message": "invalid symbol name"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing != statstable.end()",
+          "message": "token with symbol does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "from.balance.amount >= value.amount",
+          "message": "overdrawn balance"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ],
+        "quantity": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid quantity"
+          },
+          {
+            "expr": ".amount > 0",
+            "message": "must retire positive quantity"
+          },
+          {
+            "expr": ".symbol == st.supply.symbol",
+            "message": "symbol precision mismatch"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          54,
+          76
+        ]
+      }
+    },
+    "tax": {
+      "contract": "eosio.token",
+      "action": "tax",
+      "params": [
+        {
+          "name": "amount",
+          "type": "asset"
+        },
+        {
+          "name": "tax_receiver",
+          "type": "name"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "get_sender() == \"eosio.token\"_n",
+          "message": "sender must be esoio.token"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [
+        "$tax_receiver"
+      ],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          387,
+          391
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.token.cpp:387 but no require_auth/require_auth2 captured."
+    },
+    "transfer": {
+      "contract": "eosio.token",
+      "action": "transfer",
+      "params": [
+        {
+          "name": "from",
+          "type": "name"
+        },
+        {
+          "name": "to",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$from",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "from != to",
+          "message": "cannot transfer to self"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account( to )",
+          "message": "to account does not exist"
+        }
+      ],
+      "field_constraints": {
+        "quantity": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid quantity"
+          },
+          {
+            "expr": ".amount > 0",
+            "message": "must transfer positive quantity"
+          },
+          {
+            "expr": ".symbol == st.supply.symbol",
+            "message": "symbol precision mismatch"
+          }
+        ],
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ]
+      },
+      "recipients": [
+        "$from",
+        "$to"
+      ],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          78,
+          144
+        ]
+      }
+    },
+    "updatemeta": {
+      "contract": "eosio.token",
+      "action": "updatemeta",
+      "params": [
+        {
+          "name": "symbol",
+          "type": "symbol"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "color",
+          "type": "uint32"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        },
+        {
+          "actor": "\"ultra\"_n",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "isValidTokenName(name)",
+          "message": "name contains invalid characters"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "st.supply.symbol == symbol",
+          "message": "symbol precision mismatch"
+        },
+        {
+          "kind": "state",
+          "expr": "has_auth(st.issuer) || has_auth(\"ultra\"_n)",
+          "message": "missing issuer or ultra authority"
+        }
+      ],
+      "field_constraints": {
+        "name": [
+          {
+            "expr": ".size() <= 24",
+            "message": "name has more than 24 characters"
+          },
+          {
+            "expr": ".size() >= 3",
+            "message": "name has less than 3 characters"
+          }
+        ],
+        "icon": [
+          {
+            "expr": ".size() <= 128",
+            "message": "icon has more than 128 characters"
+          }
+        ],
+        "description": [
+          {
+            "expr": ".size() <= 128",
+            "message": "description has more than 128 characters"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          227,
+          263
+        ]
+      }
+    },
+    "updatemeta.b": {
+      "contract": "eosio.token",
+      "action": "updatemeta.b",
+      "params": [
+        {
+          "name": "symbol",
+          "type": "symbol"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "color_hex",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "st.issuer",
+          "permission": "active"
+        },
+        {
+          "actor": "\"ultra\"_n",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "isValidTokenName(name)",
+          "message": "name contains invalid characters"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "st.supply.symbol == symbol",
+          "message": "symbol precision mismatch"
+        },
+        {
+          "kind": "state",
+          "expr": "has_auth(st.issuer) || has_auth(\"ultra\"_n)",
+          "message": "missing issuer or ultra authority"
+        }
+      ],
+      "field_constraints": {
+        "name": [
+          {
+            "expr": ".size() <= 24",
+            "message": "name has more than 24 characters"
+          },
+          {
+            "expr": ".size() >= 3",
+            "message": "name has less than 3 characters"
+          }
+        ],
+        "icon": [
+          {
+            "expr": ".size() <= 256",
+            "message": "icon has more than 256 characters"
+          }
+        ],
+        "description": [
+          {
+            "expr": ".size() <= 128",
+            "message": "description has more than 128 characters"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.token.cpp",
+        "lines": [
+          265,
+          301
+        ]
+      }
+    }
+  }
+}

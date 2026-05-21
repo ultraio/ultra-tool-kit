@@ -1,0 +1,4438 @@
+{
+  "contract": "eosio.nft.ft",
+  "abi_hash": "a58d631260d41b1138933d6fcf5f00ca469f9992256b294e35a637f6c5b59b80",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-21T09:14:37.838Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.nft.ft",
+  "actions": {
+    "acptfctofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "acptfctofr.a",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        },
+        {
+          "name": "offer_id",
+          "type": "uint64"
+        },
+        {
+          "name": "promoter_id",
+          "type": "name?"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "resolved_owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_acptfctofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*promoter_id)",
+          "message": "(unresolved: specified_promoter_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "resolved_owner != *promoter_id",
+          "message": "(unresolved: promoter_should_not_be_owner)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_offer_itr != factory_offers.end()",
+          "message": "(unresolved: factory_offer_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resolved_owner != factory_offer_itr->buyer",
+          "message": "(unresolved: owner_should_not_be_buyer)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "resolved_owner != *factory_offer_itr->receiver",
+          "message": "(unresolved: owner_should_not_be_receiver)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_offer_itr->expiry_date >= get_current_time_sec()",
+          "message": "(unresolved: factory_offer_is_expired)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          321,
+          400
+        ]
+      }
+    },
+    "acptnftofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "acptnftofr.a",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        },
+        {
+          "name": "offer_id",
+          "type": "uint64"
+        },
+        {
+          "name": "promoter_id",
+          "type": "name?"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "resolved_owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_acptnftofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*promoter_id)",
+          "message": "(unresolved: specified_promoter_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "resolved_owner != *promoter_id",
+          "message": "(unresolved: promoter_should_not_be_owner)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nft_offer_itr != nft_offers.end()",
+          "message": "(unresolved: nft_offer_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resolved_owner != nft_offer_itr->buyer",
+          "message": "(unresolved: owner_should_not_be_buyer)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "resolved_owner != *nft_offer_itr->receiver",
+          "message": "(unresolved: owner_should_not_be_receiver)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nft_offer_itr->expiry_date >= get_current_time_sec()",
+          "message": "(unresolved: nft_offer_is_expired)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          153,
+          231
+        ]
+      }
+    },
+    "activers": {
+      "contract": "eosio.nft.ft",
+      "action": "activers",
+      "params": [],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_activers)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "_migration.active_nft_version != migrate_to_version",
+          "message": "(unresolved: already_activated_the_version_to_migrate)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1781,
+          1788
+        ]
+      }
+    },
+    "addgrpfcts": {
+      "contract": "eosio.nft.ft",
+      "action": "addgrpfcts",
+      "params": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "factories",
+          "type": "uint64[]"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_addgrpfcts)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!factories.empty()",
+          "message": "(unresolved: factory_group_factory_arg_cannot_be_empty)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!has_duplicates(new_ids)",
+          "message": "(unresolved: factory_group_factory_has_duplicates)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(row) <= factory_group_a_pack_size_limit",
+          "message": "(unresolved: factory_group_pack_size_should_not_exceed_its_limit)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/factory.group.cpp",
+        "lines": [
+          92,
+          105
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/factory.group.cpp:92 but no require_auth/require_auth2 captured."
+    },
+    "addkeys.a": {
+      "contract": "eosio.nft.ft",
+      "action": "addkeys.a",
+      "params": [
+        {
+          "name": "factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "key_defs",
+          "type": "key_def_action[]"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(ntfact_addkeys_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_uniq_key_value_ram_payment_size_increase < std::numeric_limits<int64_t>::max()",
+          "message": "(unresolved: UOS_payment_calculation_overflowed)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(key_payments.uos_payment, uniq_uos_payment)",
+          "message": "(unresolved: UOS_payment_calculation_overflowed)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ],
+        "key_defs": [
+          {
+            "expr": ".size() > 0",
+            "message": "(unresolved: onchain_data_key_defs_can_not_be_empty)"
+          },
+          {
+            "expr": ".size() <= 20",
+            "message": "(unresolved: onchain_data_cannot_have_more_than_20_keys)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.onchain_data.cpp",
+        "lines": [
+          88,
+          171
+        ]
+      }
+    },
+    "authmint.b": {
+      "contract": "eosio.nft.ft",
+      "action": "authmint.b",
+      "params": [
+        {
+          "name": "authorizer",
+          "type": "name"
+        },
+        {
+          "name": "authorized_minter",
+          "type": "name"
+        },
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "quantity",
+          "type": "uint32"
+        },
+        {
+          "name": "maximum_uos_payment",
+          "type": "asset?"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$authorizer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_authminter_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer != authorized_minter",
+          "message": "(unresolved: cannot_self_authorize)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_UOS_payment).symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: maximum_UOS_payment_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_UOS_payment).amount > 0",
+          "message": "(unresolved: maximum_UOS_payment_should_be_larger_than_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter != factories_table.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter->asset_manager != authorized_minter",
+          "message": "(unresolved: asset_manager_cannot_be_authorized)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authorized_tokens_no, quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorized_tokens_no + quantity <= mintable_quantity",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "am_iter != auth_minters.end()",
+          "message": "(unresolved: authorizer_record_not_found)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "am_iter->quantity >= quantity",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(am_iter->quantity, quantity)",
+          "message": "(unresolved: token_number_overflow)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "$authorizer",
+        "$authorized_minter",
+        "iter->asset_manager"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1585,
+          1649
+        ]
+      }
+    },
+    "authminter": {
+      "contract": "eosio.nft.ft",
+      "action": "authminter",
+      "params": [
+        {
+          "name": "authorizer",
+          "type": "name"
+        },
+        {
+          "name": "authorized_minter",
+          "type": "name"
+        },
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "quantity",
+          "type": "uint32"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$authorizer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_authminter)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer != authorized_minter",
+          "message": "(unresolved: cannot_self_authorize)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter != factories_table.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter->asset_manager != authorized_minter",
+          "message": "(unresolved: asset_manager_cannot_be_authorized)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(*authorized_tokens_no, quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*authorized_tokens_no + quantity <= mintable_quantity",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(am_iter->quantity, quantity)",
+          "message": "(unresolved: token_number_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_authminter_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer != authorized_minter",
+          "message": "(unresolved: cannot_self_authorize)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_UOS_payment).symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: maximum_UOS_payment_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_UOS_payment).amount > 0",
+          "message": "(unresolved: maximum_UOS_payment_should_be_larger_than_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter != factories_table.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "iter->asset_manager != authorized_minter",
+          "message": "(unresolved: asset_manager_cannot_be_authorized)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authorized_tokens_no, quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorized_tokens_no + quantity <= mintable_quantity",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "am_iter != auth_minters.end()",
+          "message": "(unresolved: authorizer_record_not_found)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "am_iter->quantity >= quantity",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(am_iter->quantity, quantity)",
+          "message": "(unresolved: token_number_overflow)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "$authorizer",
+        "$authorized_minter",
+        "iter->asset_manager"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1528,
+          1582
+        ]
+      }
+    },
+    "bidauction.a": {
+      "contract": "eosio.nft.ft",
+      "action": "bidauction.a",
+      "params": [
+        {
+          "name": "bid",
+          "type": "bid_auction_wrap_v0"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "bid.bidder",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_bidauction_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*bid.receiver)",
+          "message": "(unresolved: receiver_account_does_not_exist)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*bid.promoter_id)",
+          "message": "(unresolved: specified_promoter_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_itr != auctions.end()",
+          "message": "(unresolved: auction_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "get_current_time_sec() >= auction_itr->start_date",
+          "message": "(unresolved: auction_did_not_start)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_itr->expiry_date >= get_current_time_sec()",
+          "message": "(unresolved: auction_has_expired)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(auction_itr->bid.amount, required_bid_increment)",
+          "message": "(unresolved: auction_required_bid_overflow)"
+        }
+      ],
+      "field_constraints": {
+        "bid": [
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".bidder != auction_itr->owner",
+            "message": "(unresolved: auction_creator_cannot_bid_on_his_own_auction)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.auction.cpp",
+        "lines": [
+          108,
+          161
+        ]
+      }
+    },
+    "burn": {
+      "contract": "eosio.nft.ft",
+      "action": "burn",
+      "params": [
+        {
+          "name": "burn",
+          "type": "burn_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_burn)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*burn.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "token_ids.size() >= 1",
+          "message": "(unresolved: provide_at_least_1_token_id_to_burn)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "usertokens.begin() != usertokens.end()",
+          "message": "(unresolved: no_tokens_are_available_to_burn)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_subtraction_underflow(row.existing_tokens_no, 1)",
+          "message": "(unresolved: token_factory_existing_tokens_count_underflow)"
+        }
+      ],
+      "field_constraints": {
+        "burn": [
+          {
+            "expr": ".owner.has_value()",
+            "message": "(unresolved: owner_is_required)"
+          },
+          {
+            "expr": ".token_ids.has_value()",
+            "message": "(unresolved: token_ids_is_required)"
+          }
+        ]
+      },
+      "recipients": [
+        "ultra_avatar_account"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          884,
+          928
+        ]
+      }
+    },
+    "buy": {
+      "contract": "eosio.nft.ft",
+      "action": "buy",
+      "params": [
+        {
+          "name": "buy",
+          "type": "buy_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "buyer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_buy)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*buy.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(receiver)",
+          "message": "(unresolved: receiver_account_does_not_exist)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(promoter_id)",
+          "message": "(unresolved: specified_promoter_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "buyer != promoter_id",
+          "message": "(unresolved: cannot_set_promoter_same_as_buyer)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resale_itr->owner != buyer",
+          "message": "(unresolved: buyer_owns_the_token_resale)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resale_itr->owner != receiver",
+          "message": "(unresolved: receiver_owns_the_token_resale)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "max_price.symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: max_price_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "max_price.amount > 0",
+          "message": "(unresolved: max_price_should_be_larger_than_zero)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resale_itr->price.amount <= max_price.amount",
+          "message": "(unresolved: token_price_exceeds_the_specified_max_price)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != _token_from.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_sale_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        }
+      ],
+      "field_constraints": {
+        "buy": [
+          {
+            "expr": ".buyer.has_value()",
+            "message": "(unresolved: buyer_is_required)"
+          },
+          {
+            "expr": ".receiver.has_value()",
+            "message": "(unresolved: receiver_is_required)"
+          },
+          {
+            "expr": ".token_id.has_value()",
+            "message": "(unresolved: token_id_is_required)"
+          },
+          {
+            "expr": ".max_price.has_value()",
+            "message": "(unresolved: max_price_is_required)"
+          }
+        ]
+      },
+      "recipients": [
+        "ultra_avatar_account"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1317,
+          1392
+        ]
+      }
+    },
+    "cancelauct.a": {
+      "contract": "eosio.nft.ft",
+      "action": "cancelauct.a",
+      "params": [
+        {
+          "name": "token_id",
+          "type": "uint64"
+        },
+        {
+          "name": "canceler",
+          "type": "name"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$canceler",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_cancelauct_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_itr != auctions.end()",
+          "message": "(unresolved: auction_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!auction_itr->bidder.has_value()",
+          "message": "(unresolved: cannot_cancel_an_auction_with_a_bidder)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_itr->owner == canceler",
+          "message": "(unresolved: only_the_owner_can_cancel_a_non_expired_auction)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.auction.cpp",
+        "lines": [
+          223,
+          243
+        ]
+      }
+    },
+    "cancelresell": {
+      "contract": "eosio.nft.ft",
+      "action": "cancelresell",
+      "params": [
+        {
+          "name": "cancelresell",
+          "type": "cancelresell_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "resale_itr->owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_cancelresell)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*cancelresell.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resale_itr != _resale.end()",
+          "message": "(unresolved: token_is_not_listed_for_a_sale)"
+        }
+      ],
+      "field_constraints": {
+        "cancelresell": [
+          {
+            "expr": ".token_id.has_value()",
+            "message": "(unresolved: token_id_is_required)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1298,
+          1314
+        ]
+      }
+    },
+    "cleanresell": {
+      "contract": "eosio.nft.ft",
+      "action": "cleanresell",
+      "params": [
+        {
+          "name": "start_id",
+          "type": "uint64?"
+        },
+        {
+          "name": "total_number",
+          "type": "uint64?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2010,
+          2029
+        ]
+      }
+    },
+    "clrmintst": {
+      "contract": "eosio.nft.ft",
+      "action": "clrmintst",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "no_of_entries",
+          "type": "uint64?"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_clrmintst)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1734,
+          1752
+        ]
+      }
+    },
+    "create": {
+      "contract": "eosio.nft.ft",
+      "action": "create",
+      "params": [
+        {
+          "name": "create",
+          "type": "create_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "*create.asset_manager",
+          "permission": "active"
+        },
+        {
+          "actor": "*create.asset_creator",
+          "permission": "active"
+        },
+        {
+          "actor": "create.asset_manager",
+          "permission": "active"
+        },
+        {
+          "actor": "create.asset_creator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_create)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*create.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*create.asset_manager == ultra_nft_ft_account || *create.asset_manager == ultra_nft1_account || *create.asset_manager == ultra_nft2_account || *create.asset_manager == ultra_nft3_account || *create.asset_manager == ultra_nft4_account || *create.asset_manager == ultra_nft5_account",
+          "message": "(unresolved: only_ultra_nft_accounts_can_create_and_manage_a_token_factory)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(minter_auth.authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*create.asset_manager != minter_auth.authorized_minter",
+          "message": "(unresolved: asset_manager_cannot_be_authorized)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "minter_auth.quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authorized_tokens_no, minter_auth.quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "authorized_tokens_no + minter_auth.quantity <= *create.max_mintable_tokens",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_create_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(create.asset_manager)",
+          "message": "(unresolved: asset_manager_is_required)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(create.asset_creator)",
+          "message": "(unresolved: asset_creator_is_required)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_managed_by_ultra(create.asset_manager)",
+          "message": "(unresolved: only_ultra_nft_accounts_can_create_and_manage_a_token_factory)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(minter_auth.authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "minter_auth.quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authorized_tokens_no, minter_auth.quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "authorized_tokens_no + minter_auth.quantity <= *create.max_mintable_tokens",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authminters_uos_payment, payment)",
+          "message": "(unresolved: ramvault_buy_ram_payment_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(f) <= factory_b_pack_size_limit",
+          "message": "(unresolved: factory_pack_size_should_not_exceed_its_limit)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(factory_uos_payment, authminters_uos_payment)",
+          "message": "(unresolved: uos_ram_payment_for_create_factory_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "uos_payment <= (*create.maximum_uos_payment).amount",
+          "message": "(unresolved: payment_should_be_no_more_than_maximum_UOS_payment)"
+        }
+      ],
+      "field_constraints": {
+        "create": [
+          {
+            "expr": ".asset_manager.has_value()",
+            "message": "(unresolved: asset_manager_is_required)"
+          },
+          {
+            "expr": ".asset_creator.has_value()",
+            "message": "(unresolved: asset_creator_is_required)"
+          },
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".asset_manager != minter_auth.authorized_minter",
+            "message": "(unresolved: asset_manager_cannot_be_authorized)"
+          }
+        ]
+      },
+      "recipients": [
+        "create.asset_manager",
+        "create.asset_creator"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          29,
+          120
+        ]
+      }
+    },
+    "create.b": {
+      "contract": "eosio.nft.ft",
+      "action": "create.b",
+      "params": [
+        {
+          "name": "create",
+          "type": "create_wrap_v1"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "create.asset_manager",
+          "permission": "active"
+        },
+        {
+          "actor": "create.asset_creator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_create_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(create.asset_manager)",
+          "message": "(unresolved: asset_manager_is_required)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(create.asset_creator)",
+          "message": "(unresolved: asset_creator_is_required)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_managed_by_ultra(create.asset_manager)",
+          "message": "(unresolved: only_ultra_nft_accounts_can_create_and_manage_a_token_factory)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(minter_auth.authorized_minter)",
+          "message": "(unresolved: authorized_minter_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "minter_auth.quantity != 0",
+          "message": "(unresolved: quantity_should_be_non_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authorized_tokens_no, minter_auth.quantity)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "authorized_tokens_no + minter_auth.quantity <= *create.max_mintable_tokens",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(authminters_uos_payment, payment)",
+          "message": "(unresolved: ramvault_buy_ram_payment_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(f) <= factory_b_pack_size_limit",
+          "message": "(unresolved: factory_pack_size_should_not_exceed_its_limit)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(factory_uos_payment, authminters_uos_payment)",
+          "message": "(unresolved: uos_ram_payment_for_create_factory_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "uos_payment <= (*create.maximum_uos_payment).amount",
+          "message": "(unresolved: payment_should_be_no_more_than_maximum_UOS_payment)"
+        }
+      ],
+      "field_constraints": {
+        "create": [
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".asset_manager != minter_auth.authorized_minter",
+            "message": "(unresolved: asset_manager_cannot_be_authorized)"
+          }
+        ]
+      },
+      "recipients": [
+        "create.asset_manager",
+        "create.asset_creator"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          123,
+          189
+        ]
+      }
+    },
+    "createauct.a": {
+      "contract": "eosio.nft.ft",
+      "action": "createauct.a",
+      "params": [
+        {
+          "name": "create",
+          "type": "create_auction_wrap_v0"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "resolved_owner",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_createauct_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_start >= current_time_sec",
+          "message": "(unresolved: start_date_should_be_later_than_the_current_date)"
+        }
+      ],
+      "field_constraints": {
+        "create": [
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".starting_price.symbol == eosiosystem::get_core_symbol()",
+            "message": "(unresolved: starting_price_should_be_specified_using_UOS_symbol)"
+          },
+          {
+            "expr": ".starting_price >= config.min_starting_price",
+            "message": "(unresolved: starting_price_should_not_be_less_than_minimum_starting_price)"
+          },
+          {
+            "expr": ".expiry_date > current_time_sec",
+            "message": "(unresolved: expiry_date_should_be_later_than_the_current_date)"
+          },
+          {
+            "expr": ".expiry_date > auction_start",
+            "message": "(unresolved: expiry_date_should_be_later_than_the_start_date)"
+          },
+          {
+            "expr": ".expiry_date >= auction_start + config.min_duration",
+            "message": "(unresolved: auction_duration_should_not_be_less_than_minimum_auction_duration)"
+          },
+          {
+            "expr": ".expiry_date <= auction_start + config.max_duration",
+            "message": "(unresolved: auction_duration_should_not_exceed_maximum_auction_duration)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.auction.cpp",
+        "lines": [
+          50,
+          105
+        ]
+      }
+    },
+    "creategrp": {
+      "contract": "eosio.nft.ft",
+      "action": "creategrp",
+      "params": [
+        {
+          "name": "manager",
+          "type": "name"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        },
+        {
+          "name": "hash",
+          "type": "checksum256"
+        },
+        {
+          "name": "factories",
+          "type": "uint64[]"
+        },
+        {
+          "name": "max_uos_payment",
+          "type": "asset"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_creategrp)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!has_duplicates(factories)",
+          "message": "(unresolved: factory_group_factory_has_duplicates)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(*itr) <= factory_group_a_pack_size_limit",
+          "message": "(unresolved: factory_group_pack_size_should_not_exceed_its_limit)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "uos_to_pay <= max_uos_payment.amount",
+          "message": "(unresolved: payment_should_be_no_more_than_maximum_UOS_payment)"
+        }
+      ],
+      "field_constraints": {
+        "uri": [
+          {
+            "expr": ".size()",
+            "message": "(unresolved: factory_group_uri_cannot_be_empty)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/factory.group.cpp",
+        "lines": [
+          12,
+          49
+        ]
+      }
+    },
+    "deletegrp": {
+      "contract": "eosio.nft.ft",
+      "action": "deletegrp",
+      "params": [
+        {
+          "name": "id",
+          "type": "uint64"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_deletegrp)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/factory.group.cpp",
+        "lines": [
+          78,
+          90
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/factory.group.cpp:78 but no require_auth/require_auth2 captured."
+    },
+    "delprchsreq.a": {
+      "contract": "eosio.nft.ft",
+      "action": "delprchsreq.a",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "index",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "factory_itr->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_delprchsreq_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != factory.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr != req_table.end()",
+          "message": "(unresolved: purchase_requirement_does_not_exist)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "factory_itr->asset_manager"
+      ],
+      "source": {
+        "path": "src/nft.first_hand.cpp",
+        "lines": [
+          233,
+          257
+        ]
+      }
+    },
+    "duptokenc": {
+      "contract": "eosio.nft.ft",
+      "action": "duptokenc",
+      "params": [
+        {
+          "name": "owners",
+          "type": "name_vector"
+        },
+        {
+          "name": "max_tokens",
+          "type": "uint64"
+        },
+        {
+          "name": "start_id",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_duptokenc)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "max_tokens != 0",
+          "message": "(unresolved: total_no_should_not_be_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!owners.empty()",
+          "message": "(unresolved: owners_should_not_be_empty)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "!has_duplicates<name>(owners)",
+          "message": "(unresolved: owners_has_duplicate_entries)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(owner)",
+          "message": "(unresolved: one_of_owners_does_not_exist)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2263,
+          2307
+        ]
+      }
+    },
+    "fhglobalshr": {
+      "contract": "eosio.nft.ft",
+      "action": "fhglobalshr",
+      "params": [
+        {
+          "name": "share",
+          "type": "uint16"
+        },
+        {
+          "name": "receiver",
+          "type": "name?"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_fhglobalshr)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1494,
+          1498
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.nft.ft.cpp:1494 but no require_auth/require_auth2 captured."
+    },
+    "fixauthmint": {
+      "contract": "eosio.nft.ft",
+      "action": "fixauthmint",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "false",
+          "message": "(unresolved: no_need_to_remove_authorized_minters)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1994,
+          2008
+        ]
+      }
+    },
+    "fixoffer": {
+      "contract": "eosio.nft.ft",
+      "action": "fixoffer",
+      "params": [
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        },
+        {
+          "name": "owner",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "is_account(owner)",
+          "message": "(unresolved: owner_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != empty_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          428,
+          448
+        ]
+      }
+    },
+    "globalshare": {
+      "contract": "eosio.nft.ft",
+      "action": "globalshare",
+      "params": [
+        {
+          "name": "share",
+          "type": "uint16"
+        },
+        {
+          "name": "receiver",
+          "type": "name?"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_globalshare)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1486,
+          1490
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.nft.ft.cpp:1486 but no require_auth/require_auth2 captured."
+    },
+    "issue": {
+      "contract": "eosio.nft.ft",
+      "action": "issue",
+      "params": [
+        {
+          "name": "issue",
+          "type": "issue_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "(authorizer) ? *authorizer : factory->asset_manager",
+          "permission": "active"
+        },
+        {
+          "actor": "minter",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_issue)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*issue.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(to)",
+          "message": "(unresolved: to_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!token_configs.empty()",
+          "message": "(unresolved: nothing_to_issue)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*authorizer)",
+          "message": "(unresolved: authorizer_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "amount",
+          "message": "(unresolved: should_issue_at_least_one_token)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory->stat == static_cast<uint8_t>(token_factory_status::tf_active)",
+          "message": "(unresolved: token_factory_is_inactive)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(factory->existing_tokens_no, amount)",
+          "message": "(unresolved: token_factory_existing_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(minted_or_reserved_tokens_no, amount)",
+          "message": "(unresolved: token_factory_minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "minted_or_reserved_tokens_no + amount <= *factory->max_mintable_tokens",
+          "message": "(unresolved: token_factory_will_exceed_max_mintable_tokens_with_current_amount)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_subtraction_underflow(authorized_tokens_no, amount)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_underflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(ms->minted, amount)",
+          "message": "(unresolved: minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ms->minted + amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_issue_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(to)",
+          "message": "(unresolved: to_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!token_configs.empty()",
+          "message": "(unresolved: nothing_to_issue)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*authorizer)",
+          "message": "(unresolved: authorizer_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_uos_payment).symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: maximum_UOS_payment_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_uos_payment).amount > 0",
+          "message": "(unresolved: maximum_UOS_payment_should_be_larger_than_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "token_metas.size() == tokens_to_mint",
+          "message": "(unresolved: metadata_provided_is_not_equal_to_num_of_tokens_to_mint)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_config.amount <= 1000",
+          "message": "(unresolved: cannot_mint_more_than_a_1000_tokens_at_a_time)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_configs_amount_total <= 1000",
+          "message": "(unresolved: cannot_mint_more_than_a_1000_tokens_at_a_time)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "amount",
+          "message": "(unresolved: should_issue_at_least_one_token)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory->stat == static_cast<uint8_t>(token_factory_status::tf_active)",
+          "message": "(unresolved: token_factory_is_inactive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "manager == factory->asset_manager",
+          "message": "(unresolved: factories_in_one_issue_action_should_have_the_same_manager)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(factory->existing_tokens_no, amount)",
+          "message": "(unresolved: token_factory_existing_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(minted_or_reserved_tokens_no, amount)",
+          "message": "(unresolved: token_factory_minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "minted_or_reserved_tokens_no + amount <= *factory->max_mintable_tokens",
+          "message": "(unresolved: token_factory_will_exceed_max_mintable_tokens_with_current_amount)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer_iter != auth_minters.end()",
+          "message": "(unresolved: authorizer_record_not_found)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer_iter->quantity >= amount",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authminter_ram_refund > 0",
+          "message": "(unresolved: authminter_ram_refund_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nft_minting_cost > 0",
+          "message": "(unresolved: uos_ram_payment_for_issue_token_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(row) <= token_b_pack_size_limit + get_token_key_value_size(factory->id)",
+          "message": "(unresolved: token_pack_size_should_not_exceed_its_limit)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_subtraction_underflow(authorized_tokens_no, amount)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_underflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mintstats_ram_cost > 0",
+          "message": "(unresolved: mintstats_ram_cost_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(ms->minted, amount)",
+          "message": "(unresolved: minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ms->minted + amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(key_payments.uos_payment, uniq_uos_payment)",
+          "message": "(unresolved: UOS_payment_calculation_overflowed)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_cost > 0",
+          "message": "(unresolved: uos_ram_payment_for_issue_token_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_cost <= maximum_uos_payment->amount",
+          "message": "(unresolved: payment_should_be_no_more_than_maximum_UOS_payment)"
+        }
+      ],
+      "field_constraints": {
+        "issue": [
+          {
+            "expr": ".to.has_value()",
+            "message": "(unresolved: to_is_required)"
+          },
+          {
+            "expr": ".token_configs.has_value()",
+            "message": "(unresolved: configs_is_required)"
+          },
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "manager",
+        "to",
+        "minter"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          456,
+          561
+        ]
+      }
+    },
+    "issue.b": {
+      "contract": "eosio.nft.ft",
+      "action": "issue.b",
+      "params": [
+        {
+          "name": "issue",
+          "type": "issue_wrap_v1"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "minter",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_issue_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(to)",
+          "message": "(unresolved: to_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!token_configs.empty()",
+          "message": "(unresolved: nothing_to_issue)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*authorizer)",
+          "message": "(unresolved: authorizer_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_uos_payment).symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: maximum_UOS_payment_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(*maximum_uos_payment).amount > 0",
+          "message": "(unresolved: maximum_UOS_payment_should_be_larger_than_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "token_metas.size() == tokens_to_mint",
+          "message": "(unresolved: metadata_provided_is_not_equal_to_num_of_tokens_to_mint)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_config.amount <= 1000",
+          "message": "(unresolved: cannot_mint_more_than_a_1000_tokens_at_a_time)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_configs_amount_total <= 1000",
+          "message": "(unresolved: cannot_mint_more_than_a_1000_tokens_at_a_time)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "amount",
+          "message": "(unresolved: should_issue_at_least_one_token)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory->stat == static_cast<uint8_t>(token_factory_status::tf_active)",
+          "message": "(unresolved: token_factory_is_inactive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "manager == factory->asset_manager",
+          "message": "(unresolved: factories_in_one_issue_action_should_have_the_same_manager)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(factory->existing_tokens_no, amount)",
+          "message": "(unresolved: token_factory_existing_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(minted_or_reserved_tokens_no, amount)",
+          "message": "(unresolved: token_factory_minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "minted_or_reserved_tokens_no + amount <= *factory->max_mintable_tokens",
+          "message": "(unresolved: token_factory_will_exceed_max_mintable_tokens_with_current_amount)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer_iter != auth_minters.end()",
+          "message": "(unresolved: authorizer_record_not_found)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authorizer_iter->quantity >= amount",
+          "message": "(unresolved: not_enough_tokens)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "authminter_ram_refund > 0",
+          "message": "(unresolved: authminter_ram_refund_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nft_minting_cost > 0",
+          "message": "(unresolved: uos_ram_payment_for_issue_token_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(row) <= token_b_pack_size_limit + get_token_key_value_size(factory->id)",
+          "message": "(unresolved: token_pack_size_should_not_exceed_its_limit)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_subtraction_underflow(authorized_tokens_no, amount)",
+          "message": "(unresolved: token_factory_authorized_tokens_number_underflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mintstats_ram_cost > 0",
+          "message": "(unresolved: mintstats_ram_cost_overflow)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(ms->minted, amount)",
+          "message": "(unresolved: minted_tokens_count_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ms->minted + amount <= acct_minting_limit",
+          "message": "(unresolved: minting_limit_will_exceed)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(key_payments.uos_payment, uniq_uos_payment)",
+          "message": "(unresolved: UOS_payment_calculation_overflowed)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_cost > 0",
+          "message": "(unresolved: uos_ram_payment_for_issue_token_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_cost <= maximum_uos_payment->amount",
+          "message": "(unresolved: payment_should_be_no_more_than_maximum_UOS_payment)"
+        }
+      ],
+      "field_constraints": {
+        "issue": [
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "manager",
+        "to",
+        "minter"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          564,
+          776
+        ]
+      }
+    },
+    "lckfactory": {
+      "contract": "eosio.nft.ft",
+      "action": "lckfactory",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_lckfactory)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->lock_hash == false",
+          "message": "(unresolved: factory_lock_flag_already_enabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2045,
+          2062
+        ]
+      }
+    },
+    "limitmint": {
+      "contract": "eosio.nft.ft",
+      "action": "limitmint",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "account_minting_limit",
+          "type": "uint32"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_limitmint)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*tf->account_minting_limit != account_minting_limit",
+          "message": "(unresolved: no_need_to_update_account_minting_limit)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "0 != account_minting_limit",
+          "message": "(unresolved: account_minting_limit_should_not_be_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "account_minting_limit <= *tf->max_mintable_tokens",
+          "message": "(unresolved: account_minting_limit_should_be_no_more_than_max_mintable_tokens)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1652,
+          1686
+        ]
+      }
+    },
+    "mgrfactories": {
+      "contract": "eosio.nft.ft",
+      "action": "mgrfactories",
+      "params": [
+        {
+          "name": "total_no",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_mgrfactories)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_no != 0",
+          "message": "(unresolved: total_no_should_not_be_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.migration_started()",
+          "message": "(unresolved: must_activate_the_version_to_migrate_first)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!_migration.check_table_migration_done(factory_a_migration_done)",
+          "message": "(unresolved: factory_migration_has_already_been_done)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1791,
+          1814
+        ]
+      }
+    },
+    "mgrnfts": {
+      "contract": "eosio.nft.ft",
+      "action": "mgrnfts",
+      "params": [
+        {
+          "name": "owners",
+          "type": "name_vector"
+        },
+        {
+          "name": "total_no",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_mgrnfts)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "total_no != 0",
+          "message": "(unresolved: total_no_should_not_be_zero)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!owners.empty()",
+          "message": "(unresolved: owners_should_not_be_empty)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "!has_duplicates<name>(owners)",
+          "message": "(unresolved: owners_has_duplicate_entries)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(owner)",
+          "message": "(unresolved: one_of_owners_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.migration_started()",
+          "message": "(unresolved: must_activate_the_version_to_migrate_first)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!_migration.check_table_migration_done(token_a_migration_done)",
+          "message": "(unresolved: token_migration_has_already_been_done)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1817,
+          1845
+        ]
+      }
+    },
+    "mkfctofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "mkfctofr.a",
+      "params": [
+        {
+          "name": "buyer",
+          "type": "name"
+        },
+        {
+          "name": "receiver",
+          "type": "name?"
+        },
+        {
+          "name": "price",
+          "type": "asset"
+        },
+        {
+          "name": "promoter_basis_point",
+          "type": "uint16"
+        },
+        {
+          "name": "factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "duration",
+          "type": "uint32"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$buyer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_mkfctofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*receiver)",
+          "message": "(unresolved: receiver_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "duration >= config.min_duration && duration <= config.max_duration",
+          "message": "(unresolved: duration_is_out_of_allowable_range)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "row.factory_ids.size() + row.nft_ids.size() < config.max_active_offer_per_user",
+          "message": "(unresolved: buyer_already_made_max_number_of_offers)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it == row.factory_ids.end() || *it != factory_id",
+          "message": "(unresolved: buyer_already_made_offer_on_the_factory)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ],
+        "price": [
+          {
+            "expr": ".symbol == eosiosystem::get_core_symbol()",
+            "message": "(unresolved: price_should_be_specified_using_UOS_symbol)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          259,
+          319
+        ]
+      }
+    },
+    "mknftofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "mknftofr.a",
+      "params": [
+        {
+          "name": "buyer",
+          "type": "name"
+        },
+        {
+          "name": "receiver",
+          "type": "name?"
+        },
+        {
+          "name": "price",
+          "type": "asset"
+        },
+        {
+          "name": "promoter_basis_point",
+          "type": "uint16"
+        },
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        },
+        {
+          "name": "duration",
+          "type": "uint32"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$buyer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_mknftofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(resolved_owner)",
+          "message": "(unresolved: owner_account_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "resolved_owner != buyer",
+          "message": "(unresolved: owner_should_not_be_buyer)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*receiver)",
+          "message": "(unresolved: receiver_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "resolved_owner != *receiver",
+          "message": "(unresolved: owner_should_not_be_receiver)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "duration >= config.min_duration && duration <= config.max_duration",
+          "message": "(unresolved: duration_is_out_of_allowable_range)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "row.factory_ids.size() + row.nft_ids.size() < config.max_active_offer_per_user",
+          "message": "(unresolved: buyer_already_made_max_number_of_offers)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it == row.nft_ids.end() || *it != nft_id",
+          "message": "(unresolved: buyer_already_made_offer_on_the_nft)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ],
+        "price": [
+          {
+            "expr": ".symbol == eosiosystem::get_core_symbol()",
+            "message": "(unresolved: price_should_be_specified_using_UOS_symbol)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          82,
+          151
+        ]
+      }
+    },
+    "purchase.a": {
+      "contract": "eosio.nft.ft",
+      "action": "purchase.a",
+      "params": [
+        {
+          "name": "purchase",
+          "type": "purchase_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "purchase.buyer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_purchase_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(purchase.promoter_id.value())",
+          "message": "(unresolved: specified_promoter_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "req_itr != req_table.end()",
+          "message": "(unresolved: token_factory_purchase_requirement_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "req_itr->purchased_tokens_no < *req_itr->purchase_limit",
+          "message": "(unresolved: cannot_purchase_because_purchase_limit_reached)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "chk_group",
+          "message": "(unresolved: buyer_does_not_meet_user_group_requirement)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "price_uos < std::numeric_limits<int64_t>::max()",
+          "message": "(unresolved: purchase_price_UOS_calculation_overflow)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "final_price <= purchase.max_price.amount",
+          "message": "(unresolved: token_price_exceeds_the_specified_max_price)"
+        }
+      ],
+      "field_constraints": {
+        "purchase": [
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          },
+          {
+            "expr": ".buyer != purchase.promoter_id.value()",
+            "message": "(unresolved: cannot_set_promoter_same_as_buyer)"
+          },
+          {
+            "expr": ".user_uniqs.has_value()",
+            "message": "(unresolved: user_uniqs_is_required_when_purchase_option_requires_uniqs)"
+          }
+        ]
+      },
+      "recipients": [
+        "token_factory_itr->asset_manager",
+        "purchase.buyer",
+        "purchase.receiver"
+      ],
+      "source": {
+        "path": "src/nft.first_hand.cpp",
+        "lines": [
+          259,
+          350
+        ]
+      }
+    },
+    "recall": {
+      "contract": "eosio.nft.ft",
+      "action": "recall",
+      "params": [
+        {
+          "name": "recall",
+          "type": "recall_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "token_factory_itr->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_recall)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*recall.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "usertokens.begin() != usertokens.end()",
+          "message": "(unresolved: no_tokens_are_available_to_recall)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_token_factory.begin() != _token_factory.end()",
+          "message": "(unresolved: no_token_factories_currently_exist)"
+        }
+      ],
+      "field_constraints": {
+        "recall": [
+          {
+            "expr": ".owner.has_value()",
+            "message": "(unresolved: owner_is_required)"
+          },
+          {
+            "expr": ".token_ids.has_value()",
+            "message": "(unresolved: provide_at_least_1_token_id_to_recall)"
+          }
+        ]
+      },
+      "recipients": [
+        "ultra_avatar_account"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1064,
+          1125
+        ]
+      }
+    },
+    "resell": {
+      "contract": "eosio.nft.ft",
+      "action": "resell",
+      "params": [
+        {
+          "name": "resell",
+          "type": "resell_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "seller",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_resell)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*resell.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "price.symbol == eosiosystem::get_core_symbol()",
+          "message": "(unresolved: price_should_be_specified_using_UOS_symbol)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "price.amount > 0",
+          "message": "(unresolved: cannot_resell_the_token_for_free)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "promoter_basis_point >= resale_share_limits::promoter_min",
+          "message": "(unresolved: promoter_share_should_not_be_less_than_allowed_minimum)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != _token.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_seller_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "price.amount >= token_factory_itr->minimum_resell_price.amount",
+          "message": "(unresolved: resell_price_should_be_greater_than_minimum_resell_price)"
+        },
+        {
+          "kind": "state",
+          "expr": "_resale.find(token_id) == _resale.end()",
+          "message": "(unresolved: token_is_currently_listed_for_resale)"
+        }
+      ],
+      "field_constraints": {
+        "resell": [
+          {
+            "expr": ".seller.has_value()",
+            "message": "(unresolved: seller_is_required)"
+          },
+          {
+            "expr": ".token_id.has_value()",
+            "message": "(unresolved: token_id_is_required)"
+          },
+          {
+            "expr": ".price.has_value()",
+            "message": "(unresolved: price_is_required)"
+          },
+          {
+            "expr": ".promoter_basis_point.has_value()",
+            "message": "(unresolved: promoter_basis_point_is_required)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1195,
+          1240
+        ]
+      }
+    },
+    "rmfctofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "rmfctofr.a",
+      "params": [
+        {
+          "name": "canceler",
+          "type": "name"
+        },
+        {
+          "name": "factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "offer_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$canceler",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_rmfctofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_offer_itr != factory_offers.end()",
+          "message": "(unresolved: factory_offer_id_or_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "canceler == factory_offer_itr->buyer",
+          "message": "(unresolved: only_buyer_can_cancel_a_valid_offer)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          402,
+          425
+        ]
+      }
+    },
+    "rmgrpfcts": {
+      "contract": "eosio.nft.ft",
+      "action": "rmgrpfcts",
+      "params": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "factories",
+          "type": "uint64[]"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_rmgrpfcts)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!factories.empty()",
+          "message": "(unresolved: factory_group_factory_arg_cannot_be_empty)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "id_itr != new_ids.end()",
+          "message": "(unresolved: factory_group_factory_id_should_exist)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/factory.group.cpp",
+        "lines": [
+          107,
+          122
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/factory.group.cpp:107 but no require_auth/require_auth2 captured."
+    },
+    "rmnftofr.a": {
+      "contract": "eosio.nft.ft",
+      "action": "rmnftofr.a",
+      "params": [
+        {
+          "name": "canceler",
+          "type": "name"
+        },
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        },
+        {
+          "name": "offer_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$canceler",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_rmnftofr_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nft_offer_itr != nft_offers.end()",
+          "message": "(unresolved: nft_offer_id_or_nft_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "canceler == nft_offer_itr->buyer",
+          "message": "(unresolved: only_buyer_can_cancel_a_valid_offer)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          233,
+          257
+        ]
+      }
+    },
+    "setconrecv": {
+      "contract": "eosio.nft.ft",
+      "action": "setconrecv",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "conditionless_receivers",
+          "type": "name_vector"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setconrecv)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(receiver)",
+          "message": "(unresolved: one_of_conditionless_receivers_does_not_exist)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          192,
+          215
+        ]
+      }
+    },
+    "setdflttkn": {
+      "contract": "eosio.nft.ft",
+      "action": "setdflttkn",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        },
+        {
+          "name": "hash",
+          "type": "checksum256?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setdflttkn)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_dynamic_metadata_uri(tf->default_token_uri) == is_dynamic_metadata_uri(uri)",
+          "message": "(unresolved: cannot_switch_between_static_and_dynamic_default_token_uris_after_factory_hashes_are_locked)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "f.default_token_hash == hash",
+          "message": "(unresolved: default_token_hash_must_be_same_value)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "new_pack_size <= factory_b_pack_size_limit",
+          "message": "(unresolved: factory_pack_size_should_not_exceed_its_limit)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          354,
+          395
+        ]
+      }
+    },
+    "setktypes": {
+      "contract": "eosio.nft.ft",
+      "action": "setktypes",
+      "params": [
+        {
+          "name": "key_types",
+          "type": "key_type_info[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "key_types[i].key_type == _key_types[i].key_type",
+          "message": "(unresolved: onchain_data_cannot_change_existing_key_types_or_their_order)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "result.second",
+          "message": "(unresolved: onchain_data_supported_key_types_must_be_unique)"
+        }
+      ],
+      "field_constraints": {
+        "key_types": [
+          {
+            "expr": ".size() >= _key_types.size()",
+            "message": "(unresolved: onchain_data_can_only_extend_the_default_key_types)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.onchain_data.cpp",
+        "lines": [
+          63,
+          85
+        ]
+      }
+    },
+    "setmeta": {
+      "contract": "eosio.nft.ft",
+      "action": "setmeta",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "meta_uris",
+          "type": "string_vector"
+        },
+        {
+          "name": "meta_hash",
+          "type": "checksum256"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setmeta)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          291,
+          313
+        ]
+      }
+    },
+    "setmeta.b": {
+      "contract": "eosio.nft.ft",
+      "action": "setmeta.b",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "factory_uri",
+          "type": "string"
+        },
+        {
+          "name": "factory_hash",
+          "type": "checksum256"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setmeta_b)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "f.factory_hash == factory_hash",
+          "message": "(unresolved: factory_hash_must_be_same_value)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "new_pack_size <= factory_b_pack_size_limit",
+          "message": "(unresolved: factory_pack_size_should_not_exceed_its_limit)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          316,
+          351
+        ]
+      }
+    },
+    "setnftmgrflg": {
+      "contract": "eosio.nft.ft",
+      "action": "setnftmgrflg",
+      "params": [],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setnftmgrflg)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.migration_started()",
+          "message": "(unresolved: must_activate_the_version_to_migrate_first)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!_migration.check_table_migration_done(token_a_migration_done)",
+          "message": "(unresolved: token_migration_has_already_been_done)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          1848,
+          1856
+        ]
+      }
+    },
+    "setprchsreq.a": {
+      "contract": "eosio.nft.ft",
+      "action": "setprchsreq.a",
+      "params": [
+        {
+          "name": "purchase_option",
+          "type": "set_purchase_requirements_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "factory_itr->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setprchsreq_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != factory.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        }
+      ],
+      "field_constraints": {
+        "purchase_option": [
+          {
+            "expr": ".price.symbol == eosiosystem::get_core_symbol() || purchase_option.price.symbol == eosiosystem::get_usd_symbol()",
+            "message": "(unresolved: purchase_price_should_be_specified_using_UOS_or_USD_symbol)"
+          },
+          {
+            "expr": ".price.amount >= 0",
+            "message": "(unresolved: purchase_price_should_not_be_negative)"
+          },
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "factory_itr->asset_manager"
+      ],
+      "source": {
+        "path": "src/nft.first_hand.cpp",
+        "lines": [
+          187,
+          225
+        ]
+      }
+    },
+    "setprchsreq.b": {
+      "contract": "eosio.nft.ft",
+      "action": "setprchsreq.b",
+      "params": [
+        {
+          "name": "purchase_option",
+          "type": "set_purchase_requirements_wrap_v1"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "factory_itr->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setprchsreq_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != factory.end()",
+          "message": "(unresolved: token_factory_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        }
+      ],
+      "field_constraints": {
+        "purchase_option": [
+          {
+            "expr": ".price.symbol == eosiosystem::get_core_symbol() || purchase_option.price.symbol == eosiosystem::get_usd_symbol()",
+            "message": "(unresolved: purchase_price_should_be_specified_using_UOS_or_USD_symbol)"
+          },
+          {
+            "expr": ".price.amount >= 0",
+            "message": "(unresolved: purchase_price_should_not_be_negative)"
+          },
+          {
+            "expr": ".memo.size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "factory_itr->asset_manager"
+      ],
+      "source": {
+        "path": "src/nft.first_hand.cpp",
+        "lines": [
+          227,
+          231
+        ]
+      }
+    },
+    "setsharelim": {
+      "contract": "eosio.nft.ft",
+      "action": "setsharelim",
+      "params": [
+        {
+          "name": "type",
+          "type": "uint8"
+        },
+        {
+          "name": "config",
+          "type": "factory_sale_share_limit_config"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setsharelim)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_sale_share_type < static_cast<uint8_t>(factory_sale_share_t::max)",
+          "message": "(unresolved: sale_shares_type_must_be_valid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "(uint64_t)config.max_ultra_share_bp + (uint64_t)config.max_factory_share_bp + (uint64_t)config.max_promoter_share_bp <= resale_share_limits::max_bp_value",
+          "message": "(unresolved: sale_shares_maximum_total_should_not_exceed_10000_bp)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(*config.default_promoter)",
+          "message": "(unresolved: default_promoter_account_does_not_exist)"
+        }
+      ],
+      "field_constraints": {
+        "config": [
+          {
+            "expr": ".max_ultra_share_bp <= resale_share_limits::max_bp_value",
+            "message": "(unresolved: sale_share_maximum_should_not_exceed_10000_bp)"
+          },
+          {
+            "expr": ".max_factory_share_bp <= resale_share_limits::max_bp_value",
+            "message": "(unresolved: sale_share_maximum_should_not_exceed_10000_bp)"
+          },
+          {
+            "expr": ".max_promoter_share_bp <= resale_share_limits::max_bp_value",
+            "message": "(unresolved: sale_share_maximum_should_not_exceed_10000_bp)"
+          },
+          {
+            "expr": ".min_promoter_share_bp <= config.max_promoter_share_bp",
+            "message": "(unresolved: min_promoter_sale_share_should_not_be_greater_than_max)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2066,
+          2085
+        ]
+      }
+    },
+    "setstatus": {
+      "contract": "eosio.nft.ft",
+      "action": "setstatus",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "uint8"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_setstatus)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "status <= static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: invalid_token_factory_status)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          248,
+          269
+        ]
+      }
+    },
+    "settfflag": {
+      "contract": "eosio.nft.ft",
+      "action": "settfflag",
+      "params": [],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_settfflag)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "instance.require_ultra == true",
+          "message": "(unresolved: require_ultra_flag_already_disabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2033,
+          2042
+        ]
+      }
+    },
+    "settknmeta": {
+      "contract": "eosio.nft.ft",
+      "action": "settknmeta",
+      "params": [
+        {
+          "name": "token_id",
+          "type": "uint64"
+        },
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string?"
+        },
+        {
+          "name": "hash",
+          "type": "checksum256?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_settknmeta)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_migration.version_activated(1)",
+          "message": "(unresolved: nft_v1_is_not_activated_yet)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != _token.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf->stat != static_cast<uint8_t>(token_factory_status::tf_shutdown)",
+          "message": "(unresolved: token_factory_was_shut_down)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr->hash == hash",
+          "message": "(unresolved: token_hash_must_be_same_value)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "new_pack_size <= token_b_pack_size_limit + get_token_key_value_size(token_itr->token_factory_id)",
+          "message": "(unresolved: token_pack_size_should_not_exceed_its_limit)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "tf->asset_manager",
+        "resolved_owner"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          398,
+          453
+        ]
+      }
+    },
+    "settleauct.a": {
+      "contract": "eosio.nft.ft",
+      "action": "settleauct.a",
+      "params": [
+        {
+          "name": "token_id",
+          "type": "uint64"
+        },
+        {
+          "name": "executer",
+          "type": "name"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$executer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_settleauct_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "auction_itr != auctions.end()",
+          "message": "(unresolved: auction_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "get_current_time_sec() > auction_itr->expiry_date",
+          "message": "(unresolved: auction_did_not_yet_reach_its_expiration_date)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "auction_itr->bidder.has_value()",
+          "message": "(unresolved: auction_has_no_bidder)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ]
+      },
+      "recipients": [
+        "ultra_avatar_account"
+      ],
+      "source": {
+        "path": "src/nft.auction.cpp",
+        "lines": [
+          164,
+          220
+        ]
+      }
+    },
+    "settrdwin.a": {
+      "contract": "eosio.nft.ft",
+      "action": "settrdwin.a",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "trading_window_start",
+          "type": "time_point_sec?"
+        },
+        {
+          "name": "trading_window_end",
+          "type": "time_point_sec?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_settrdwin_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "can_update",
+          "message": "(unresolved: trading_window_can_not_be_updated)"
+        }
+      ],
+      "field_constraints": {
+        "trading_window_end": [
+          {
+            "expr": ".value().sec_since_epoch() > trading_window_start.value().sec_since_epoch()",
+            "message": "(unresolved: trading_window_end_must_be_larger_than_trading_window_start)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2088,
+          2121
+        ]
+      }
+    },
+    "settrnfwin.a": {
+      "contract": "eosio.nft.ft",
+      "action": "settrnfwin.a",
+      "params": [
+        {
+          "name": "token_factory_id",
+          "type": "uint64"
+        },
+        {
+          "name": "transfer_window_start",
+          "type": "time_point_sec?"
+        },
+        {
+          "name": "transfer_window_end",
+          "type": "time_point_sec?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "tf->asset_manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_settrnfwin_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "tf != tf_table.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "can_update",
+          "message": "(unresolved: transfer_window_can_not_be_updated)"
+        }
+      ],
+      "field_constraints": {
+        "transfer_window_end": [
+          {
+            "expr": ".value().sec_since_epoch() > transfer_window_start.value().sec_since_epoch()",
+            "message": "(unresolved: transfer_window_end_must_be_larger_than_transfer_window_start)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          2124,
+          2157
+        ]
+      }
+    },
+    "setvals.a": {
+      "contract": "eosio.nft.ft",
+      "action": "setvals.a",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "editor",
+          "type": "name?"
+        },
+        {
+          "name": "token_id",
+          "type": "uint64"
+        },
+        {
+          "name": "key_values",
+          "type": "key_value_action_vec"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "authorized_editor",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(ntfact_setvals_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != _token.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_owner_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "factory_itr->keys && (*factory_itr->keys).has_value()",
+          "message": "(unresolved: onchain_data_factory_keys_does_not_exist)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_key_itr != factory_keys.key_defs.end()",
+          "message": "(unresolved: onchain_data_key_does_not_exist_in_factory)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_supported_key_types.size() > factory_key_itr->type_index",
+          "message": "(unresolved: onchain_data_factory_key_index_is_overflow)"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "(unresolved: memo_has_more_than_256_bytes)"
+          }
+        ],
+        "key_values": [
+          {
+            "expr": ".size() > 0",
+            "message": "(unresolved: onchain_data_key_values_cannot_be_empty)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.onchain_data.cpp",
+        "lines": [
+          173,
+          256
+        ]
+      }
+    },
+    "stauctcfg.a": {
+      "contract": "eosio.nft.ft",
+      "action": "stauctcfg.a",
+      "params": [
+        {
+          "name": "config",
+          "type": "set_auction_config_wrap_v0"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_stauctcfg_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*config.min_duration > 0",
+          "message": "(unresolved: min_auction_duration_should_be_positive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*config.max_duration > 0",
+          "message": "(unresolved: max_auction_duration_should_be_positive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_config.max_duration > existing_config.min_duration",
+          "message": "(unresolved: max_auction_duration_should_be_larger_than_min_duration)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*config.min_bid_increment_basis_point <= 10000",
+          "message": "(unresolved: min_bid_increment_basis_point_should_not_exceed_10000)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_config.auction_extension_step >= existing_config.auction_extension_threshold",
+          "message": "(unresolved: auction_extension_step_should_be_greater_or_equal_to_the_threshold)"
+        }
+      ],
+      "field_constraints": {
+        "config": [
+          {
+            "expr": ".min_starting_price->symbol == eosiosystem::get_core_symbol()",
+            "message": "(unresolved: min_starting_price_should_be_specified_using_UOS_symbol)"
+          },
+          {
+            "expr": ".min_starting_price->amount > 0",
+            "message": "(unresolved: min_starting_price_should_be_positive)"
+          },
+          {
+            "expr": ".min_bid_increment_uos->symbol == eosiosystem::get_core_symbol()",
+            "message": "(unresolved: min_bid_increment_should_be_specified_using_UOS_symbol)"
+          },
+          {
+            "expr": ".min_bid_increment_uos->amount > 0",
+            "message": "(unresolved: min_bid_increment_should_be_positive)"
+          },
+          {
+            "expr": ".auction_extension_threshold == existing_config.auction_extension_step",
+            "message": "(unresolved: to_disable_auction_extension_both_threshold_and_step_must_be_0)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.auction.cpp",
+        "lines": [
+          6,
+          47
+        ]
+      }
+    },
+    "stofrcfg.a": {
+      "contract": "eosio.nft.ft",
+      "action": "stofrcfg.a",
+      "params": [
+        {
+          "name": "min_price",
+          "type": "asset?"
+        },
+        {
+          "name": "min_duration",
+          "type": "uint32?"
+        },
+        {
+          "name": "max_duration",
+          "type": "uint32?"
+        },
+        {
+          "name": "max_active_offer_per_user",
+          "type": "uint32?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_nft_ft_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_stofrcfg_a)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*min_duration > 0",
+          "message": "(unresolved: min_offer_duration_should_be_positive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*max_duration > 0",
+          "message": "(unresolved: max_offer_duration_should_be_positive)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "config.max_duration > config.min_duration",
+          "message": "(unresolved: max_offer_duration_should_be_larger_than_min_duration)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*max_active_offer_per_user > 0",
+          "message": "(unresolved: max_active_offer_per_user_should_be_positive)"
+        }
+      ],
+      "field_constraints": {
+        "min_price": [
+          {
+            "expr": "->symbol == eosiosystem::get_core_symbol() || min_price->symbol == eosiosystem::get_usd_symbol()",
+            "message": "(unresolved: min_offer_price_should_be_specified_using_UOS_or_USD_symbol)"
+          },
+          {
+            "expr": "->amount > 0",
+            "message": "(unresolved: min_offer_price_should_be_positive)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/nft.buy_offer.cpp",
+        "lines": [
+          55,
+          80
+        ]
+      }
+    },
+    "transfer": {
+      "contract": "eosio.nft.ft",
+      "action": "transfer",
+      "params": [
+        {
+          "name": "transfer",
+          "type": "transfer_wrap"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "from",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_transfer)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(*transfer.memo).size() <= 256",
+          "message": "(unresolved: memo_has_more_than_256_bytes)"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(to)",
+          "message": "(unresolved: to_account_does_not_exist)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!token_ids.empty()",
+          "message": "(unresolved: nothing_to_transfer)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != _token_from.end()",
+          "message": "(unresolved: token_with_specified_id_does_not_exist_or_does_not_belong_to_from_account)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_factory_itr != _token_factory.end()",
+          "message": "(unresolved: token_factory_id_is_invalid)"
+        },
+        {
+          "kind": "state",
+          "expr": "_resale.find(id) == _resale.end()",
+          "message": "(unresolved: token_cant_be_transferred_while_listed_for_resale)"
+        }
+      ],
+      "field_constraints": {
+        "transfer": [
+          {
+            "expr": ".from.has_value()",
+            "message": "(unresolved: from_is_required)"
+          },
+          {
+            "expr": ".to.has_value()",
+            "message": "(unresolved: to_is_required)"
+          },
+          {
+            "expr": ".token_ids.has_value()",
+            "message": "(unresolved: token_ids_is_required)"
+          }
+        ]
+      },
+      "recipients": [
+        "ultra_avatar_account"
+      ],
+      "source": {
+        "path": "src/eosio.nft.ft.cpp",
+        "lines": [
+          779,
+          821
+        ]
+      }
+    },
+    "updategrp": {
+      "contract": "eosio.nft.ft",
+      "action": "updategrp",
+      "params": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "uri",
+          "type": "string?"
+        },
+        {
+          "name": "hash",
+          "type": "checksum256?"
+        },
+        {
+          "name": "factories",
+          "type": "uint64_t_vector?"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(nftact_updategrp)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "uri || hash || factories",
+          "message": "(unresolved: factory_group_update_requires_at_least_one_non_empty)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!has_duplicates(*factories)",
+          "message": "(unresolved: factory_group_factory_has_duplicates)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "pack_size(row) <= factory_group_a_pack_size_limit",
+          "message": "(unresolved: factory_group_pack_size_should_not_exceed_its_limit)"
+        }
+      ],
+      "field_constraints": {
+        "uri": [
+          {
+            "expr": "->size()",
+            "message": "(unresolved: factory_group_uri_cannot_be_empty)"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/factory.group.cpp",
+        "lines": [
+          51,
+          76
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/factory.group.cpp:51 but no require_auth/require_auth2 captured."
+    }
+  }
+}
