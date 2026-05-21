@@ -295,18 +295,26 @@ test.describe('Wallet SDK Integration', () => {
             await expect(page.locator('button', { hasText: /^(Mainnet|Testnet|Local:8888|Custom)$/ }).first()).toBeVisible();
         });
 
-        test('connect with non-active permission shows account@permission', async ({ page }) => {
+        test('connect with non-active permission shows account name only (no @perm suffix)', async ({ page }) => {
+            // Design directive 2026-05-15: the UserOverlay header shows the
+            // wallet-selected account name only. Permission is a per-action
+            // signing detail surfaced in each transaction form's authorizer
+            // row, not in the global header. The previous "account@owner"
+            // display has been removed.
             await page.addInitScript({ content: walletMockScript({ permission: 'owner' }) });
             await mockChainAPI(page);
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Should show "testaccount1@owner"
-            await expect(page.locator(`text=${TEST_ACCOUNT}@owner`).first()).toBeVisible();
+            // Header shows just the account name.
+            await expect(page.locator(`text=${TEST_ACCOUNT}`).first()).toBeVisible();
+            await expect(page.locator(`text=${TEST_ACCOUNT}@owner`)).toHaveCount(0);
             await screenshot(page, '04-non-active-permission');
 
-            // Verify localStorage has correct permission
+            // authState records the wallet-provided permission verbatim
+            // (not overridden to 'active') so the per-action authorizer
+            // dropdowns can default to the matching value.
             const authState = await getAuthState(page);
             expect(authState.accountPerm).toBe('owner');
         });
@@ -486,30 +494,45 @@ test.describe('Wallet SDK Integration', () => {
             expect(authState.accountName).toBe(TEST_ACCOUNT_2);
         });
 
-        test('accountChanged with non-active permission resolves correctly', async ({ page }) => {
+        test('accountChanged with both owner and active for same account prefers active', async ({ page }) => {
+            // Design directive 2026-05-15: when the wallet emits an event
+            // with multiple permissions for the same account (typical: the
+            // walker returns both `active` and `owner` for a key), the
+            // toolkit's authState.accountPerm MUST default to 'active' so
+            // per-action authorizer dropdowns get the right default. The
+            // pre-fix `eventAccounts.find(...)` picked whichever permission
+            // happened to appear first, often `owner`.
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // Update mock: new account with 'owner' permission
-            await page.evaluate(({ newAccount }) => {
-                (window as any).__walletConfig.accountName = newAccount;
-                (window as any).__walletConfig.permission = 'owner';
-            }, { newAccount: TEST_ACCOUNT_2 });
-
-            // Singular `permission` per row matches the BG's emitAccountChanged
-            // contract; the toolkit's setAvailableAccountsFromEvent + fallback
-            // both read `permission` (not the legacy plural `permissions[]`).
             await fireWalletEvent(page, 'accountChanged', {
-                accounts: [{ accountName: TEST_ACCOUNT_2, permission: 'owner', publicKey: TEST_PUBKEY }],
+                accounts: [
+                    // owner row first — the order that surfaces the pre-fix bug.
+                    { accountName: TEST_ACCOUNT_2, permission: 'owner', publicKey: TEST_PUBKEY },
+                    { accountName: TEST_ACCOUNT_2, permission: 'active', publicKey: TEST_PUBKEY },
+                ],
+                // BG's emitAccountChanged picks the first matching trustedAccounts
+                // entry for `selected`, which (per the order above) is the owner row.
                 selected: { accountName: TEST_ACCOUNT_2, permission: 'owner', publicKey: TEST_PUBKEY },
             });
 
-            // Should show "otheraccount@owner" since permission is non-active
-            await expect(page.locator(`text=${TEST_ACCOUNT_2}@owner`).first()).toBeVisible({ timeout: 5000 });
-            await screenshot(page, '13-events-account-change-owner-perm');
+            await expect
+                .poll(
+                    async () => {
+                        const a = await getAuthState(page);
+                        return { name: a.accountName, perm: a.accountPerm };
+                    },
+                    { timeout: 5000 },
+                )
+                .toEqual({ name: TEST_ACCOUNT_2, perm: 'active' });
+
+            // Header shows just the account name (no @perm suffix).
+            await expect(page.locator(`text=${TEST_ACCOUNT_2}`).first()).toBeVisible();
+            await expect(page.locator(`text=${TEST_ACCOUNT_2}@owner`)).toHaveCount(0);
+            await screenshot(page, '13-events-account-change-active-preferred');
         });
 
         test('disconnect event triggers logout and clears state', async ({ page }) => {
@@ -538,40 +561,59 @@ test.describe('Wallet SDK Integration', () => {
             expect(authState.chainId).toBeFalsy();
         });
 
-        test('wallet lock (null selected) triggers logout', async ({ page }) => {
+        test('accountChanged with empty accounts does NOT trigger logout (Issue 3b regression guard)', async ({
+            page,
+        }) => {
+            // PINS the deliberate 2026-05-07 Issue-3b fix.
+            //
+            // Production behavior:
+            //   - When the wallet's vault is locked, the BG explicitly does
+            //     NOT broadcast `accountChanged{accounts:[]}` (see web-app
+            //     `background.ts emitAccountChanged` — "Issue 3: do NOT
+            //     broadcast accounts:[] when the vault is locked").
+            //   - Lock is communicated to dapps via the explicit `disconnect`
+            //     event (covered by the test above), or via RPC failure on
+            //     the next sign attempt.
+            //   - An `accountChanged{accounts:[]}` event is treated as a
+            //     transient signal (e.g. a misbehaving wallet, an MV3 SW
+            //     mid-restore that slipped through the BG guard, or a
+            //     network with zero resolved accounts). The toolkit must
+            //     NOT log out on it — pre-Issue-3b that race fired once
+            //     every ~10 chain switches and forced a reconnect popup.
+            //
+            // This test fires the empty-accounts event AND asserts the
+            // toolkit stays logged in. If a future change makes empty
+            // accounts trigger logout, this test fails and the regression
+            // is caught at PR time, not at the user's keyboard.
             await page.addInitScript({ content: walletMockScript() });
             await mockChainAPI(page);
             await page.goto('/');
             await page.waitForLoadState('networkidle');
             await connectWallet(page);
 
-            // The toolkit's accountChanged handler ignores the event payload
-            // (different extension versions wrap the selected account
-            // differently) and always re-queries getSelectedAccount() for
-            // ground truth. To simulate a locked wallet, the mock must
-            // surface that lock through the same RPC the handler calls.
-            await page.evaluate(() => {
-                (window as any).ultra.getSelectedAccount = async () => ({
-                    status: 'fail',
-                    data: null,
-                    message: 'Wallet is locked',
-                });
-                (window as any).ultra.getAccounts = async () => ({
-                    status: 'success',
-                    data: [],
-                });
-            });
+            // Sanity: logged in.
+            await expect(page.locator('text=Logout')).toBeVisible();
+            const stateBefore = await getAuthState(page);
+            expect(stateBefore.accountName).toBeTruthy();
+            await screenshot(page, '16a-before-empty-accountChanged');
 
+            // Fire the transient empty-accounts event the BG would NEVER
+            // emit on lock, but a buggy/older wallet might. The toolkit
+            // must absorb it without logging out.
             await fireWalletEvent(page, 'accountChanged', {
                 accounts: [],
                 selected: null,
             });
+            await page.waitForTimeout(500);
 
-            await expect(page.locator('text=Login to Tool Kit')).toBeVisible({ timeout: 5000 });
-            await screenshot(page, '16-events-wallet-locked');
+            // Still logged in. Login screen NOT visible.
+            await expect(page.locator('text=Logout')).toBeVisible();
+            await expect(page.locator('text=Login to Tool Kit')).not.toBeVisible();
+            await screenshot(page, '16b-after-empty-accountChanged-still-logged-in');
 
-            const authState = await getAuthState(page);
-            expect(authState.accountName).toBeFalsy();
+            const stateAfter = await getAuthState(page);
+            expect(stateAfter.accountName).toBe(stateBefore.accountName);
+            expect(stateAfter.type).toBe(stateBefore.type);
         });
 
         test('networkChanged updates chainId in localStorage', async ({ page }) => {

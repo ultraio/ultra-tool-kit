@@ -6,7 +6,15 @@ import { useRouter } from 'vue-router/auto';
 const router = useRouter();
 const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
-const links = ref([
+type LinkItem = {
+    title: string;
+    summary: string;
+    icon: string;
+    link?: string;
+    callback?: () => void;
+    requiresLogin?: boolean;
+};
+const links = ref<LinkItem[]>([
     {
         title: 'Inventory',
         summary: 'Check out what Uniqs are available for your account',

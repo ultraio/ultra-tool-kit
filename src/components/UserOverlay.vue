@@ -19,29 +19,6 @@
                     >
                         <span>{{ wasNameCopied ? 'Copied' : displayName }}</span>
                     </div>
-                    <div
-                        v-if="canShowAccountSwitcher"
-                        class="flex items-center justify-center w-6 h-6 rounded hover:bg-neutral-700 hover:text-purple-400 cursor-pointer ml-auto"
-                        @click="isAccountListOpen = !isAccountListOpen"
-                        :title="'Switch wallet account'"
-                    >
-                        <Icon :icon="isAccountListOpen ? 'fa-chevron-up' : 'fa-chevron-down'" size="sm" />
-                    </div>
-                </div>
-            </div>
-            <div
-                v-if="canShowAccountSwitcher && isAccountListOpen"
-                class="flex flex-col w-full border border-neutral-700 rounded bg-neutral-950 overflow-hidden"
-            >
-                <div
-                    v-for="opt in accountSwitcherOptions"
-                    :key="opt.accountName"
-                    class="flex flex-row items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-neutral-800"
-                    :class="{ 'bg-neutral-800 text-purple-400': opt.isCurrent }"
-                    @click="pickAccount(opt)"
-                >
-                    <span class="truncate" :title="opt.accountName">{{ opt.accountName }}</span>
-                    <Icon v-if="opt.isCurrent" icon="fa-check" size="sm" />
                 </div>
             </div>
             <div
@@ -73,7 +50,6 @@ import { ref, computed, onMounted } from 'vue';
 import * as I from '../interfaces';
 import { SharedEmits } from '../interfaces';
 import { fetchWithTimeout } from '../utilities/networks';
-import { useWalletAccounts } from '../wallets/wallet-accounts';
 
 const props = defineProps<{ state: I.AuthState }>();
 const custom_endpoints = ref<{ text: string; value: string }[]>([]);
@@ -81,39 +57,24 @@ const endpointChainId = ref<string | undefined>(undefined);
 
 interface UserOverlayEmits extends SharedEmits {
     (e: 'logout'): void;
-    (e: 'set-active-account', accountName: string, permission: string): void;
 }
 
 const emit = defineEmits<UserOverlayEmits>();
 
-const { validatedAccounts } = useWalletAccounts();
-
-const isAccountListOpen = ref(false);
+// The account-switcher dropdown was removed 2026-05-15 per the design
+// directive: the wallet's selected account is authoritative, and the
+// toolkit must not change it. Per-action signer choice lives in each
+// transaction form's local state (e.g. transfer From dropdown), not in
+// the global UserOverlay header.
 
 const displayName = computed(() => {
-    if (!props.state.accountName) return '';
-    if (props.state.accountPerm && props.state.accountPerm !== 'active') {
-        return `${props.state.accountName}@${props.state.accountPerm}`;
-    }
-    return props.state.accountName;
+    // Show only the wallet-selected account name. Permission is not part
+    // of the user identity — it's a per-action signing detail surfaced in
+    // each transaction form's authorizer row, not in the global header.
+    // (2026-05-15 design directive.)
+    return props.state.accountName ?? '';
 });
 
-const canShowAccountSwitcher = computed(() => {
-    return props.state.type === 'ultra' && accountSwitcherOptions.value.length > 1;
-});
-
-const accountSwitcherOptions = computed(() => {
-    return validatedAccounts.value.map((opt) => ({
-        ...opt,
-        isCurrent: opt.accountName === props.state.accountName,
-    }));
-});
-
-function pickAccount(opt: { accountName: string; permission: string }) {
-    isAccountListOpen.value = false;
-    if (opt.accountName === props.state.accountName) return;
-    emit('set-active-account', opt.accountName, opt.permission);
-}
 
 const isNetworkMismatch = computed(() => {
     // Web wallet's env is fixed at SDK construction, so mismatch isn't possible.

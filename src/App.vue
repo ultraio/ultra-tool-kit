@@ -40,7 +40,6 @@
                     @set-endpoint="setEndpoint"
                     @set-page-state="setPageState"
                     @logout="logout"
-                    @set-active-account="setActiveAccount"
                     :state="authState"
                     :key="keyUserUpdate"
                 />
@@ -236,43 +235,49 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
         }
     }
 
-    // Toolkit→Wallet sync: only applies to the extension (web provider can't switchNetwork).
-    if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable() && !isNetworkSyncing) {
+    //
+    // Atomicity: claim isNetworkSyncing BEFORE the first await (fetchWithTimeout).
+    // The old shape gate-checked the flag at the top of the if-clause but only
+    // flipped it inside the inner block after two awaits — a second concurrent
+    // setEndpoint call could pass the outer gate and start its own
+    // fetch/switchNetwork RPC. With the flag set up-front and a single outer
+    // try/finally, any throw path (fetch reject, JSON parse, switchNetwork
+    // reject) resets the flag — preventing a latent deadlock that would have
+    // wedged subsequent syncs.
+    if (userInvoked && authState.value.type === 'ultra' && Ultra.isAvailable()) {
+        if (isNetworkSyncing) return;
+        isNetworkSyncing = true;
         try {
             const res = await fetchWithTimeout(`${endpoint}/v1/chain/get_info`);
             if (res?.ok) {
                 const info = await res.json();
                 const endpointChainId = info.chain_id;
                 if (endpointChainId && endpointChainId !== authState.value.chainId) {
-                    isNetworkSyncing = true;
-                    try {
-                        await Ultra.switchNetwork(endpointChainId);
-                        setAuthStateKeys({ chainId: endpointChainId });
-                        // Re-issue connect on the new chain so the wallet
-                        // returns chain-resolved accounts and we update the
-                        // dropdown + active account locally. The BG also
-                        // emits accountChanged on env change
-                        // (belt-and-suspenders), but doing this synchronously
-                        // here removes the dependency on event timing for
-                        // the immediate UI update.
-                        const response = await Ultra.connect();
-                        if (response.status === 'success') {
-                            populateWalletAccountsFromConnectResult(response.data);
-                            const { accountName, permission } = await Ultra.resolveSelectedAccount(
-                                response.data
-                            );
-                            await setAccount('ultra', accountName, permission);
-                        }
-                        localStorage.setItem('authState', JSON.stringify(authState.value));
-                    } catch {
-                        // User rejected the switch or wallet error — mismatch warning will show
-                    } finally {
-                        isNetworkSyncing = false;
+                    await Ultra.switchNetwork(endpointChainId);
+                    setAuthStateKeys({ chainId: endpointChainId });
+                    // Re-issue connect on the new chain so the wallet
+                    // returns chain-resolved accounts and we update the
+                    // dropdown + active account locally. The BG also
+                    // emits accountChanged on env change
+                    // (belt-and-suspenders), but doing this synchronously
+                    // here removes the dependency on event timing for
+                    // the immediate UI update.
+                    const response = await Ultra.connect();
+                    if (response.status === 'success') {
+                        populateWalletAccountsFromConnectResult(response.data);
+                        const { accountName, permission } = await Ultra.resolveSelectedAccount(
+                            response.data
+                        );
+                        await setAccount('ultra', accountName, permission);
                     }
+                    localStorage.setItem('authState', JSON.stringify(authState.value));
                 }
             }
         } catch {
-            // Endpoint unreachable — can't determine chainId
+            // Endpoint unreachable, user rejected the switch, or wallet error
+            // — mismatch warning will show on the next render.
+        } finally {
+            isNetworkSyncing = false;
         }
     }
 }
@@ -456,16 +461,24 @@ async function restoreSession() {
                 Array.isArray(auths.data) &&
                 auths.data.length > 0;
         }
-        if (!hasSelected && !hasAccounts && !hasAuths) {
-            // Worth surfacing — explains why a previously-logged-in session vanishes silently.
-            console.log(
-                '[ultra-tool-kit] silent reconnect returned no session — clearing stale authState'
+        const isEmptySuccess = !hasSelected && !hasAccounts && !hasAuths;
+        if (isEmptySuccess) {
+            // BG returned status:'success' but no accounts/selected/auths.
+            // The success branch in PermissionController.connect is reached
+            // only when the origin is already trusted (untrusted origins are
+            // routed through openConnectPopup, which never returns success
+            // immediately). Empty accounts is almost always cold-cache plus a
+            // transient chain RPC failure during the resolve. Treat as
+            // transient: keep authState, skip populateWalletAccountsFromConnectResult
+            // (which would land an empty accounts.value via the wallet-accounts.ts
+            // fallthrough and silently empty the per-action dropdown), and
+            // wait for the next accountChanged with real data.
+            console.warn(
+                '[ultra-tool-kit] silent reconnect returned empty payload — keeping authState (treating as transient)'
             );
-            localStorage.removeItem('authState');
-            return;
+        } else {
+            populateWalletAccountsFromConnectResult(response.data);
         }
-
-        populateWalletAccountsFromConnectResult(response.data);
         if (response.data.network) {
             restoredAuthState.chainId = response.data.network.chainId;
             // Issue 1: if the wallet is on a different chain than the
@@ -482,7 +495,7 @@ async function restoreSession() {
         }
         // Trust the wallet's currently selected account over stale localStorage —
         // user may have switched accounts in the wallet between sessions.
-        if (response.data.selectedAccount) {
+        if (!isEmptySuccess && response.data.selectedAccount) {
             const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
             restoredAuthState.accountName = accountName;
             restoredAuthState.accountPerm = permission;
@@ -505,22 +518,14 @@ async function restoreSession() {
     setPageState({ showEndpoint: false, showLogin: false, showTransaction: false });
 }
 
-/**
- * User picked a different account from the connected wallet (UserOverlay dropdown).
- * The wallet's own selected account doesn't change — this is a local override that
- * subsequent transactions sign as. The wallet still holds the keys for it.
- */
-function setActiveAccount(accountName: string, permission: string) {
-    if (!authState.value.type) return;
-    setAuthStateKeys({
-        accountName,
-        accountPerm: permission,
-        isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName),
-    });
-    localStorage.setItem('authState', JSON.stringify(authState.value));
-    keyRouterUpdate.value += 1;
-    keyUserUpdate.value += 1;
-}
+// setActiveAccount was the writer behind UserOverlay's account-switcher
+// dropdown — it overwrote `authState.accountName`, conflating "wallet
+// selected" with a toolkit-side local override. Removed 2026-05-15 per the
+// design directive: the wallet's selected account is authoritative and the
+// toolkit cannot change it. Per-action signer choice now lives in each
+// transaction form's local refs (e.g. `authorizer.value`); the global
+// `authState.accountName` is sync'd from `accountChanged.data.selected` and
+// from the connect payload's `selectedAccount`.
 
 function clearTransaction() {
     actions.value = undefined;
@@ -565,41 +570,87 @@ function handleUpdateAppActions(updatedActions) {
  */
 function handleWalletAccountChanged(data: {
     accounts?: Array<{ accountName: string; permission?: string; publicKey?: string }>;
-    selected?: unknown;
+    selected?: { accountName?: string; permissions?: Array<{ name: string }> } | null;
 }) {
     if (authState.value.type !== 'ultra') return;
 
     const eventAccounts = Array.isArray(data?.accounts) ? data.accounts : [];
-    setAvailableAccountsFromEvent(eventAccounts);
 
     if (eventAccounts.length === 0) {
-        // Issue 3: empty accounts is NOT a logout signal. The wallet may
-        // be transiently locked (MV3 worker mid-restore), or the user may
-        // genuinely have no accounts on the active chain. Either way the
-        // `disconnect` event is the explicit logout trigger; calling
-        // logout() here removes the trusted-app entry and forces the user
-        // to re-approve connect on the next interaction. Clear the
-        // available-account list (dropdown shows nothing) and wait for
-        // either the next accountChanged with data or a real disconnect.
+        // Empty accounts is NOT a logout signal. The wallet may be
+        // transiently locked (MV3 worker mid-restore), the chain RPC may
+        // have hiccupped during resolution, or the user may genuinely have
+        // no accounts on the active chain. In all transient cases, wiping
+        // the local list silently empties the per-action signer dropdown
+        // mid-session — the visible regression the user reported. Keep the
+        // last-known list and wait for either the next accountChanged with
+        // real data or a `disconnect` event (the explicit logout signal).
+        // The BG also guards against broadcasting empty when the vault has
+        // keys (background.ts:emitAccountChanged), so this path mostly
+        // protects against unforeseen variants of the same cascade.
+        return;
+    }
+    setAvailableAccountsFromEvent(eventAccounts);
+
+    // The wallet's selected account is authoritative; the toolkit reflects
+    // it and cannot change it. Adopt `data.selected.accountName` into
+    // `authState.accountName` whenever the wallet emits a different
+    // selection. Per-action signer choice (e.g. transfer From dropdown) is
+    // tracked in each transaction form's local state, NOT in authState —
+    // so this write doesn't disturb in-flight per-action overrides.
+    const selectedName = data?.selected?.accountName;
+    if (selectedName && selectedName !== authState.value.accountName) {
+        setAuthStateKeys({
+            accountName: selectedName,
+            accountPerm: preferActivePermission(selectedName, eventAccounts),
+            isAdmin: I.ELEVATED_ACCOUNTS.includes(selectedName),
+        });
+        localStorage.setItem('authState', JSON.stringify(authState.value));
+        keyRouterUpdate.value += 1;
+        keyUserUpdate.value += 1;
         return;
     }
 
+    // The wallet didn't include a selected, or selected matches current.
+    // Verify the current name is still in the available list; if not,
+    // adopt the first available (chain composition changed — e.g. key
+    // removed in wallet).
     const currentName = authState.value.accountName;
     const stillAvailable = eventAccounts.some((a) => a.accountName === currentName);
     if (stillAvailable) return;
 
-    // Local override is no longer valid on this chain — adopt the first
-    // available account as the new override.
     const first = eventAccounts[0];
-    const permission = first.permission ?? 'active';
     setAuthStateKeys({
         accountName: first.accountName,
-        accountPerm: permission,
+        accountPerm: preferActivePermission(first.accountName, eventAccounts),
         isAdmin: I.ELEVATED_ACCOUNTS.includes(first.accountName),
     });
     localStorage.setItem('authState', JSON.stringify(authState.value));
     keyRouterUpdate.value += 1;
     keyUserUpdate.value += 1;
+}
+
+/**
+ * Pick the preferred permission for `accountName` from the BG's flat
+ * `accountChanged` event payload (one row per `(account, permission)` pair).
+ * Mirrors the pre-fix `validatedAccounts` sort: prefer 'active' when the
+ * key authorizes both `active` and `owner` for the same account, fall
+ * back to the first listed permission, fall back to 'active' as the
+ * EOSIO default.
+ *
+ * This is the default signing permission for actions where the
+ * transaction builder doesn't specify one. The user can still override
+ * per-action via each form's local authorizer dropdown.
+ */
+function preferActivePermission(
+    accountName: string,
+    eventAccounts: Array<{ accountName: string; permission?: string }>,
+): string {
+    const matches = eventAccounts.filter((a) => a.accountName === accountName);
+    const active = matches.find((m) => m.permission === 'active');
+    if (active) return 'active';
+    const firstPermissioned = matches.find((m) => !!m.permission);
+    return firstPermissioned?.permission ?? 'active';
 }
 
 async function handleWalletNetworkChanged(data: { chainId: string; name: string }) {
