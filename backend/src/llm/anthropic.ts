@@ -4,7 +4,6 @@ import {
     type ChatProvider,
     type ChatRequest,
     type ChatResponse,
-    type EmbedResponse,
 } from './provider.js';
 
 export type AnthropicConfig = {
@@ -47,20 +46,36 @@ export class AnthropicProvider implements ChatProvider {
             additionalProperties: true,
         }) as Record<string, unknown>;
 
-        const res = await this.client().messages.create({
-            model: this.config.chatModel,
-            max_tokens: req.maxTokens ?? 1024,
-            system: req.system,
-            messages: [{ role: 'user', content: req.user }],
-            tools: [
-                {
-                    name: STRUCTURED_TOOL_NAME,
-                    description: 'Emit the structured response payload defined by the input schema.',
-                    input_schema: schema as Anthropic.Tool.InputSchema,
-                },
-            ],
-            tool_choice: { type: 'tool', name: STRUCTURED_TOOL_NAME },
-        });
+        // Prompt caching on the system block (roadmap §3, "Anthropic prompt
+        // caching on system prompt"). Real cache hits require the cached
+        // block to exceed the model's minimum cacheable size; for short
+        // system prompts the SDK still accepts the directive and treats it
+        // as a no-op. W2+ will feed a system prompt large enough to benefit.
+        const system: Anthropic.TextBlockParam[] = [
+            {
+                type: 'text',
+                text: req.system,
+                cache_control: { type: 'ephemeral' },
+            },
+        ];
+
+        const res = await this.client().messages.create(
+            {
+                model: this.config.chatModel,
+                max_tokens: req.maxTokens ?? 1024,
+                system,
+                messages: [{ role: 'user', content: req.user }],
+                tools: [
+                    {
+                        name: STRUCTURED_TOOL_NAME,
+                        description: 'Emit the structured response payload defined by the input schema.',
+                        input_schema: schema as Anthropic.Tool.InputSchema,
+                    },
+                ],
+                tool_choice: { type: 'tool', name: STRUCTURED_TOOL_NAME },
+            },
+            req.signal ? { signal: req.signal } : undefined
+        );
 
         const tool = res.content.find(
             (block) => block.type === 'tool_use' && block.name === STRUCTURED_TOOL_NAME
@@ -83,19 +98,7 @@ export class AnthropicProvider implements ChatProvider {
         };
     }
 
-    embed(_text: string): Promise<EmbedResponse> {
-        return Promise.reject(
-            new ProviderError('Anthropic does not provide an embeddings API', {
-                provider: 'anthropic',
-            })
-        );
-    }
-
     modelTag(): string {
         return `anthropic:${this.config.chatModel}`;
-    }
-
-    vectorDim(): 768 | 1536 {
-        return 1536;
     }
 }
