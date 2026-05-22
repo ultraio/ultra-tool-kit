@@ -1,141 +1,243 @@
 # backend/CLAUDE.md
 
-Guidance for any Claude Code session working under `backend/`. The root `CLAUDE.md` covers the Vue 3 frontend; this file owns the AI-assistance backend (Hono + Postgres + pgvector + tree-sitter-cpp + LLM-provider abstraction).
+Guidance for any Claude Code session working under `backend/`. The root
+`CLAUDE.md` owns the Vue 3 frontend; this file owns the AI-assistance backend
+(Hono + tree-sitter-cpp + LLM-provider abstraction, **no database**).
 
-If you're touching anything inside `backend/`, prefer this file's conventions over root `CLAUDE.md` where they conflict. If the conflict is unclear, the design docs in `backend/docs/` are the tiebreaker.
+If you're touching anything inside `backend/`, prefer this file over root
+`CLAUDE.md` where they conflict. **The architectural source of truth is
+`docs/01-ai-enhancement-roadmap.md`; the rule source of truth is
+`docs/00-ai-global-guidelines.md`.** When this file and the docs disagree, the
+docs win — file an issue and a doc PR before code drifts.
 
 ## What this is
 
-A small, runtime-agnostic Hono backend that powers the AI chat panel in the toolkit. Two stages, two consumers:
+A small, stateless Hono backend that powers the AI chat panel in the toolkit.
+Two consumers, one runtime:
 
-1. **Stage A — extractor.** A deterministic CLI (`scripts/extract-contract.ts`) that walks `~/ultra/eosio.contracts/contracts/<name>/src/*.cpp` with `tree-sitter-cpp` and emits `backend/catalog/<name>.json` describing every action's `require_auth`, `check`, and `require_recipient` calls. **No LLM in the fact path.**
-2. **Stage B — ingest.** A second CLI (`scripts/ingest-catalog.ts`) that loads the JSON files, optionally enriches each action with LLM-authored description + examples, embeds the chunks, and upserts to Postgres.
-3. **Runtime — chat API.** Hono routes (`/api/ai-action`, `/api/ai-usage`, `/api/auth/*`) that classify user intent, retrieve catalog actions, call the active LLM with a strict JSON schema, validate the response, and return a structured proposal/clarification/refusal to the frontend.
+1. **Offline — extractor.** A deterministic CLI (`scripts/extract-contract.ts`)
+   walks `~/ultra/eosio.contracts/contracts/<name>/src/*.cpp` with
+   `tree-sitter-cpp` and emits `backend/catalog/<name>.json` describing every
+   action's `require_auth`, `check`, `require_recipient`, and field shape.
+   **No LLM in the fact path.** Catalogs are committed.
+2. **Runtime — chat API.** Hono routes (`POST /api/ai-chat`,
+   `POST /api/auth/challenge`, `POST /api/auth/verify`, eventually
+   `GET /api/ai-usage`) classify intent, retrieve catalog actions via
+   in-memory BM25, optionally dispatch read-only RPC tools, call the active
+   LLM through a schema-gated harness, validate the response against the
+   catalog + citation gates, and return a structured
+   `act | propose | ask | refuse | answer` reply.
+
+The runtime is **stateless**: chat history lives in the client's
+`sessionStorage`, the catalog is JSON loaded at boot, usage is appended to
+`logs/usage.jsonl` (gitignored, append-only).
 
 ## Read these first
 
-The design docs in `backend/docs/` are local-only (gitignored). Skim in this order:
+In order, before touching anything:
 
-- `00-overview.md` — vision, UX flow, phase scope (Phase 1 = local demo with `eosio.token` only)
-- `01-architecture.md` — components, schemas, provider abstraction, hosting decisions, indexer split
-- `02-cost-and-ops.md` — cost model, local stack setup, demo cost breakdown
-- `03-guardrails.md` — five-layer abuse prevention
-- `04-roadmap.md` — milestone breakdown with paste-able prompts
+1. `docs/00-ai-global-guidelines.md` — load-bearing rules. §1 maxims, §3
+   auth/rate-limit model, §4 security baseline, §5 CI greps. Every PR cites
+   the §s it satisfies.
+2. `docs/01-ai-enhancement-roadmap.md` — §3 architecture, §4 locked
+   decisions, §6 wave list. The roadmap is the only feature list; if a
+   change isn't on it, stop and ask.
+3. Root `CLAUDE.md` — frontend conventions you may need to hand off to.
 
-Don't repeat work the docs already specify; if the docs and your instinct disagree, raise the conflict before changing direction.
+The old per-stage design docs that used to live in `backend/docs/` are
+demo-era. Don't reference them.
 
 ## Hard rules
 
-1. **Never use ricardian markdown as a source of truth.** Ultra's `ricardian/*.contracts.md.in` files are not maintained. Action semantics, `require_auth`, and `check()` constraints come exclusively from C++ source under `~/ultra/eosio.contracts/contracts/<name>/src/`. Saved as a project memory.
+1. **No database.** Catalog = JSON files. Sessions = client `sessionStorage`.
+   Usage = JSONL appended to disk. Per-pubkey rate-limit counters are
+   in-process token buckets + a daily JSONL aggregate. If you find yourself
+   reaching for Postgres or pgvector, you're solving a problem the v1 design
+   already solved differently — re-read roadmap §3 + §4 decision 1.
 
-2. **Never put LLM output in the fact path.** Stage A is deterministic. The LLM authors descriptions and natural-language examples only. If you can't extract a fact deterministically, mark the action `unresolved: true` and let the override YAML fill it — never let the LLM guess.
+2. **The catalog decides; the LLM renders** (guidelines §1 maxim 1). The
+   tree-sitter-cpp extractor is the source of truth for `require_auth`,
+   `check`, recipients, and field shapes. LLM output is schema-gated against
+   the catalog before it ever reaches a consumer. **No LLM call inside the
+   fact path** — extraction is deterministic, full stop. If you can't extract
+   a fact deterministically, emit `unresolved: true` and let a future
+   override file (when one exists) fill it; never let the model guess.
 
-3. **Per-contract everything.** Extraction, ingest, override files, catalog JSON — all keyed by contract name. Adding `eosio.nft.ft` later is one CLI invocation, not a big-bang rebuild.
+3. **No identifier is invented** (guidelines §1 maxim 2). Every account,
+   permission, contract, action, table key, factory id, group id, or asset
+   symbol in an LLM reply must trace to (a) the user's message in this turn,
+   (b) a tool-call response in this turn, or (c) the validated session
+   context. The citation gate in `pipeline/validate.ts` enforces this — never
+   weaken it.
 
-4. **Provider-agnostic chat path.** All outbound LLM calls go through `backend/src/llm/router.ts`. Three providers (`anthropic` / `openai` / `ollama`), three independent settings (`LLM_PROVIDER`, `EMBED_PROVIDER`, `CLASSIFIER_PROVIDER`). New providers add a file under `backend/src/llm/`, never inline `fetch` calls in pipeline code.
+4. **Treat every external input as hostile. Treat every output as observable**
+   (guidelines §1 maxim 3). User text, chain reads, and prior LLM output
+   replayed in history are all fenced as `<user_input>`, `<chain_read>`,
+   `<prior_assistant>` in the user-role message. The system prompt is static
+   and version-tagged; **never concatenate untrusted text into the system
+   prompt**.
 
-5. **Phase-1 single-user mode binds to `127.0.0.1` only.** No auth in Phase 1 → no LAN exposure. If you find yourself listening on `0.0.0.0`, you're in Phase 2 territory and need wallet-JWT auth.
+5. **Two providers only: `anthropic` (Haiku 4.5) and `ollama`** (local
+   Haiku-equivalent, qwen3:14b default). One interface in
+   `src/llm/provider.ts`. New provider → new file under `src/llm/` + doc PR
+   first. **No inline `fetch` against Anthropic or Ollama outside
+   `src/llm/`** — `scripts/ai-ci-greps.sh` grep #1 + #2 enforce this once W1
+   wires the greps in.
 
-6. **Validate before returning.** Every LLM proposal goes through `backend/src/pipeline/validate.ts`: catalog membership, field-key whitelist, required-field check, regex format. If validation fails, downgrade to `kind: ask` or `kind: refuse` — never pass a half-validated proposal to the frontend. The validator also runs `coerceLlmShape` first to repair common small-model output errors (auth-leak `{actor, permission}` on `name` fields, decomposed assets `{amount, precision, symbol}`, single-key envelopes like `{string: "..."}`); see `validate.ts` for the full list.
+6. **Local dev binds to `127.0.0.1` only.** `0.0.0.0` in non-test code is a
+   CI failure (grep #4). Hosted deploys are post-v1; when they land, the
+   wallet-pubkey JWT layer (W1.5) is already the auth gate so the same code
+   works hosted.
 
-7. **The wallet/chain is the signing gate, not the AI.** The backend does NOT filter by `actions.is_admin` — a non-admin user can ask for any catalog action; if their wallet lacks the key the chain will reject the signed tx. The `is_admin` column is kept for analytics. Phase 1 has no reliable way to authenticate "admin" anyway. If we need stricter UX gating later, prefer an advisory rationale over a hard refuse.
+7. **The wallet/chain is the signing gate, not the AI.** The backend never
+   signs. It hands a validated action list back to the frontend, which
+   routes through the existing `<Transaction>` modal. If the AI proposes
+   something the wallet can't sign, the wallet refuses or the chain rejects
+   — both are acceptable failure modes (guidelines §4.5).
 
-8. **Cost rows are immutable.** When provider prices change, update `PRICING` in `cost.ts` and let new rows in `usage_log` use the new rates. Never back-fill historical rows.
+8. **Validate before returning.** Every LLM reply runs `pipeline/validate.ts`:
+   schema gate (Zod) → catalog membership → field-key whitelist → required-
+   field check → format regex → authorization-actor check → citation
+   coverage. Any gate fails → downgrade to `kind: ask` with a clarifying
+   question or `kind: refuse`. Never pass a half-validated proposal to the
+   frontend. `coerceLlmShape` runs first to repair common small-model output
+   quirks (see the file for the full list — every branch fixes a real
+   observed failure mode and is load-bearing).
 
-9. **CORS is explicit.** `ALLOWED_ORIGINS` env var; never `*`. Phase 1 default is `http://localhost:5172`.
+9. **CORS is explicit.** `ALLOWED_ORIGINS` env var, comma-separated. Never
+   `*`. Local dev default: `http://localhost:5172`. `*` anywhere outside
+   test fixtures is a CI failure (grep #9).
+
+10. **Ricardian markdown is not a source of truth.** Ultra's
+    `ricardian/*.contracts.md.in` files are stale. Action semantics,
+    `require_auth`, and `check()` constraints come **exclusively** from
+    C++ source under `~/ultra/eosio.contracts/contracts/<name>/src/`. Saved
+    as a project memory.
 
 ## Stack
 
-- **Hono** — HTTP. Runtime-agnostic so we can move to Bun or CF Workers later without rewriting.
-- **Drizzle ORM** + **postgres.js** — type-safe Postgres with native pgvector support. Migrations in `backend/drizzle/`.
-- **`web-tree-sitter`** + **`tree-sitter-cpp`** — WASM C++ parser. No native build, no LLVM.
-- **`@ultraos/ultra-api-lib`** (already a frontend dep, re-used here) — fetches ABIs from chain via `/v1/chain/get_abi`.
+- **Hono** — HTTP. Runtime-agnostic so we can move to Bun or CF Workers later
+  without rewriting.
+- **`web-tree-sitter`** + **`tree-sitter-cpp`** — WASM C++ parser. No native
+  build, no LLVM.
+- **`@ultraos/ultra-api-lib`** — fetches ABIs from chain via
+  `/v1/chain/get_abi`. Reused from the frontend.
+- **`@anthropic-ai/sdk`**, **`ollama`** — the two LLM providers.
+- **`zod`** — schema gates on every external boundary (request body, LLM
+  output, tool input).
 - **`pino`** — structured logging.
-- **`vitest`** — unit + integration tests.
-- **`tsx`** — script runner during dev.
-- **`hono/cors`** — CORS middleware.
-- **LLM SDKs**: `@anthropic-ai/sdk` (or `@ai-sdk/anthropic`), `openai`, `ollama` (npm) for the provider abstraction.
+- **`vitest`** — unit + integration tests; `tsx` runs scripts during dev.
 
-## Layout (target — fill in across milestones)
+Anything else needs a doc PR before it lands.
+
+## Layout (target — filled in across waves W0 → W8)
 
 ```
 backend/
   CLAUDE.md                     # this file
   package.json
   tsconfig.json
-  drizzle.config.ts
+  vitest.config.ts
   .env.example                  # documents every required env var
-  docs/                         # local-only design docs (gitignored)
-  drizzle/                      # generated SQL migrations
-  catalog/                      # extractor output, checked in
-    eosio.token.json
-    overrides/
-      eosio.token/
-        <action>.yaml           # hand-written facts for unresolved extractions
+  catalog/                      # extractor output, committed
+    eosio-types.json
+    known-symbols.json
+    eosio.token.json            # ┐
+    eosio.nft.ft.json           # ├ three primary contracts (W0)
+    eosio.msig.json             # ┘
+  logs/                         # gitignored, append-only
+    usage.jsonl                 # per-turn telemetry (guidelines §7)
   src/
-    index.ts                    # Hono app + route registration
+    index.ts                    # Hono app + route registration (W1)
     routes/
-      ai-action.ts              # POST /api/ai-action
-      ai-usage.ts               # GET  /api/ai-usage
-      auth.ts                   # wallet-JWT (Phase 2; stub in Phase 1)
-    db/
-      schema.ts                 # Drizzle schema
-      client.ts                 # postgres.js client
-    llm/
-      provider.ts               # ChatProvider interface
-      router.ts                 # Picks provider from env
-      anthropic.ts
-      openai.ts
-      ollama.ts
-    pipeline/
-      classify.ts               # Layer-3 intent classifier
-      retrieve.ts               # pgvector top-K (excludes unresolved=true by default)
-      prompt.ts                 # System prompt builder
-      validate.ts               # coerceLlmShape + catalog + format + required-field
-      cost.ts                   # PRICING table → cost_usd
+      ai-chat.ts                # POST /api/ai-chat (W3+ wires up)
+      auth.ts                   # POST /api/auth/{challenge,verify} (W1.5)
     middleware/
-      auth.ts                   # JWT verify (Phase 2)
-      ratelimit.ts              # In-process token bucket + Postgres aggregate
-      logging.ts                # Pino
+      auth.ts                   # JWT verify (W1.5)
+      ratelimit.ts              # per-pubkey token bucket + JSONL aggregate (W1.5)
+      logging.ts                # pino
+    llm/
+      provider.ts               # ChatProvider interface (W0)
+      anthropic.ts              # Haiku 4.5 (W0)
+      ollama.ts                 # qwen3:14b default (W0)
+    pipeline/
+      classify.ts               # cheap intent gate (W2)
+      retrieve.ts               # in-memory BM25 over catalog (W2)
+      tools/                    # read-only RPC allowlist (W4)
+      harness.ts                # provider-agnostic schema-gated call (W1)
+      validate.ts               # coerceLlmShape + every gate (W0 carries, W3 rebuilds)
     extractor/
-      index.ts                  # extractContract(name) public API
-      cpp-parser.ts             # tree-sitter-cpp wrapper
-      patterns.ts               # require_auth / check / ASSERTION_CHECK matchers
-      macros.ts                 # constant resolution from headers
-      types.ts                  # ActionRules type
+      index.ts                  # extractContract(name) public API (W0)
+      cpp-parser.ts             # tree-sitter-cpp wrapper (W0)
+      patterns.ts               # require_auth / check / ASSERTION_CHECK matchers (W0)
+      macros.ts                 # constant resolution from headers (W0)
+      eosio-types.ts            # canonical type + regex catalog (W0)
+      abi.ts                    # ABI fetch + hash (W0)
+      types.ts                  # ActionRules types (W0)
   scripts/
-    extract-contract.ts         # Stage A CLI
-    ingest-catalog.ts           # Stage B CLI
-    catalog-check.ts            # ABI hash drift check
+    extract-contract.ts         # Stage A CLI (W0)
   test/
     extractor/
       fixtures/                 # synthetic .cpp snippets per pattern
       *.test.ts
-    pipeline/
-      *.test.ts
+    smoke.catalog.test.ts       # asserts the three primary catalogs aren't empty (W0)
+    pipeline/                   # W1+ as the pipeline lands
 ```
 
 ## Conventions
 
-- **TypeScript strict mode.** No `any` without a comment justifying it. Drizzle types should propagate.
-- **Async iteration over Promise chains.** Pipeline stages are `async` functions returning typed results.
-- **Errors carry context.** Throw typed errors (`ExtractError`, `ValidationError`, `ProviderError`) with the source path / action name / model — Pino logs them structurally.
-- **Tests live next to fixtures.** `test/extractor/fixtures/transfer.cpp` is a real synthetic input; the test asserts byte-exact JSON output. No stochastic LLM calls in unit tests; mock at the `ChatProvider` boundary.
-- **Don't add a feature without a doc reference.** If the design docs don't mention it, raise it before building. The docs are the spec.
-- **One commit per milestone.** Milestones in `docs/04-roadmap.md` are sized to land in one focused session and one commit on the feature branch. Don't open PRs — the user is on `task/ai-enhance-demo` and merges manually.
-- **Simplify before committing a feature.** Once tests pass and typecheck is clean, dispatch the `code-simplifier` subagent over the files just touched (`git diff --name-only HEAD`) and let it tighten naming, drop scaffolding, and remove defensive code that proved unnecessary. Re-run tests + typecheck afterward, then commit. Skip only for trivial one-liners, doc-only commits, or hotfixes — and call out the skip explicitly.
-- **Migrations are forward-only.** Drizzle generates idempotent up-migrations; we don't write down-migrations. Local resets are either `npm run db:reset` (drops + re-applies migrations on the live container) or `docker rm -f ultra-pg17 && docker run ...` for a from-scratch container (see `RUNNING_LOCAL.md` §Resetting).
+- **TypeScript strict mode.** No `any` without a comment justifying it.
+- **Async, not Promise chains.** Pipeline stages are `async` functions
+  returning typed results.
+- **Errors carry context.** Throw typed errors (`ExtractError`,
+  `ValidationError`, `ProviderError`) with the source path / action name /
+  model — `pino` logs them structurally.
+- **Tests live next to fixtures.** `test/extractor/fixtures/transfer.cpp`
+  is a real synthetic input; the test asserts byte-exact JSON output. No
+  stochastic LLM calls in unit tests — mock at the `ChatProvider` boundary.
+- **One commit per wave, on `feature/ai-enhancement`.** Wave PRs cite the
+  guidelines §s they satisfy + the roadmap §6 row they implement. Wave
+  acceptance criteria are in roadmap §6 + §7 templates.
+- **Simplify before committing a feature.** Once tests pass, dispatch the
+  `code-simplifier` subagent over the wave's diff per roadmap §7.1. The
+  exclusion list is in §7.1 step 3 — validation gates, extractor
+  internals, regression baseline, `*.md` docs, all out of scope. Re-run
+  tests after; revert any file the pass breaks.
+- **Catalog JSON is generated, not hand-edited.** Re-extract via
+  `npm --prefix backend run extract -- <contract>` and commit the output.
+  If the extractor needs to handle a new pattern, the unit test in
+  `test/extractor/` lands first.
 
-## Pre-built skills you can use
+## Pre-built skills you can lean on
 
-- The frontend already calls `/v1/chain/get_abi` via `BlockchainService` (see `src/utilities/blockchain.ts`). Stage A's ABI fetch reuses the same library (`@ultraos/ultra-api-lib`).
-- The toolkit's existing `<Transaction>` modal handles signing — the AI never signs anything; it builds an `I.Action[]` and emits `@transact` like any other page.
-- `pages/builder/index.vue` already implements `addContract` + `mutableObject` — the AI handoff is one watcher hook on this page; don't reinvent.
+- The frontend already calls `/v1/chain/get_abi` via `BlockchainService`
+  (`src/utilities/blockchain.ts`). The extractor's ABI fetch (`src/extractor/
+  abi.ts`) reuses `@ultraos/ultra-api-lib` — same library, no new SDK.
+- The toolkit's `<Transaction>` modal handles signing. The AI never signs;
+  it builds an `I.Action[]` and emits `@transact` like every other page.
+  Proposal mode (msig) hands off through the existing `isMakingProposal`
+  branch.
+- `src/composables/useAiChat.ts` and `src/utilities/aiClient.ts` already
+  exist (cherry-picked W0). They're inert until W3 wires `POST /api/ai-chat`.
+
+## Current status (as of W0)
+
+Landed:
+- Extractor, llm provider interface, validator's `coerceLlmShape` helpers,
+  three primary-contract catalogs, smoke test, ai-ci-greps stub.
+- Frontend AI scaffolding cherry-picked but not yet wired into any page.
+
+Next wave (W1): provider abstraction + schema-gated harness. See roadmap
+§6 row W1 for acceptance.
 
 ## When in doubt
 
-- Read `backend/docs/01-architecture.md` for the relevant section.
-- If the docs are silent, ask the user before adding scope.
-- Don't introduce a third backend stack (e.g., FastAPI, Express) just because a library is more familiar — Hono is the chosen runtime for portability across Node/Bun/CF Workers.
-- Don't introduce a fourth LLM provider without updating the abstraction in `src/llm/`.
+- Re-read `docs/00-ai-global-guidelines.md` + `docs/01-ai-enhancement-
+  roadmap.md`. They're the only feature/rule docs that bind code.
+- If those docs are silent, **stop and ask** before adding scope. The
+  per-wave prompt's "STOP AND ASK BEFORE" list is non-exhaustive.
+- Don't introduce a third backend stack (FastAPI, Express, etc.) — Hono
+  is the chosen runtime for portability.
+- Don't introduce a third LLM provider (no OpenAI in v1, per roadmap §4
+  decision 3).
 - Don't trust ricardian. (Saying it three times.)
