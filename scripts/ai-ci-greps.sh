@@ -2,9 +2,12 @@
 # AI-enhancement CI greps — block PRs that bypass the rules in
 # docs/00-ai-global-guidelines.md §5.
 #
-# W1: greps #1 + #2 enforced (provider isolation). Remaining greps land in
-# their owning waves; rules listed below as TODO so the wave that needs them
-# can pick up where this leaves off.
+# W1   landed greps #1 + #2 (provider isolation).
+# W1.5 lands greps #3 / #4 / #5 / #9 (frontend secret-storage discipline,
+#                                     127.0.0.1 bind, no committed
+#                                     DEV_AUTH_BYPASS=true, no `*` CORS).
+# Remaining greps land in their owning waves; rules listed below as TODO so
+# the wave that needs them can pick up where this leaves off.
 #
 # Usage: scripts/ai-ci-greps.sh
 # Exit 0 = all rules pass. Exit non-zero = at least one rule found a
@@ -87,14 +90,119 @@ if (( ${#GREP2_HITS[@]} > 0 )); then
 fi
 
 # ----------------------------------------------------------------------------
+# Grep #3 (W1.5): localStorage/sessionStorage setItem calls whose key
+# contains the substrings `jwt`, `bearer`, or `pubkey` under src/.
+#
+# Guidelines §5 rule 3. Secrets stay in memory; sessionId is the one allowed
+# exception (and is a UUID — none of the three banned substrings).
+# ----------------------------------------------------------------------------
+GREP3_PATTERN='(localStorage|sessionStorage)\.setItem\([^)]*(jwt|bearer|pubkey)'
+GREP3_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.vue|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -niE "$GREP3_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP3_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP3_HITS[@]} > 0 )); then
+    fail "Grep #3: localStorage/sessionStorage write whose key matches jwt|bearer|pubkey under src/"
+    for f in "${GREP3_HITS[@]}"; do
+        grep -niE "$GREP3_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #4 (W1.5): `0.0.0.0` bind in backend/src/** (outside backend/test/).
+#
+# Guidelines §5 rule 4 + §4.6. Local backend binds 127.0.0.1 only.
+# ----------------------------------------------------------------------------
+GREP4_PATTERN='0\.0\.0\.0'
+GREP4_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP4_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP4_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP4_HITS[@]} > 0 )); then
+    fail "Grep #4: 0.0.0.0 bind in backend/src/** (use 127.0.0.1; §4.6)"
+    for f in "${GREP4_HITS[@]}"; do
+        grep -nE "$GREP4_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #5 (W1.5): `DEV_AUTH_BYPASS=true` in any tracked .env* file.
+#
+# Guidelines §5 rule 5 + §3.4. Dev-only flag; committing `=true` to any
+# .env example is a production foot-gun.
+# ----------------------------------------------------------------------------
+GREP5_PATTERN='^[[:space:]]*DEV_AUTH_BYPASS=true'
+GREP5_HITS=()
+while IFS= read -r f; do
+    case "$(basename "$f")" in
+        .env|.env.*|*.env|*.env.*) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP5_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP5_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP5_HITS[@]} > 0 )); then
+    fail "Grep #5: DEV_AUTH_BYPASS=true committed to a .env* file (loopback-only dev flag; §3.4)"
+    for f in "${GREP5_HITS[@]}"; do
+        grep -nE "$GREP5_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #9 (W1.5): `*` CORS origin in backend/src/** outside test fixtures.
+#
+# Guidelines §5 rule 9 + §4.6. CORS allowlist is explicit; never `*`. We
+# pattern-match the common shapes — Hono's `cors({ origin: '*' })`,
+# `Access-Control-Allow-Origin: *`, and bare `origin = '*'` / `origin: '*'`.
+# ----------------------------------------------------------------------------
+GREP9_PATTERN='(origin[[:space:]]*[:=][[:space:]]*['\''"]\*['\''"]|Access-Control-Allow-Origin[^A-Za-z0-9]+['\''"]\*['\''"])'
+GREP9_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP9_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP9_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP9_HITS[@]} > 0 )); then
+    fail "Grep #9: \`*\` CORS origin in backend/src/** (use an explicit allowlist; §4.6)"
+    for f in "${GREP9_HITS[@]}"; do
+        grep -nE "$GREP9_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
 # TODO — remaining greps land in their owning waves:
-#   #3 (W1.5): localStorage/sessionStorage writes containing jwt/bearer/pubkey
-#   #4 (W1.5): 0.0.0.0 bind in backend/src/** outside backend/test/
-#   #5 (W1.5): DEV_AUTH_BYPASS=true in .env* at repo root
 #   #6 (W3+):  dangerouslySetInnerHTML / v-html in src/components/ai/**
 #   #7 (W3+):  `cast(.*as.*)` chained off LLM responses in TS (schema gate first)
 #   #8 (W4):   new tool name in pipeline/tools/ without doc row in §4.2
-#   #9 (W1.5): `*` CORS origin in backend/src/** outside test fixtures
 # ----------------------------------------------------------------------------
 
 exit "$FAILED"
