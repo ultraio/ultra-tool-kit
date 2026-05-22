@@ -140,11 +140,16 @@ backend/
   vitest.config.ts
   .env.example                  # documents every required env var
   catalog/                      # extractor output, committed
-    eosio-types.json
-    known-symbols.json
+    eosio-types.json            # canonical EOSIO type + regex table
+    known-symbols.json          # token-symbol reference
     eosio.token.json            # ┐
-    eosio.nft.ft.json           # ├ three primary contracts (W0)
-    eosio.msig.json             # ┘
+    eosio.nft.ft.json           # ├ three primary contracts (first-class
+    eosio.msig.json             # ┘ runtime support per roadmap §1)
+    eosio.{eba,group,kyc,oracle,wrap}.json  # ┐
+    ultra.{avatar,bridge,claim,...}.json    # ┴ every other contract under
+                                            #   ~/ultra/eosio.contracts that
+                                            #   the extractor could process —
+                                            #   ABI-only fallback at runtime
   logs/                         # gitignored, append-only
     usage.jsonl                 # per-turn telemetry (guidelines §7)
   src/
@@ -223,8 +228,16 @@ backend/
 ## Current status (as of W0)
 
 Landed:
-- Extractor, llm provider interface, validator's `coerceLlmShape` helpers,
-  three primary-contract catalogs, smoke test, ai-ci-greps stub.
+- Extractor (deterministic, batch-tolerant — continues past per-contract
+  failure and surfaces a summary), llm provider interface, validator's
+  `coerceLlmShape` helpers, smoke test (globs every contract catalog),
+  ai-ci-greps stub.
+- Catalogs for **17 contracts** under `backend/catalog/` — the three
+  primary first-class ones plus every other contract under
+  `~/ultra/eosio.contracts` that the extractor could ABI-fetch. Three
+  (`eosio.bios`, `eosio.system`, `ultra.discord`) are undeployed on both
+  mainnet and testnet so their ABI fetch fails; they're skipped until a
+  `--no-abi` source-only extractor mode lands or they get deployed.
 - Frontend AI scaffolding cherry-picked but not yet wired into any page.
 
 Next wave (W1): provider abstraction + schema-gated harness. See roadmap
