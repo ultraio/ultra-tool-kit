@@ -1,22 +1,33 @@
-// W0 smoke test: each primary-contract catalog has actions with real semantics.
-// No LLM, no network, no DB — just JSON shape checks.
+// W0 smoke test: every contract catalog in backend/catalog/ has actions
+// with real semantics. No LLM, no network, no DB — just JSON shape checks.
 //
-// Deviation from the W0 prompt's literal wording:
-//   The prompt asks "the first action has non-empty `auths` and `field_constraints`".
-//   For `eosio.msig`, `field_constraints` is empty on every action because msig
-//   validates transactions, not individual fields — its `check()` calls become
-//   `preconditions` (state + cross-field) instead. The assertion below confirms
-//   the extractor populated *some* semantic axis (auths + either field_constraints
-//   or preconditions) on at least one action, which is the underlying intent:
-//   prove the extractor did real work, not just enumerated ABI entries.
+// Why glob instead of a hardcoded list:
+//   The catalog now holds every contract under ~/ultra/eosio.contracts that
+//   the extractor could successfully process (per roadmap §1: "Other contracts
+//   work via fallback to ABI-only mode" — we extract whatever we can ahead of
+//   time so the LLM has grounding data even for non-primary contracts). The
+//   list of contracts will grow as new ones get deployed. Globbing keeps the
+//   test in sync with whatever's actually in the catalog dir.
+//
+// Excluded from the glob:
+//   - eosio-types.json  — canonical EOSIO type + regex catalog (not a contract)
+//   - known-symbols.json — token-symbol reference (not a contract)
+//
+// Assertion deviation from a strict "first action has auths + field_constraints":
+//   eosio.msig validates whole transactions, not individual fields — its
+//   check() calls land in `preconditions` (cross-field/state), never in
+//   `field_constraints`. The assertion below requires at least one action
+//   with non-empty `auths` AND at least one action with non-empty
+//   `field_constraints` OR `preconditions`, which confirms the extractor
+//   produced real semantic output on the axis the contract actually uses.
 
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const CATALOG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'catalog');
-const PRIMARY_CONTRACTS = ['eosio.token', 'eosio.nft.ft', 'eosio.msig'] as const;
+const NON_CONTRACT_CATALOGS = new Set(['eosio-types.json', 'known-symbols.json']);
 
 type ActionRow = {
     contract: string;
@@ -32,25 +43,43 @@ type CatalogFile = {
     actions: Record<string, ActionRow>;
 };
 
-async function loadCatalog(name: string): Promise<CatalogFile> {
-    const raw = await readFile(join(CATALOG_DIR, `${name}.json`), 'utf8');
-    return JSON.parse(raw) as CatalogFile;
+async function listContractCatalogs(): Promise<string[]> {
+    const entries = await readdir(CATALOG_DIR);
+    return entries.filter((e) => e.endsWith('.json') && !NON_CONTRACT_CATALOGS.has(e)).sort();
+}
+
+async function loadCatalog(file: string): Promise<CatalogFile> {
+    return JSON.parse(await readFile(join(CATALOG_DIR, file), 'utf8')) as CatalogFile;
 }
 
 describe('catalog smoke', () => {
-    it.each(PRIMARY_CONTRACTS)('%s catalog has actions with real semantics', async (name) => {
-        const cat = await loadCatalog(name);
-        expect(cat.contract).toBe(name);
+    it('catalog dir has at least the three primary contracts', async () => {
+        const files = await listContractCatalogs();
+        expect(files).toContain('eosio.token.json');
+        expect(files).toContain('eosio.nft.ft.json');
+        expect(files).toContain('eosio.msig.json');
+    });
 
-        const actions = Object.values(cat.actions);
-        expect(actions.length).toBeGreaterThan(0);
+    // One sub-test per catalog file — failures point at the specific contract.
+    it('every contract catalog has actions with real semantics', async () => {
+        const files = await listContractCatalogs();
+        expect(files.length).toBeGreaterThan(0);
 
-        const withAuths = actions.filter((a) => a.auths.length > 0);
-        expect(withAuths.length).toBeGreaterThan(0);
+        for (const file of files) {
+            const cat = await loadCatalog(file);
+            const expectedContract = file.replace(/\.json$/, '');
+            expect(cat.contract, `${file}: contract field`).toBe(expectedContract);
 
-        const withSemantics = actions.filter(
-            (a) => Object.keys(a.field_constraints).length > 0 || a.preconditions.length > 0
-        );
-        expect(withSemantics.length).toBeGreaterThan(0);
+            const actions = Object.values(cat.actions);
+            expect(actions.length, `${file}: action count`).toBeGreaterThan(0);
+
+            const withAuths = actions.filter((a) => a.auths.length > 0);
+            expect(withAuths.length, `${file}: actions with non-empty auths`).toBeGreaterThan(0);
+
+            const withSemantics = actions.filter(
+                (a) => Object.keys(a.field_constraints).length > 0 || a.preconditions.length > 0
+            );
+            expect(withSemantics.length, `${file}: actions with field_constraints or preconditions`).toBeGreaterThan(0);
+        }
     });
 });

@@ -2,7 +2,7 @@
   "contract": "eosio.token",
   "abi_hash": "6409d3c8fb3ce3b47a32fcd194362afb7fd004b22bc2b05939c89c99c76c9c38",
   "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
-  "abi_fetched_at": "2026-05-21T09:14:29.722Z",
+  "abi_fetched_at": "2026-05-22T08:17:25.728Z",
   "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.token",
   "actions": {
     "burn": {

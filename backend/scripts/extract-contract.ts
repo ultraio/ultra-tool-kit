@@ -107,30 +107,59 @@ async function main(): Promise<void> {
         console.log(msg);
     };
 
+    const succeeded: string[] = [];
+    const failed: { contract: string; reason: string }[] = [];
+
     for (const contract of argv.contracts) {
         log(`\n[extract] === ${contract} ===`);
-        const resolved = await resolveSource(contract, argv);
-        log(`[extract] Source: ${resolved.path} (from ${resolved.reason})`);
+        try {
+            const resolved = await resolveSource(contract, argv);
+            log(`[extract] Source: ${resolved.path} (from ${resolved.reason})`);
 
-        // If --source-dir was used, treat that as the contract dir directly.
-        const sourceRoot = argv.sourceDir ?? resolved.path;
+            // If --source-dir was used, treat that as the contract dir directly.
+            const sourceRoot = argv.sourceDir ?? resolved.path;
 
-        const catalog = await extractContract({
-            name: contract,
-            sourceRoot,
-            mainnetUrl,
-            testnetUrl,
-            log,
-        });
+            const catalog = await extractContract({
+                name: contract,
+                sourceRoot,
+                mainnetUrl,
+                testnetUrl,
+                log,
+            });
 
-        const unresolvedCount = Object.values(catalog.actions).filter((a) => a.unresolved).length;
-        const totalActions = Object.keys(catalog.actions).length;
-        log(`[extract] Actions extracted: ${totalActions} (unresolved: ${unresolvedCount})`);
+            const unresolvedCount = Object.values(catalog.actions).filter((a) => a.unresolved).length;
+            const totalActions = Object.keys(catalog.actions).length;
+            log(`[extract] Actions extracted: ${totalActions} (unresolved: ${unresolvedCount})`);
 
-        const outPath = join(catalogDir, `${contract}.json`);
-        await writeFile(outPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
-        log(`[extract] Wrote ${outPath}`);
+            const outPath = join(catalogDir, `${contract}.json`);
+            await writeFile(outPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
+            log(`[extract] Wrote ${outPath}`);
+            succeeded.push(contract);
+        } catch (err: unknown) {
+            const reason = err instanceof ExtractError ? err.message : err instanceof Error ? err.message : String(err);
+            console.error(`[extract] FAIL ${contract}: ${reason}`);
+            if (err instanceof ExtractError && Object.keys(err.context).length > 0) {
+                console.error('[extract] Context:', err.context);
+            }
+            failed.push({ contract, reason });
+        }
     }
+
+    // Per-batch summary — useful when the script is invoked with many contracts
+    // (e.g. extracting the full ~/ultra/eosio.contracts tree at once).
+    if (argv.contracts.length > 1) {
+        log(`\n[extract] === summary ===`);
+        log(`[extract] OK:   ${succeeded.length} (${succeeded.join(', ') || '-'})`);
+        if (failed.length > 0) {
+            log(`[extract] FAIL: ${failed.length}`);
+            for (const f of failed) log(`  - ${f.contract}: ${f.reason}`);
+        }
+    }
+
+    // Exit non-zero if any contract failed, so CI / shell-callers can detect
+    // regressions. A single-contract run preserves the prior "fail = exit 1"
+    // behavior; a batch run only fails if at least one contract failed.
+    if (failed.length > 0) process.exit(1);
 }
 
 main().catch((err: unknown) => {

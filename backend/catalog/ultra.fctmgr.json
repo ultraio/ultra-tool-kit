@@ -1,0 +1,122 @@
+{
+  "contract": "ultra.fctmgr",
+  "abi_hash": "66186cf4ec18f17cb2c9c3dd0b8677312fc10b7c80626632040de3f98fdf0b96",
+  "abi_chain_id": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9",
+  "abi_fetched_at": "2026-05-22T08:14:56.965Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.fctmgr",
+  "actions": {
+    "addfaucet": {
+      "contract": "ultra.fctmgr",
+      "action": "addfaucet",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        },
+        {
+          "name": "interval",
+          "type": "time_point_sec"
+        },
+        {
+          "name": "max_tokens_per_interval",
+          "type": "uint32"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "faucet_itr == _faucet.end()",
+          "message": "Faucet account is already registered"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.fctmgr.cpp",
+        "lines": [
+          5,
+          20
+        ]
+      }
+    },
+    "givetokens": {
+      "contract": "ultra.fctmgr",
+      "action": "givetokens",
+      "params": [
+        {
+          "name": "faucet",
+          "type": "name"
+        },
+        {
+          "name": "to",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$faucet",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "faucet_itr != _faucet.end()",
+          "message": "Faucet does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "now <= faucet_itr->until && faucet_itr->transferred_tokens + TOKENS_PER_REQUEST <= faucet_itr->max_tokens_per_interval",
+          "message": "Not so fast..."
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.fctmgr.cpp",
+        "lines": [
+          33,
+          70
+        ]
+      }
+    },
+    "rmfaucet": {
+      "contract": "ultra.fctmgr",
+      "action": "rmfaucet",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "faucet_itr != _faucet.end()",
+          "message": "Faucet does not exist"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.fctmgr.cpp",
+        "lines": [
+          22,
+          31
+        ]
+      }
+    }
+  }
+}

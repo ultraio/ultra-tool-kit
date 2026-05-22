@@ -1,0 +1,90 @@
+{
+  "contract": "ultra.swap",
+  "abi_hash": "0b6f399ca628247050ba4695817334db7fe545a1eb3f3aeea878553cc0c0e1fe",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:15:03.551Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.swap",
+  "actions": {
+    "addsymbol": {
+      "contract": "ultra.swap",
+      "action": "addsymbol",
+      "params": [
+        {
+          "name": "bridge_contract",
+          "type": "name"
+        },
+        {
+          "name": "bridge_symbol",
+          "type": "symbol"
+        },
+        {
+          "name": "native_symbol",
+          "type": "symbol"
+        },
+        {
+          "name": "pre_minted",
+          "type": "bool"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"addsymbol\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing != statstable.end()",
+          "message": "token with native symbol doesn't exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing->supply.symbol == native_symbol",
+          "message": "token with native symbol precision mismatch"
+        },
+        {
+          "kind": "invariant",
+          "expr": "existing->issuer == \"ultra.swap\"_n",
+          "message": "ultra.swap must be the issuer of non-preminted token"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr == symbols.end()",
+          "message": "token with symbol already exists"
+        }
+      ],
+      "field_constraints": {
+        "bridge_symbol": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid bridge symbol name"
+          },
+          {
+            "expr": ".precision() == native_symbol.precision()",
+            "message": "birdge and native token precision mismatch"
+          }
+        ],
+        "native_symbol": [
+          {
+            "expr": ".is_valid()",
+            "message": "invalid native symbol name"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.swap.cpp",
+        "lines": [
+          168,
+          173
+        ]
+      }
+    }
+  }
+}

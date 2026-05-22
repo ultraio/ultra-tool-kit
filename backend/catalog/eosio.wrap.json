@@ -1,0 +1,49 @@
+{
+  "contract": "eosio.wrap",
+  "abi_hash": "542d42164e2a93602063e043591ab85420cc2cc16140feec13adfdb635a5a670",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:44.650Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.wrap",
+  "actions": {
+    "exec": {
+      "contract": "eosio.wrap",
+      "action": "exec",
+      "params": [
+        {
+          "name": "executer",
+          "type": "name"
+        },
+        {
+          "name": "trx",
+          "type": "transaction"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        },
+        {
+          "actor": "$executer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "context_free_actions.empty()",
+          "message": "not allowed to `exec` a transaction with context-free actions"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.wrap.cpp",
+        "lines": [
+          5,
+          24
+        ]
+      }
+    }
+  }
+}

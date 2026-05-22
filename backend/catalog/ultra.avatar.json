@@ -1,0 +1,274 @@
+{
+  "contract": "ultra.avatar",
+  "abi_hash": "196b8658efbd444c7359a5b205e4d8a60fc345a002d949db53127ba663578b72",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:46.509Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.avatar",
+  "actions": {
+    "addethaddr": {
+      "contract": "ultra.avatar",
+      "action": "addethaddr",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        },
+        {
+          "name": "eth_signature",
+          "type": "bytes"
+        },
+        {
+          "name": "eth_address",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"addethaddr\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "result == 0",
+          "message": "failed to recover public key"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "eth_address == addr",
+          "message": "eth_signature invalid"
+        },
+        {
+          "kind": "state",
+          "expr": "eth_addresses.find(*reinterpret_cast<const uint64_t*>(addr.data())) == eth_addresses.end()",
+          "message": "eth_address already exists"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "i < 5",
+          "message": "account already has 5 eth addresses linked"
+        }
+      ],
+      "field_constraints": {
+        "eth_signature": [
+          {
+            "expr": ".size() == 65",
+            "message": "eth_signature length invalid: must have 65 bytes"
+          }
+        ],
+        "eth_address": [
+          {
+            "expr": ".size() == 20",
+            "message": "eth_address length invalid: must have 20 bytes"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.avatar.cpp",
+        "lines": [
+          67,
+          100
+        ]
+      }
+    },
+    "clearavatar": {
+      "contract": "ultra.avatar",
+      "action": "clearavatar",
+      "params": [
+        {
+          "name": "user",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$user",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"clearavatar\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "avatar_itr != avatar.end()",
+          "message": "user doesn't have an avatar"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.avatar.cpp",
+        "lines": [
+          21,
+          28
+        ]
+      }
+    },
+    "rmethaddr": {
+      "contract": "ultra.avatar",
+      "action": "rmethaddr",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        },
+        {
+          "name": "eth_address",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"rmethaddr\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it != eth_addresses.end()",
+          "message": "eth_address does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it->account == account",
+          "message": "eth_address not owned by account"
+        }
+      ],
+      "field_constraints": {
+        "eth_address": [
+          {
+            "expr": ".size() == 20",
+            "message": "eth_address length invalid: must have 20 bytes"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.avatar.cpp",
+        "lines": [
+          102,
+          112
+        ]
+      }
+    },
+    "setavatar": {
+      "contract": "ultra.avatar",
+      "action": "setavatar",
+      "params": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "nft_id",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$user",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setavatar\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.avatar.cpp",
+        "lines": [
+          3,
+          19
+        ]
+      }
+    },
+    "updatename": {
+      "contract": "ultra.avatar",
+      "action": "updatename",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        },
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "has_auth(account) || has_auth(_self)",
+          "message": "not authorized"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"updatename\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "invariant",
+          "expr": "isValidUsername(username)",
+          "message": "username contains invalid characters"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it_un == avatar_usernames.end()",
+          "message": "username already exists"
+        }
+      ],
+      "field_constraints": {
+        "username": [
+          {
+            "expr": ".size() <= 24",
+            "message": "username length must be <= 24 characters"
+          },
+          {
+            "expr": ".size() >= 3",
+            "message": "username length must be >= 3 characters"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.avatar.cpp",
+        "lines": [
+          42,
+          65
+        ]
+      }
+    }
+  }
+}

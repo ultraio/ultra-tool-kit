@@ -1,0 +1,187 @@
+{
+  "contract": "ultra.tools",
+  "abi_hash": "8afab8c2e8a6aca4933b8f996dbef80302470edf579a7e3637f2567b23d11165",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:15:05.423Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.tools",
+  "actions": {
+    "cfgcorrelate": {
+      "contract": "ultra.tools",
+      "action": "cfgcorrelate",
+      "params": [
+        {
+          "name": "payer",
+          "type": "name"
+        },
+        {
+          "name": "correlation_id_length",
+          "type": "uint8"
+        },
+        {
+          "name": "expiration_limit",
+          "type": "uint32?"
+        },
+        {
+          "name": "use_irreversibility",
+          "type": "uint8?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$payer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "correlation_id_length > 0",
+          "message": "correlation_id_length should be greater than 0"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*expiration_limit > 0",
+          "message": "expiration_limit should be greater than 0"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*expiration_limit <= 7 * 24 * 3600",
+          "message": "expiration limit should not exceed 7 days"
+        },
+        {
+          "kind": "invariant",
+          "expr": "corr_ids.begin() == corr_ids.end()",
+          "message": "Unable to change the correlation ID length. Erase all existing correlation IDs and try again"
+        }
+      ],
+      "field_constraints": {
+        "expiration_limit": [
+          {
+            "expr": ".has_value()",
+            "message": "when setting irreversibility to false, you must specify an expiration limit"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.tools.cpp",
+        "lines": [
+          113,
+          161
+        ]
+      }
+    },
+    "clrcorrelate": {
+      "contract": "ultra.tools",
+      "action": "clrcorrelate",
+      "params": [
+        {
+          "name": "payer",
+          "type": "name"
+        },
+        {
+          "name": "nr_removals",
+          "type": "size_t?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$payer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "nr != 0",
+          "message": "invalid nr_removals"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "nr_removed != 0",
+          "message": "no cached correlation IDs"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.tools.cpp",
+        "lines": [
+          102,
+          111
+        ]
+      }
+    },
+    "correlate": {
+      "contract": "ultra.tools",
+      "action": "correlate",
+      "params": [
+        {
+          "name": "payer",
+          "type": "name"
+        },
+        {
+          "name": "correlation_id",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$payer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "strncmp(&id[0], &cid[i * combined_id_length], combined_id_length) != 0",
+          "message": "duplicate correlation ID"
+        },
+        {
+          "kind": "invariant",
+          "expr": "false",
+          "message": "duplicate correlation ID"
+        }
+      ],
+      "field_constraints": {
+        "correlation_id": [
+          {
+            "expr": ".length() == required_correlation_id_length",
+            "message": "invalid correlation ID length"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.tools.cpp",
+        "lines": [
+          24,
+          100
+        ]
+      }
+    },
+    "nonce": {
+      "contract": "ultra.tools",
+      "action": "nonce",
+      "params": [
+        {
+          "name": "data",
+          "type": "string"
+        }
+      ],
+      "auths": [],
+      "preconditions": [],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "",
+        "lines": [
+          0,
+          0
+        ]
+      },
+      "unresolved": true,
+      "notes": "Could not locate handler for action \"nonce\" in C++ source."
+    }
+  }
+}

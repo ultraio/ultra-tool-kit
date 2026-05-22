@@ -1,0 +1,579 @@
+{
+  "contract": "eosio.oracle",
+  "abi_hash": "27986a0ac38bd99ecd4a5285f9a81cd7dd90995dd7e88b53a8fed6b2041a804e",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:40.992Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.oracle",
+  "actions": {
+    "addma": {
+      "contract": "eosio.oracle",
+      "action": "addma",
+      "params": [
+        {
+          "name": "final_moving_average_settings",
+          "type": "asset[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "oracle_state_s.exists()",
+          "message": "oracle is not initialized yet"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          131,
+          144
+        ]
+      }
+    },
+    "calcsecma": {
+      "contract": "eosio.oracle",
+      "action": "calcsecma",
+      "params": [
+        {
+          "name": "moving_average_setting",
+          "type": "asset"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "final_moving_avg_itr != _final_moving_average.end()",
+          "message": "moving average does not exist"
+        },
+        {
+          "kind": "state",
+          "expr": "oracle_state_s.exists()",
+          "message": "oracle is not initialized yet"
+        },
+        {
+          "kind": "invariant",
+          "expr": "rates.size() == oracle_state.registered_sources",
+          "message": "rates finalization count missmatch"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "weights.weighted_raw_rate > 0 && weights.raw_weight > 0",
+          "message": "division by 0 occured"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "weighted_comprehensive_rate > 0",
+          "message": "comprehensive rate calculation resulted in 0 rate"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "weighted_comprehensive_rate < std::numeric_limits<uint64_t>::max()",
+          "message": "comprehensive rate calculation overflow"
+        }
+      ],
+      "field_constraints": {
+        "moving_average_setting": [
+          {
+            "expr": ".symbol == time_symbols[0]",
+            "message": "invalid moving average symbol"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          655,
+          686
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/eosio.oracle.cpp:655 but no require_auth/require_auth2 captured."
+    },
+    "init": {
+      "contract": "eosio.oracle",
+      "action": "init",
+      "params": [
+        {
+          "name": "interval",
+          "type": "uint8"
+        },
+        {
+          "name": "cache_window",
+          "type": "uint32"
+        },
+        {
+          "name": "final_price_table_size",
+          "type": "uint32[]"
+        },
+        {
+          "name": "final_moving_average_settings",
+          "type": "asset[]"
+        },
+        {
+          "name": "ultra_comprehensive_rate_weight",
+          "type": "uint32"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "rm.exists()",
+          "message": "system contract must first be initialized"
+        },
+        {
+          "kind": "state",
+          "expr": "!oracle_state_s.exists()",
+          "message": "oracle can only be initialized once"
+        },
+        {
+          "kind": "invariant",
+          "expr": "final_price_table_size[0] >= cache_window + 60",
+          "message": "final_price_table_size[0] should be at least 60 seconds larger than cache_window"
+        },
+        {
+          "kind": "invariant",
+          "expr": "final_price_table_size[1] >= 120",
+          "message": "final_price_table_size[1] should be at least 120"
+        },
+        {
+          "kind": "invariant",
+          "expr": "final_price_table_size[2] >= 24",
+          "message": "final_price_table_size[2] should be at least 24"
+        },
+        {
+          "kind": "invariant",
+          "expr": "final_price_table_size[3] >= 7",
+          "message": "final_price_table_size[3] should be at least 7"
+        },
+        {
+          "kind": "invariant",
+          "expr": "final_price_table_size[0] <= 365 && final_price_table_size[1] <= 365 && final_price_table_size[2] <= 365&& final_price_table_size[3] <= 365",
+          "message": "final table size should not exceed 365 elements"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "std::count_if(final_moving_average_settings.begin(), final_moving_average_settings.end(), [&](auto& a){ return a.amount == average_settings.amount && a.symbol == average_settings.symbol; }) == 1",
+          "message": "duplicate final moving average settings are not allowed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_symbol != time_symbols.end()",
+          "message": "final moving average setting symbol is invalid"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "average_settings.amount >= moving_average_param_precision",
+          "message": "final moving average decimal part should be at least 1"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "average_settings.amount/moving_average_param_precision <= final_price_table_sizes[time_symbol_index]",
+          "message": "final moving average window size cannot exceed the final price table size"
+        },
+        {
+          "kind": "state",
+          "expr": "final_moving_average.find(moving_average_impl::get_primary_key(1, average_settings.amount)) == final_moving_average.end()",
+          "message": "final moving average is already registered"
+        }
+      ],
+      "field_constraints": {
+        "final_price_table_size": [
+          {
+            "expr": ".size() == 4",
+            "message": "final_price_table_size size should be 4"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          74,
+          123
+        ]
+      }
+    },
+    "purgefrates": {
+      "contract": "eosio.oracle",
+      "action": "purgefrates",
+      "params": [
+        {
+          "name": "scope",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "final_rates.has_data()",
+          "message": "table already empty"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          576,
+          589
+        ]
+      }
+    },
+    "pushrate": {
+      "contract": "eosio.oracle",
+      "action": "pushrate",
+      "params": [
+        {
+          "name": "exchange",
+          "type": "name"
+        },
+        {
+          "name": "rates",
+          "type": "rate[]"
+        },
+        {
+          "name": "volume",
+          "type": "asset"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "rate.timestamp + 120 > current_block_time().to_time_point().sec_since_epoch()",
+          "message": "rate is too old"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rate.timestamp <= current_block_time().to_time_point().sec_since_epoch() + 15",
+          "message": "rate timestamp ecxeeds 15 seconds beyond the current block time"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rate.price.symbol == push_rate_cache.oracle_state.conversion_rate_symbol",
+          "message": "conversion rate symbol is invalid"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rate.price.amount < max_asset_amount_value",
+          "message": "conversion rate amount exceeds the maximum allowed value"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rate.price.amount > 0",
+          "message": "conversion rate should be positive"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_feed_itr->source_type == feed_type",
+          "message": "registered source is not allowed to push raw/comprehensive rate"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "arrival_rate_bucket_no + 1 >= push_rate_cache.current_bucket_index",
+          "message": "rate is older than oldest second bucket"
+        },
+        {
+          "kind": "invariant",
+          "expr": "feed.rates.size() == 120",
+          "message": "feed cache not resized yet"
+        }
+      ],
+      "field_constraints": {
+        "volume": [
+          {
+            "expr": ".amount < max_asset_amount_value",
+            "message": "volume amount exceeds the maximum allowed value"
+          },
+          {
+            "expr": ".amount > 0",
+            "message": "volume should be positive"
+          },
+          {
+            "expr": ".symbol == push_rate_cache.oracle_state.trading_volume_symbol",
+            "message": "volume symbol is incorrect"
+          }
+        ],
+        "rates": [
+          {
+            "expr": ".size() == 1",
+            "message": "only support pushing one rate per source"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          569,
+          574
+        ]
+      }
+    },
+    "regexchange": {
+      "contract": "eosio.oracle",
+      "action": "regexchange",
+      "params": [
+        {
+          "name": "exchange",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "oracle_state_s.exists()",
+          "message": "oracle is not initialized yet"
+        },
+        {
+          "kind": "state",
+          "expr": "feed.find(source.value) == feed.end()",
+          "message": "exchange is already registered"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "oracle_state.registered_sources < std::numeric_limits<uint64_t>::max() / max_asset_amount_value",
+          "message": "too many sources registered, unregister some sources first"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          216,
+          218
+        ]
+      }
+    },
+    "removema": {
+      "contract": "eosio.oracle",
+      "action": "removema",
+      "params": [
+        {
+          "name": "final_moving_average_settings",
+          "type": "asset[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "existing_symbol != time_symbols.end()",
+          "message": "final moving average setting symbol is invalid"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_ma != final_moving_average.end()",
+          "message": "final moving average is not found"
+        },
+        {
+          "kind": "state",
+          "expr": "oracle_state_s.exists()",
+          "message": "oracle is not initialized yet"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          146,
+          159
+        ]
+      }
+    },
+    "resetfavg": {
+      "contract": "eosio.oracle",
+      "action": "resetfavg",
+      "params": [
+        {
+          "name": "time_symbol",
+          "type": "symbol?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "existing_symbol != time_symbols.end()",
+          "message": "final moving average setting symbol is invalid"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          611,
+          622
+        ]
+      }
+    },
+    "resetfeed": {
+      "contract": "eosio.oracle",
+      "action": "resetfeed",
+      "params": [
+        {
+          "name": "exchange",
+          "type": "name?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "i != feed.end()",
+          "message": "exchange is not found"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          591,
+          603
+        ]
+      }
+    },
+    "resetfrates": {
+      "contract": "eosio.oracle",
+      "action": "resetfrates",
+      "params": [
+        {
+          "name": "scope",
+          "type": "uint64?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [],
+      "field_constraints": {
+        "scope": [
+          {
+            "expr": ".value() < time_symbols.size()",
+            "message": "final rates scope is invalid"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          631,
+          641
+        ]
+      }
+    },
+    "terminate": {
+      "contract": "eosio.oracle",
+      "action": "terminate",
+      "params": [],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          643,
+          653
+        ]
+      }
+    },
+    "unregexchg": {
+      "contract": "eosio.oracle",
+      "action": "unregexchg",
+      "params": [
+        {
+          "name": "exchange",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_oracle_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "oracle_state_s.exists()",
+          "message": "oracle is not initialized yet"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_source != feed.end()",
+          "message": "source is not registered"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.oracle.cpp",
+        "lines": [
+          220,
+          222
+        ]
+      }
+    }
+  }
+}

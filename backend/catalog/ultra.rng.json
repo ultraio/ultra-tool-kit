@@ -1,0 +1,269 @@
+{
+  "contract": "ultra.rng",
+  "abi_hash": "85781d477c1181ad252648615084819120b1774bba874d57638210812e745448",
+  "abi_chain_id": "7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9",
+  "abi_fetched_at": "2026-05-22T08:15:01.595Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.rng",
+  "actions": {
+    "ban": {
+      "contract": "ultra.rng",
+      "action": "ban",
+      "params": [
+        {
+          "name": "dapp",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ban\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it == bl.end()",
+          "message": "dapp already banned"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          162,
+          172
+        ]
+      }
+    },
+    "killjobs": {
+      "contract": "ultra.rng",
+      "action": "killjobs",
+      "params": [
+        {
+          "name": "job_ids",
+          "type": "uint64[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"killjobs\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {
+        "job_ids": [
+          {
+            "expr": ".size() > 0",
+            "message": "job ids cannot be empty"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          118,
+          134
+        ]
+      }
+    },
+    "requestrand": {
+      "contract": "ultra.rng",
+      "action": "requestrand",
+      "params": [
+        {
+          "name": "assoc_id",
+          "type": "uint64"
+        },
+        {
+          "name": "seed",
+          "type": "uint64"
+        },
+        {
+          "name": "caller",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$caller",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"requestrand\"_n)",
+          "message": "contract under maintenance: please try again later"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "seed != 0",
+          "message": "seed cannot be zero"
+        },
+        {
+          "kind": "state",
+          "expr": "pubkey_table.exists()",
+          "message": "no public key set"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it_seed == seeds.end()",
+          "message": "seed already used"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          42,
+          80
+        ]
+      }
+    },
+    "setpubkey": {
+      "contract": "ultra.rng",
+      "action": "setpubkey",
+      "params": [
+        {
+          "name": "pk",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setpubkey\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {
+        "pk": [
+          {
+            "expr": ".size() == sizeof(g1)",
+            "message": "pk length invalid"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          136,
+          160
+        ]
+      }
+    },
+    "setrand": {
+      "contract": "ultra.rng",
+      "action": "setrand",
+      "params": [
+        {
+          "name": "job_id",
+          "type": "uint64"
+        },
+        {
+          "name": "random_value",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setrand\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "job_it != jobs.end()",
+          "message": "job id not found"
+        },
+        {
+          "kind": "state",
+          "expr": "pubkey_table.exists()",
+          "message": "no public key set"
+        },
+        {
+          "kind": "invariant",
+          "expr": "fp12::one().equal(pairing::calculate(g1_points, g2_points, 2))",
+          "message": "signature verification failed"
+        }
+      ],
+      "field_constraints": {
+        "random_value": [
+          {
+            "expr": ".size() == sizeof(g2)",
+            "message": "invalid length for random_value"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          82,
+          116
+        ]
+      }
+    },
+    "unban": {
+      "contract": "ultra.rng",
+      "action": "unban",
+      "params": [
+        {
+          "name": "dapp",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "_self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"unban\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rng.cpp",
+        "lines": [
+          174,
+          181
+        ]
+      }
+    }
+  }
+}
