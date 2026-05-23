@@ -25,6 +25,7 @@ import {
     ReplySchema,
     type EosioTypes,
     validateAct,
+    validateAnswer,
     validatePropose,
     type Reply,
     type ValidateContext,
@@ -65,13 +66,17 @@ type ChatRequestBody = z.infer<typeof RequestSchema>;
 const HISTORY_WINDOW = 6;
 const RETRIEVE_TOP_K = 5;
 
-// The user-facing string when the classifier flags a topic this wave
-// doesn't yet support. W7 will swap answer's; the body of the route stays
-// the same. (W6 deleted STUB_PROPOSE_QUESTION — propose now flows through
-// the real validatePropose path.)
-const STUB_ANSWER_QUESTION =
-    'Knowledge answers are coming in a later release. Could you describe the action you want to compose instead?';
+// Internal-error refuse — never reaches the user from any in-flight path
+// the model controlled, only from catch blocks. The reason string maps to a
+// generic chip via ProposalCard.vue's refuseHeading switch.
 const REFUSE_INTERNAL: Reply = { kind: 'refuse', reason: 'internal' };
+
+// Generic clarifier when the schema gate trips post-harness (gate 1 re-parse
+// failure). Same wording the act/propose paths show. Answer-intent failures
+// take this same path because A1–A3 already refuse on their own; this
+// fallback only fires when Zod itself rejects the reply shape.
+const SCHEMA_RECOVERY_QUESTION =
+    'I could not produce a structured reply for that request. Could you rephrase or add more detail?';
 
 export type AiChatDeps = {
     provider: ChatProvider;
@@ -159,18 +164,17 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 200
             );
         }
-        if (intent.kind === 'answer') {
-            return c.json({ kind: 'ask', question: STUB_ANSWER_QUESTION } as Reply, 200);
-        }
 
-        // ─── act / propose path ─────────────────────────────────────────
-        // Same retrieve + buildUserMessage + harness flow for both kinds.
-        // The model decides which kind to emit; validateAct / validatePropose
-        // run the per-kind gate stack on the structured reply. Documented
-        // act↔propose downgrade per §4.3 ("the model is free to downgrade
-        // when it cannot safely compose") — a model that classifies as
-        // propose but composes a single action that fits an act still gets
-        // validated, and vice-versa.
+        // ─── act / propose / answer path ────────────────────────────────
+        // Same retrieve + buildUserMessage + harness flow for all three
+        // structured kinds. The model decides which kind to emit; the
+        // per-kind validator runs the right gate stack on the structured
+        // reply. Documented cross-kind downgrade per §4.3 ("the model is
+        // free to downgrade when it cannot safely compose") — a model
+        // classified as `answer` is still free to up-shift into act/propose
+        // if the user phrased an action as a question, or downgrade to ask
+        // when it can't ground. W7: validateAnswer refuses (not asks) on
+        // gate failure; act/propose still downgrade to ask.
         try {
             const hits = retrieve(userMessage, deps.catalog, RETRIEVE_TOP_K);
             const entries = hits
@@ -249,7 +253,7 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             const reparsed = ReplySchema.safeParse(reply);
             if (!reparsed.success) {
                 logger.warn({ issues: reparsed.error.issues }, 'ai-chat: reply failed re-parse');
-                return c.json({ kind: 'ask', question: STUB_ANSWER_QUESTION } as Reply, 200);
+                return c.json({ kind: 'ask', question: SCHEMA_RECOVERY_QUESTION } as Reply, 200);
             }
             const validated = reparsed.data;
 
@@ -308,9 +312,28 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 return c.json(outcome.reply, 200);
             }
 
-            // Non-act / non-propose kinds (ask / refuse / answer): the model
-            // is free to downgrade when it cannot safely compose. Pass
-            // through.
+            // answer reply — run validateAnswer (W7). The classifier routes
+            // knowledge questions here; the model is also free to downgrade
+            // act/propose intent → answer when it would rather explain than
+            // compose. Gates A1–A3 refuse on failure (no ask path — either
+            // the answer grounds or we decline). failedGate breadcrumb is
+            // logged via logger.warn inside validateAnswer; the user sees
+            // a generic reason string only (§4.3 gate-1 generic-clarifier
+            // rule generalised to W7).
+            if (validated.kind === 'answer') {
+                const outcome = validateAnswer(validated, deps.catalog, ctx);
+                if (outcome.kind === 'refuse') {
+                    logger.warn(
+                        { failedGate: outcome.failedGate, classifierIntent: intent.kind },
+                        'ai-chat: answer refused'
+                    );
+                    return c.json({ kind: 'refuse', reason: outcome.reason } as Reply, 200);
+                }
+                return c.json(outcome.reply, 200);
+            }
+
+            // Non-structured kinds (ask / refuse): the model is free to
+            // downgrade when it cannot safely compose. Pass through.
             return c.json(validated, 200);
         } catch (err) {
             // Internal errors never reach the user. Log structurally, return

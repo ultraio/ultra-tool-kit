@@ -45,10 +45,14 @@ export type HarnessBudget = {
 
 // Defaults follow guidelines §4.7: 15 s wall-clock, retry cap of 2, output
 // cap small enough to keep Haiku 4.5 per-turn cost ≤ $0.0008 (roadmap §3
-// "Per-turn target: ≤ 1.5 K input + ≤ 400 output"). The 6 K input cap is a
-// generous ceiling — real W3+ prompts will run well under that.
+// "Per-turn target: ≤ 1.5 K input + ≤ 400 output"). The 8 K input cap is
+// the DoS ceiling, generous over the 1.5 K target — the post-W7 system
+// prompt grew (grounded-answer guidance + knowledge-questions paragraph)
+// and a turn with verbose top-K catalog entries (e.g. eosio.nft.ft::create.b)
+// can push system+user past 6 K. 8 K leaves headroom for future prompt
+// growth while staying far below Haiku 4.5's 200 K context.
 export const DEFAULT_BUDGET: Required<HarnessBudget> = {
-    maxInputTokens: 6000,
+    maxInputTokens: 8000,
     maxOutputTokens: 1024,
     maxWallMs: 15_000,
     maxRetries: 2,

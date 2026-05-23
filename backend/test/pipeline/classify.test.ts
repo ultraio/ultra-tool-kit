@@ -114,6 +114,36 @@ describe('classify — W6 propose intent + question-led narrowing', () => {
     });
 });
 
+describe('classify — W7 answer-intent routing + non-Ultra refusal', () => {
+    // W7 acceptance: question-led knowledge queries route to answer.
+    // Each case asserts that the W2/W6 classifier already covers W7's
+    // routing surface — no classify.ts change needed for W7.
+    it('classifies "what does eosio.nft.ft::setfact.uri do?" as answer', () => {
+        expect(classify('what does eosio.nft.ft::setfact.uri do?').kind).toBe('answer');
+    });
+
+    it('classifies "how do I create a factory?" as answer', () => {
+        // STARTS_WITH_QUESTION_RE narrows over the "create" act verb.
+        expect(classify('how do I create a factory?').kind).toBe('answer');
+    });
+
+    it('classifies "explain the proposex action" as answer', () => {
+        expect(classify('explain the proposex action').kind).toBe('answer');
+    });
+
+    it('classifies "describe eosio.msig::approve" as answer (W6 narrowing keeps it from propose)', () => {
+        // The body mentions "approve" (an act verb) but the sentence leads
+        // with "describe" — STARTS_WITH_QUESTION_RE wins.
+        expect(classify('describe eosio.msig::approve').kind).toBe('answer');
+    });
+
+    it('refuses "is bitcoin supported?" as out-of-scope (model never called)', () => {
+        const result = classify('is bitcoin supported?');
+        expect(result.kind).toBe('refuse');
+        expect(result.reason).toBe('out-of-scope');
+    });
+});
+
 describe('classify — answer / ask fallbacks', () => {
     // Answer wording must not contain a propose or act verb — the
     // documented precedence (propose > act > answer) means a sentence

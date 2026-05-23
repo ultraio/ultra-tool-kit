@@ -13,8 +13,31 @@ import { describe, expect, it } from 'vitest';
 import { escapeFence, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../../src/pipeline/prompts.js';
 
 describe('SYSTEM_PROMPT', () => {
-    it('version is "v3" (W6 un-stubbed propose + added the msig tool-use paragraph)', () => {
-        expect(SYSTEM_PROMPT_VERSION).toBe('v3');
+    it('version is "v4" (W7 un-stubbed answer + added the knowledge-questions paragraph)', () => {
+        expect(SYSTEM_PROMPT_VERSION).toBe('v4');
+    });
+
+    it('W7: answer description carries the grounding rule (no longer "Plain text only")', () => {
+        // The answer description is the model's contract for what
+        // validateAnswer's A2/A3 will accept. Pin the load-bearing phrases.
+        expect(SYSTEM_PROMPT).toContain('grounded text answer');
+        expect(SYSTEM_PROMPT).toContain('NEVER invent a contract or action name');
+        // Must NOT contain the prior stub wording (defensive — catches a
+        // future doc PR that accidentally reintroduces the stub).
+        expect(SYSTEM_PROMPT).not.toMatch(/Plain text only\./);
+    });
+
+    it('W7: knowledge-questions paragraph names notes / auths / preconditions', () => {
+        expect(SYSTEM_PROMPT).toContain('For knowledge questions');
+        // The catalog fields the model is told to ground in.
+        expect(SYSTEM_PROMPT).toMatch(/notes/);
+        expect(SYSTEM_PROMPT).toMatch(/auths/);
+        expect(SYSTEM_PROMPT).toMatch(/preconditions/);
+        // The non-Ultra refusal hint — backs up the classifier's
+        // OUT_OF_SCOPE_KEYWORDS so the model doesn't slip in answers
+        // about other chains.
+        expect(SYSTEM_PROMPT).toMatch(/bitcoin/);
+        expect(SYSTEM_PROMPT).toMatch(/ethereum/);
     });
 
     it('W5: includes the NFT.ft tool-use paragraph naming factory.a / group.a / tokenb.a', () => {

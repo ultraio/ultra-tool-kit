@@ -879,6 +879,123 @@ export function validatePropose(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// W7: validateAnswer — gates A1–A3 for the `kind: 'answer'` reply.
+//
+// Source of truth: docs/00-ai-global-guidelines.md §1 maxim 2 ("no identifier
+// is invented" — extended to every contract::action pair in answer text),
+// §4.1 rule 1 (treat external input as hostile), §4.3 (the answer kind has
+// its OWN smaller gate stack — schema gate 1 is the Zod parse upstream;
+// W7 adds A1–A3). §4.4 generalisation: the answer never lists arbitrary
+// account names without citation.
+//
+// Unlike act/propose which downgrade to ask on failure, answer failures
+// downgrade to refuse — there is no "ask for clarification" path for a
+// knowledge-question gate failure; either the answer is grounded or we
+// politely decline. The route handler surfaces a generic reason string to
+// the user; the named failed gate goes to logger.warn (W8 telemetry).
+//
+// Each gate stays its own named branch per the W7 simplifier exclusion
+// list (mirrors the act/propose gates' discipline).
+// ─────────────────────────────────────────────────────────────────────────
+
+export type ValidateAnswerOutcome =
+    | { kind: 'ok'; reply: AnswerReply }
+    | { kind: 'refuse'; reason: string; failedGate: string };
+
+// User-visible refuse reasons — generic by design (§4.3 gate-1 rule:
+// never leak which gate failed). A2 + A3 share one reason because both
+// describe the same class of attack (an answer that points to an action
+// the model can't justify by catalog/tool grounding).
+const ANSWER_REASON_MALFORMED = 'malformed-answer';
+const ANSWER_REASON_UNSUPPORTED = 'unsupported-reference';
+
+// A1 length cap. Prose answers don't need more, and unbounded text is a
+// DoS/cost vector (the harness enforces output token caps, but the
+// validator is the second line per §4.7).
+const ANSWER_MAX_CHARS = 2000;
+
+// A2 contract::action regex. Mirrors the EOSIO name shape on the contract
+// side (lowercase + dots + length cap) and the action-name shape on the
+// action side (allows trailing `.<digit>` action variants like setmeta.b).
+// Length caps are defensive — a longer "::"-separated token isn't a valid
+// (contract, action) pair and won't be in the catalog anyway.
+const CONTRACT_ACTION_RE = /\b([a-z][a-z0-9.]{0,12})::([a-z][a-z0-9_.]{0,30})\b/g;
+
+// A3 smuggled-JSON-action detector. Looks for an opening `{` followed (in
+// any order, within a 300-char window) by all three quoted keys "contract",
+// "action", "data". The window is wide enough to span a typical inline
+// example, narrow enough to avoid false positives in long-form prose that
+// happens to use all three words. A tight 3-key check by design:
+// legitimate prose explanations of action shapes use the catalog's named
+// fields (`from`, `to`, `quantity`) and never pack all three of
+// {contract, action, data} as JSON-quoted keys near a brace. Phishing/UI-
+// confusion defense per §4.4. The window-scan is preferred over a single
+// regex because real action JSON contains nested `data: { ... }` objects
+// that a `[^{}]`-bounded regex can't traverse.
+const SMUGGLED_ACTION_WINDOW = 300;
+const SMUGGLED_ACTION_KEYS = ['"contract"', '"action"', '"data"'] as const;
+
+function hasSmuggledAction(text: string): boolean {
+    let idx = 0;
+    while ((idx = text.indexOf('{', idx)) !== -1) {
+        const slice = text.slice(idx, idx + SMUGGLED_ACTION_WINDOW);
+        if (SMUGGLED_ACTION_KEYS.every((k) => slice.includes(k))) return true;
+        idx += 1;
+    }
+    return false;
+}
+
+function refuseAnswer(failedGate: string, why: string, reason: string): ValidateAnswerOutcome {
+    logger.warn({ failedGate, why }, 'validate: answer refused');
+    return { kind: 'refuse', reason, failedGate };
+}
+
+export function validateAnswer(
+    reply: AnswerReply,
+    catalog: CatalogIndex,
+    ctx: ValidateContext
+): ValidateAnswerOutcome {
+    // ─── Gate A1: text shape ─────────────────────────────────────────────
+    // Zod already enforced reply.text.min(1); A1 is the load-bearing
+    // post-parse check. cleanText scrubs URLs / markdown images / code
+    // fences / known jailbreak strings (W0 carry-over). A model whose
+    // entire response is URL noise scrubs to empty here.
+    if (reply.text.length > ANSWER_MAX_CHARS) {
+        return refuseAnswer('A1', `answer exceeds ${ANSWER_MAX_CHARS} chars`, ANSWER_REASON_MALFORMED);
+    }
+    const { cleaned } = cleanText(reply.text);
+    if (cleaned.length === 0) {
+        return refuseAnswer('A1', 'answer text empty after cleanText', ANSWER_REASON_MALFORMED);
+    }
+
+    // ─── Gate A2: every contract::action pair must be grounded ──────────
+    // The pair exists in catalog.byKey (cataloged) OR the contract appears
+    // in toolReturnedIdentifiers (e.g. answer follows a get_abi call on a
+    // non-cataloged contract this turn). One miss → refuse. Maxim 2 + §4.3
+    // gate 5 generalised to answer prose.
+    CONTRACT_ACTION_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = CONTRACT_ACTION_RE.exec(reply.text)) !== null) {
+        const contract = match[1];
+        const action = match[2];
+        if (!contract || !action) continue;
+        const key = `${contract}::${action}`;
+        if (catalog.byKey.has(key)) continue;
+        if (ctx.toolReturnedIdentifiers?.has(contract)) continue;
+        return refuseAnswer('A2', `unsupported reference: ${key}`, ANSWER_REASON_UNSUPPORTED);
+    }
+
+    // ─── Gate A3: no smuggled JSON action shape ─────────────────────────
+    // The answer is prose, not a covert proposal that bypasses the modal.
+    // Detector rationale + window sizing live on `hasSmuggledAction` above.
+    if (hasSmuggledAction(reply.text)) {
+        return refuseAnswer('A3', 'answer contains JSON-shaped action blob', ANSWER_REASON_UNSUPPORTED);
+    }
+
+    return { kind: 'ok', reply };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // W4 + W5: extractIdentifiers — walk a JSON-shaped tool response and return
 // every string value (or object key) that matches the EOSIO name regex,
 // PLUS every numeric value sitting under a `*_id` key (W5). The route

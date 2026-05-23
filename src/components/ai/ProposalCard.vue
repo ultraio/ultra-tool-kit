@@ -135,6 +135,10 @@ const refuseHeading = computed(() => {
             return "I couldn't reach the AI backend.";
         case 'internal':
             return 'The AI backend hit an unexpected error.';
+        case 'unsupported-reference':
+            return "I couldn't ground that answer in the catalog.";
+        case 'malformed-answer':
+            return "That answer didn't validate.";
         default:
             return "I couldn't build a confident proposal.";
     }
