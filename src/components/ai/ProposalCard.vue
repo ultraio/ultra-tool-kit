@@ -13,6 +13,44 @@
         <div class="text-neutral-500">Review and sign in the transaction modal.</div>
     </div>
 
+    <!-- propose (W6) — multisig proposal summary. The inner actions land in
+         the <Transaction> modal via the bus; the user clicks "Create Proposal"
+         inside the modal and copies the proposalName + requested approvers
+         from this card into the modal's fields (Transaction.vue is frozen per
+         decision 10 — no programmatic pre-fill). -->
+    <div v-else-if="props.reply?.kind === 'propose'" class="flex flex-col gap-2 text-xs">
+        <div class="flex items-center gap-2 font-mono text-purple-300">
+            <Icon icon="fa-file-contract" class="text-purple-400" />
+            <span>multisig proposal · <span class="text-purple-200">{{ props.reply.proposalName }}</span></span>
+        </div>
+        <div v-if="props.reply.rationale" class="text-neutral-400 italic">
+            {{ props.reply.rationale }}
+        </div>
+        <div class="flex flex-col gap-1">
+            <div class="text-neutral-500">Inner actions ({{ props.reply.actions.length }}):</div>
+            <div
+                v-for="(a, i) in props.reply.actions"
+                :key="i"
+                class="font-mono text-neutral-300 pl-3"
+            >
+                {{ i + 1 }}. {{ a.contract }}<span class="text-neutral-500">::</span>{{ a.action }}
+            </div>
+        </div>
+        <div class="flex flex-col gap-1">
+            <div class="text-neutral-500">Requested approvers:</div>
+            <div
+                v-for="(r, i) in props.reply.requested"
+                :key="i"
+                class="font-mono text-neutral-300 pl-3"
+            >
+                {{ r.actor }}<span class="text-neutral-500">@</span>{{ r.permission }}
+            </div>
+        </div>
+        <div class="text-neutral-500">
+            Open the transaction modal, toggle "Create Proposal", and enter the proposal name + approvers above.
+        </div>
+    </div>
+
     <!-- ask -->
     <div v-else-if="props.reply?.kind === 'ask'" class="flex flex-col gap-2 text-xs">
         <div class="flex items-start gap-2 text-neutral-200">

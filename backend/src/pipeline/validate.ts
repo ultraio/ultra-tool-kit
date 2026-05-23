@@ -12,8 +12,13 @@
 //     simplifier exclusion list.
 //   - loadEosioTypes(): boot-time read of catalog/eosio-types.json into the
 //     regex table the field-shape gate consults.
-//   - validateAct(): the gate stack. Run gates 2–6 here; gate 1 (schema) is
-//     the Zod parse caller does before calling in.
+//   - validateInnerAction(): gates 2–6 on a single action — used by both
+//     validateAct (W3) and validatePropose (W6, called once per inner action).
+//   - validateAct(): delegates to validateInnerAction for an act reply.
+//   - validatePropose() (W6): runs validateInnerAction on every inner action
+//     (one bad inner action poisons the whole proposal), then runs the new
+//     gate 7 propose-level checks (proposalName regex + citation, requested[]
+//     regex + citation, proposer not in requested, no duplicate approvers).
 //
 // Gate failure semantics: NEVER bubble up a half-validated reply. Each
 // failure returns `{ kind: 'ask', question: <generic clarifier> }`. The
@@ -296,8 +301,16 @@ export type ValidateContext = {
 };
 
 export type ValidateOk = { kind: 'ok'; reply: ActReply };
-export type ValidateAsk = { kind: 'ask'; question: string; failedGate: number };
+// `innerIndex` is set only by validatePropose (W6) when an inner action
+// failed gates 1–6 OR when gate 7 is propose-level (innerIndex omitted).
+// Existing validateAct callers ignore it.
+export type ValidateAsk = { kind: 'ask'; question: string; failedGate: number; innerIndex?: number };
 export type ValidateOutcome = ValidateOk | ValidateAsk;
+
+// W6 sibling outcome for propose flows. Mirrors ValidateOutcome with a
+// ProposeReply payload on success — keeps the caller's narrow happy.
+export type ValidateProposeOk = { kind: 'ok'; reply: ProposeReply };
+export type ValidateProposeOutcome = ValidateProposeOk | ValidateAsk;
 
 // Generic clarifier surfaced to the user when any gate trips. Generic by
 // design — exposing which gate failed leaks the structured contract and
@@ -507,22 +520,36 @@ function isUintIdType(type: string): boolean {
     return UINT_TYPE_RE.test(unwrapOptional(type).inner);
 }
 
-export function validateAct(
-    reply: ActReply,
+// ─────────────────────────────────────────────────────────────────────────
+// validateInnerAction — gates 2–6 on a single Action.
+//
+// Used by both validateAct (W3, called once with the lone act action) and
+// validatePropose (W6, called once per inner action; first failure
+// short-circuits the whole proposal).
+//
+// Returns the coerced action on success so the caller can emit a normalised
+// reply (uint64 → string, asset coerced from {amount, precision, symbol},
+// etc.). Returns `{ kind: 'ask', failedGate, why }` on failure; the caller
+// surfaces GENERIC_CLARIFIER and logs `why` via the `ask()` helper.
+//
+// Each gate stays its own named branch per the W6 simplifier exclusion list.
+// ─────────────────────────────────────────────────────────────────────────
+
+type InnerActionOk = { kind: 'ok'; coerced: ReplyAction };
+type InnerActionAsk = { kind: 'ask'; failedGate: number; why: string };
+type InnerActionOutcome = InnerActionOk | InnerActionAsk;
+
+function validateInnerAction(
+    action: ReplyAction,
     catalog: CatalogIndex,
     eosioTypes: EosioTypes,
     ctx: ValidateContext
-): ValidateOutcome {
-    // act has exactly one action this wave (W6 expands the propose path to
-    // many; act itself stays single per the docs §3 architecture box).
-    const action = reply.actions[0];
-    if (!action) return ask(1, 'empty actions array');
-
+): InnerActionOutcome {
     // ─── Gate 2: catalog membership ──────────────────────────────────────
     const key = `${action.contract}::${action.action}`;
     const entry = catalog.byKey.get(key);
     if (!entry) {
-        return ask(2, `unknown action ${key}`);
+        return { kind: 'ask', failedGate: 2, why: `unknown action ${key}` };
     }
     const rules: ActionRules = entry.rules;
 
@@ -537,7 +564,7 @@ export function validateAct(
 
     for (const [k] of Object.entries(action.data)) {
         if (!paramByName.has(k)) {
-            return ask(3, `unknown field ${k} on ${key}`);
+            return { kind: 'ask', failedGate: 3, why: `unknown field ${k} on ${key}` };
         }
     }
     const coercedData: Record<string, unknown> = {};
@@ -546,7 +573,7 @@ export function validateAct(
         if (raw === undefined) continue;
         const res = checkFieldShape(raw, p.type, eosioTypes, p.name);
         if (!res.ok) {
-            return ask(3, res.reason);
+            return { kind: 'ask', failedGate: 3, why: res.reason };
         }
         coercedData[p.name] = res.coerced;
     }
@@ -564,18 +591,22 @@ export function validateAct(
         if (v === undefined) continue;
         const r = mv.validate(v);
         if (!r.ok) {
-            return ask(3, `metadata invalid on ${mv.field}: ${r.errors.join('; ')}`);
+            return { kind: 'ask', failedGate: 3, why: `metadata invalid on ${mv.field}: ${r.errors.join('; ')}` };
         }
     }
 
     // ─── Gate 4: authorization actor + permission ────────────────────────
     const auth = action.authorization[0];
-    if (!auth) return ask(4, 'missing authorization');
+    if (!auth) return { kind: 'ask', failedGate: 4, why: 'missing authorization' };
     if (!ctx.validatedAccounts.includes(auth.actor)) {
-        return ask(4, `actor ${auth.actor} not in validatedAccounts`);
+        return { kind: 'ask', failedGate: 4, why: `actor ${auth.actor} not in validatedAccounts` };
     }
     if (auth.permission !== ctx.jwtPermission) {
-        return ask(4, `permission ${auth.permission} ≠ JWT permission ${ctx.jwtPermission}`);
+        return {
+            kind: 'ask',
+            failedGate: 4,
+            why: `permission ${auth.permission} ≠ JWT permission ${ctx.jwtPermission}`,
+        };
     }
     // Sanity link to the catalog's declared auth signature: not a hard fail
     // (catalog auths can reference $-vars resolved per-action), just a log
@@ -607,7 +638,7 @@ export function validateAct(
         if (typeof v !== 'string' || v.length === 0) continue;
         if (knownSet.has(v)) continue;
         if (userMessageContains(ctx.userMessage, v)) continue;
-        return ask(5, `invented identifier on ${p.name}: ${v}`);
+        return { kind: 'ask', failedGate: 5, why: `invented identifier on ${p.name}: ${v}` };
     }
     // W5: numeric *_id params (uint8/16/32/64 family, with or without `?`
     // optional). Citation source is the user message (substring) OR the
@@ -625,7 +656,7 @@ export function validateAct(
         if (ctx.toolReturnedIdentifiers?.has(numStr)) continue;
         if (knownSet.has(numStr)) continue;
         if (userMessageContains(ctx.userMessage, numStr)) continue;
-        return ask(5, `invented numeric id on ${p.name}: ${numStr}`);
+        return { kind: 'ask', failedGate: 5, why: `invented numeric id on ${p.name}: ${numStr}` };
     }
     // W5: array-of-uint64 params (also commonly *_ids — e.g. `factories` on
     // creategrp). Each element must be cited like a scalar id. We piggyback
@@ -648,14 +679,14 @@ export function validateAct(
             if (ctx.toolReturnedIdentifiers?.has(numStr)) continue;
             if (knownSet.has(numStr)) continue;
             if (userMessageContains(ctx.userMessage, numStr)) continue;
-            return ask(5, `invented numeric id in ${p.name}: ${numStr}`);
+            return { kind: 'ask', failedGate: 5, why: `invented numeric id in ${p.name}: ${numStr}` };
         }
     }
     // Also check authorization.actor against the same set — although gate
     // 4 already requires it to be a validatedAccount, gate 5 makes the
     // citation chain explicit.
     if (!knownSet.has(auth.actor) && !userMessageContains(ctx.userMessage, auth.actor)) {
-        return ask(5, `invented actor: ${auth.actor}`);
+        return { kind: 'ask', failedGate: 5, why: `invented actor: ${auth.actor}` };
     }
 
     // ─── Gate 6: memo policy ─────────────────────────────────────────────
@@ -666,27 +697,185 @@ export function validateAct(
         if (p.name !== 'memo' || p.type !== 'string') continue;
         const v = coercedData[p.name];
         if (v === undefined) continue;
-        if (typeof v !== 'string') return ask(6, `memo is not a string: ${String(v)}`);
+        if (typeof v !== 'string') return { kind: 'ask', failedGate: 6, why: `memo is not a string: ${String(v)}` };
         if (v.length === 0) continue;
         if (!userMessageContains(ctx.userMessage, v)) {
-            return ask(6, `memo not echoed verbatim: ${v}`);
+            return { kind: 'ask', failedGate: 6, why: `memo not echoed verbatim: ${v}` };
         }
     }
 
-    // All gates passed — emit the cleaned action back to the caller.
-    const ok: ActReply = {
-        kind: 'act',
-        actions: [
-            {
-                contract: action.contract,
-                action: action.action,
-                data: coercedData,
-                authorization: [auth],
-            },
-        ],
-        rationale: reply.rationale,
+    return {
+        kind: 'ok',
+        coerced: {
+            contract: action.contract,
+            action: action.action,
+            data: coercedData,
+            authorization: [auth],
+        },
     };
-    return { kind: 'ok', reply: ok };
+}
+
+export function validateAct(
+    reply: ActReply,
+    catalog: CatalogIndex,
+    eosioTypes: EosioTypes,
+    ctx: ValidateContext
+): ValidateOutcome {
+    // act has exactly one action this wave (W6 expands the propose path to
+    // many; act itself stays single per the docs §3 architecture box).
+    const action = reply.actions[0];
+    if (!action) return ask(1, 'empty actions array');
+
+    const inner = validateInnerAction(action, catalog, eosioTypes, ctx);
+    if (inner.kind === 'ask') {
+        return ask(inner.failedGate, inner.why);
+    }
+
+    return {
+        kind: 'ok',
+        reply: {
+            kind: 'act',
+            actions: [inner.coerced],
+            rationale: reply.rationale,
+        },
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// validatePropose — W6. Runs validateInnerAction per inner action (one bad
+// inner action poisons the whole proposal) then gate 7 propose-level checks.
+//
+// Gate 7 sub-checks each stay their own named branch per the W6 simplifier
+// exclusion list:
+//   7.1 proposalName regex (matches eosio name pattern)
+//   7.2 proposalName cited (user msg substring OR knownAccounts OR
+//       toolReturnedIdentifiers; validatedAccounts NOT a source — the user
+//       must explicitly name the proposal)
+//   7.3 requested[] non-empty (defensive; Zod already enforces min(1))
+//   7.4 every requested[i].actor regex + cited (validatedAccounts IS
+//       allowed here — the user explicitly named approvers, unlike inner
+//       actors)
+//   7.5 every requested[i].permission regex
+//   7.6 proposer (ctx.jwtAccount+ctx.jwtPermission) NOT in requested[]
+//   7.7 no duplicate approvers (case-sensitive actor::permission)
+// ─────────────────────────────────────────────────────────────────────────
+
+function askPropose(failedGate: number, why: string, innerIndex?: number): ValidateAsk {
+    logger.warn({ failedGate, why, innerIndex }, 'validate: downgraded propose to ask');
+    const ask: ValidateAsk = { kind: 'ask', question: GENERIC_CLARIFIER, failedGate };
+    if (innerIndex !== undefined) ask.innerIndex = innerIndex;
+    return ask;
+}
+
+export function validatePropose(
+    reply: ProposeReply,
+    catalog: CatalogIndex,
+    eosioTypes: EosioTypes,
+    ctx: ValidateContext
+): ValidateProposeOutcome {
+    // Defensive — Zod's min(1) should have caught this already.
+    if (reply.actions.length === 0) return askPropose(1, 'empty actions array');
+
+    // ─── Gates 1–6 per inner action ─────────────────────────────────────
+    // One bad inner action poisons the whole proposal. Short-circuit on the
+    // first failure; the innerIndex breadcrumb is logged but never surfaced
+    // to the user (gate-1 "generic clarifier" rule from §4.3).
+    const coercedActions: ReplyAction[] = [];
+    for (let i = 0; i < reply.actions.length; i++) {
+        const action = reply.actions[i];
+        if (!action) return askPropose(1, `actions[${i}] is missing`, i);
+        const inner = validateInnerAction(action, catalog, eosioTypes, ctx);
+        if (inner.kind === 'ask') {
+            return askPropose(inner.failedGate, `inner[${i}] ${inner.why}`, i);
+        }
+        coercedActions.push(inner.coerced);
+    }
+
+    // ─── Gate 7 — propose-level checks ──────────────────────────────────
+    const namePattern = eosioTypes.name?.pattern;
+    if (!namePattern) {
+        // catalog/eosio-types.json is missing the `name` regex — extractor
+        // health check, not user-facing. Treat as gate 7 failure so the
+        // chat downgrades safely.
+        return askPropose(7, 'eosio-types.json missing name pattern');
+    }
+    const nameRe = new RegExp(namePattern);
+
+    // 7.1 proposalName regex
+    if (!nameRe.test(reply.proposalName)) {
+        return askPropose(7, `proposalName failed name regex: ${reply.proposalName}`);
+    }
+
+    // 7.2 proposalName cited. Citation sources mirror gate 5 (knownAccounts
+    // + toolReturnedIdentifiers + user message) but EXCLUDE validatedAccounts
+    // — the user must explicitly name the proposal; an inventory lookup is
+    // not a source. The model never invents a proposalName.
+    const proposalNameKnown = new Set<string>(ctx.knownAccounts);
+    if (ctx.toolReturnedIdentifiers) {
+        for (const id of ctx.toolReturnedIdentifiers) proposalNameKnown.add(id);
+    }
+    if (!proposalNameKnown.has(reply.proposalName) && !userMessageContains(ctx.userMessage, reply.proposalName)) {
+        return askPropose(7, `proposalName not cited: ${reply.proposalName}`);
+    }
+
+    // 7.3 requested[] non-empty
+    if (reply.requested.length === 0) {
+        return askPropose(7, 'requested[] is empty');
+    }
+
+    // 7.4 every requested[i].actor regex + cited. validatedAccounts IS a
+    // source here — the user explicitly named approvers, unlike inner-action
+    // actors (gate 5). 7.5 every requested[i].permission regex.
+    const approverActorKnown = new Set<string>([
+        ...ctx.knownAccounts,
+        ...ctx.validatedAccounts,
+        ctx.jwtAccount,
+    ]);
+    if (ctx.selectedAccount) approverActorKnown.add(ctx.selectedAccount);
+    if (ctx.toolReturnedIdentifiers) {
+        for (const id of ctx.toolReturnedIdentifiers) approverActorKnown.add(id);
+    }
+
+    for (const req of reply.requested) {
+        if (!nameRe.test(req.actor)) {
+            return askPropose(7, `requested actor failed name regex: ${req.actor}`);
+        }
+        if (!approverActorKnown.has(req.actor) && !userMessageContains(ctx.userMessage, req.actor)) {
+            return askPropose(7, `requested actor not cited: ${req.actor}`);
+        }
+        if (!nameRe.test(req.permission)) {
+            return askPropose(7, `requested permission failed name regex: ${req.permission}`);
+        }
+    }
+
+    // 7.6 proposer NOT in requested[]
+    for (const req of reply.requested) {
+        if (req.actor === ctx.jwtAccount && req.permission === ctx.jwtPermission) {
+            return askPropose(7, `proposer ${ctx.jwtAccount}@${ctx.jwtPermission} cannot be in requested`);
+        }
+    }
+
+    // 7.7 no duplicate approvers (case-sensitive actor::permission)
+    const seen = new Set<string>();
+    for (const req of reply.requested) {
+        const key = `${req.actor}::${req.permission}`;
+        if (seen.has(key)) {
+            return askPropose(7, `duplicate approver: ${key}`);
+        }
+        seen.add(key);
+    }
+
+    // All gates passed — emit the cleaned proposal.
+    return {
+        kind: 'ok',
+        reply: {
+            kind: 'propose',
+            proposalName: reply.proposalName,
+            actions: coercedActions,
+            requested: reply.requested,
+            rationale: reply.rationale,
+        },
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

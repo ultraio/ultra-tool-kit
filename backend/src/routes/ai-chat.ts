@@ -25,6 +25,7 @@ import {
     ReplySchema,
     type EosioTypes,
     validateAct,
+    validatePropose,
     type Reply,
     type ValidateContext,
 } from '../pipeline/validate.js';
@@ -65,10 +66,9 @@ const HISTORY_WINDOW = 6;
 const RETRIEVE_TOP_K = 5;
 
 // The user-facing string when the classifier flags a topic this wave
-// doesn't yet support. W6 will swap msig's; the body of the route stays
-// the same.
-const STUB_PROPOSE_QUESTION =
-    "Multisig proposals aren't supported yet — could you rephrase as a single direct action you'd like to compose?";
+// doesn't yet support. W7 will swap answer's; the body of the route stays
+// the same. (W6 deleted STUB_PROPOSE_QUESTION — propose now flows through
+// the real validatePropose path.)
 const STUB_ANSWER_QUESTION =
     'Knowledge answers are coming in a later release. Could you describe the action you want to compose instead?';
 const REFUSE_INTERNAL: Reply = { kind: 'refuse', reason: 'internal' };
@@ -159,14 +159,18 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 200
             );
         }
-        if (intent.kind === 'propose') {
-            return c.json({ kind: 'ask', question: STUB_PROPOSE_QUESTION } as Reply, 200);
-        }
         if (intent.kind === 'answer') {
             return c.json({ kind: 'ask', question: STUB_ANSWER_QUESTION } as Reply, 200);
         }
 
-        // ─── act path ────────────────────────────────────────────────────
+        // ─── act / propose path ─────────────────────────────────────────
+        // Same retrieve + buildUserMessage + harness flow for both kinds.
+        // The model decides which kind to emit; validateAct / validatePropose
+        // run the per-kind gate stack on the structured reply. Documented
+        // act↔propose downgrade per §4.3 ("the model is free to downgrade
+        // when it cannot safely compose") — a model that classifies as
+        // propose but composes a single action that fits an act still gets
+        // validated, and vice-versa.
         try {
             const hits = retrieve(userMessage, deps.catalog, RETRIEVE_TOP_K);
             const entries = hits
@@ -249,22 +253,10 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             }
             const validated = reparsed.data;
 
-            // The LLM is not supposed to emit propose in W3 (system prompt
-            // says so), but if it does we downgrade rather than bubble up an
-            // unvalidated multi-action structure.
-            if (validated.kind === 'propose') {
-                logger.warn('ai-chat: model emitted propose; downgrading (W6 territory)');
-                return c.json({ kind: 'ask', question: STUB_PROPOSE_QUESTION } as Reply, 200);
-            }
-            // Non-act kinds (ask / refuse / answer): the model is free to
-            // downgrade when it cannot safely compose. Pass through.
-            if (validated.kind !== 'act') {
-                return c.json(validated, 200);
-            }
-
-            // act — run the gate stack. Gate 5's "tool response" citation
-            // source (§4.3 gate 5) is the union of identifiers extracted from
-            // every OK tool payload this turn; the harness assembled it.
+            // Build the shared ValidateContext once — both validateAct and
+            // validatePropose consume the same shape. Gate 5's "tool response"
+            // citation source (§4.3 gate 5) is the union of identifiers
+            // extracted from every OK tool payload this turn.
             const ctx: ValidateContext = {
                 validatedAccounts: body.context.validatedAccounts,
                 knownAccounts: body.context.knownAccounts,
@@ -274,11 +266,52 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 userMessage,
                 toolReturnedIdentifiers: out.toolReturnedIdentifiers,
             };
-            const outcome = validateAct(validated, deps.catalog, deps.eosioTypes, ctx);
-            if (outcome.kind === 'ask') {
-                return c.json({ kind: 'ask', question: outcome.question } as Reply, 200);
+
+            // act reply — run validateAct. The model is free to downgrade
+            // propose intent → act when one inner action suffices (§4.3).
+            if (validated.kind === 'act') {
+                const outcome = validateAct(validated, deps.catalog, deps.eosioTypes, ctx);
+                if (outcome.kind === 'ask') {
+                    logger.warn(
+                        { failedGate: outcome.failedGate, classifierIntent: intent.kind },
+                        'ai-chat: act reply downgraded to ask'
+                    );
+                    return c.json({ kind: 'ask', question: outcome.question } as Reply, 200);
+                }
+                return c.json(outcome.reply, 200);
             }
-            return c.json(outcome.reply, 200);
+
+            // propose reply — run validatePropose. Gates 1–6 run per inner
+            // action; one bad inner action poisons the whole proposal.
+            // Gate 7 runs after all inner actions pass. failedGate +
+            // innerIndex are logged but never surfaced (§4.3 gate 1 generic-
+            // clarifier rule).
+            if (validated.kind === 'propose') {
+                if (intent.kind !== 'propose') {
+                    // Classifier said act; model up-shifted to propose. That's
+                    // legitimate (model saw msig intent we missed). Validate
+                    // normally — the log breadcrumb helps W8 audit.
+                    logger.info('ai-chat: model emitted propose under act intent');
+                }
+                const outcome = validatePropose(validated, deps.catalog, deps.eosioTypes, ctx);
+                if (outcome.kind === 'ask') {
+                    logger.warn(
+                        {
+                            failedGate: outcome.failedGate,
+                            innerIndex: outcome.innerIndex,
+                            classifierIntent: intent.kind,
+                        },
+                        'ai-chat: propose reply downgraded to ask'
+                    );
+                    return c.json({ kind: 'ask', question: outcome.question } as Reply, 200);
+                }
+                return c.json(outcome.reply, 200);
+            }
+
+            // Non-act / non-propose kinds (ask / refuse / answer): the model
+            // is free to downgrade when it cannot safely compose. Pass
+            // through.
+            return c.json(validated, 200);
         } catch (err) {
             // Internal errors never reach the user. Log structurally, return
             // a generic refuse.

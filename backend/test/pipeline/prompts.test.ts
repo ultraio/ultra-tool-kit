@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { escapeFence, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../../src/pipeline/prompts.js';
 
 describe('SYSTEM_PROMPT', () => {
-    it('version is "v2" (W5 added the NFT.ft tool-use paragraph)', () => {
-        expect(SYSTEM_PROMPT_VERSION).toBe('v2');
+    it('version is "v3" (W6 un-stubbed propose + added the msig tool-use paragraph)', () => {
+        expect(SYSTEM_PROMPT_VERSION).toBe('v3');
     });
 
     it('W5: includes the NFT.ft tool-use paragraph naming factory.a / group.a / tokenb.a', () => {
@@ -25,6 +25,31 @@ describe('SYSTEM_PROMPT', () => {
         // Reinforces the echoedTokens gate: get_balance with code:'eosio.nft.ft'
         // only when the symbol has been seen.
         expect(SYSTEM_PROMPT).toMatch(/eosio\.nft\.ft.*symbol/i);
+    });
+
+    it('W6: propose description NO LONGER says "NOT supported"', () => {
+        expect(SYSTEM_PROMPT).not.toContain('NOT supported');
+    });
+
+    it('W6: propose description un-stubbed — names proposalName / actions / requested / rationale + the proposer rule', () => {
+        // Pin the load-bearing claims so a future doc-wording PR can't drop them.
+        expect(SYSTEM_PROMPT).toContain('proposalName');
+        // "requested" appears in both the kind description AND the new msig paragraph.
+        expect(SYSTEM_PROMPT).toMatch(/"requested"/);
+        expect(SYSTEM_PROMPT).toMatch(/rationale/);
+        // Proposer rule — the active wallet account must NOT appear in requested.
+        expect(SYSTEM_PROMPT).toMatch(/proposer.+MUST NOT appear in "requested"/i);
+        // No-invented rule on the propose kind specifically.
+        expect(SYSTEM_PROMPT).toMatch(/MUST trace to.+user_input.+catalog_entries/i);
+    });
+
+    it('W6: includes the msig tool-use paragraph naming (eosio.msig, proposal) AND (eosio.msig, approvals2)', () => {
+        expect(SYSTEM_PROMPT).toContain('For msig work');
+        expect(SYSTEM_PROMPT).toMatch(/eosio\.msig.*proposal/);
+        expect(SYSTEM_PROMPT).toMatch(/eosio\.msig.*approvals2/);
+        // The propose-vs-direct-act distinction so the model doesn't try to
+        // emit approve/unapprove/cancel/exec as a propose reply.
+        expect(SYSTEM_PROMPT).toMatch(/approve.+unapprove.+cancel.+exec/i);
     });
 
     it('declares FIVE hard rules and pins each rule lead-phrase', () => {

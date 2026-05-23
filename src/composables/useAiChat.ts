@@ -102,10 +102,15 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
             });
             lastReply.value = reply;
             messages.value.push({ role: 'assistant', content: reply });
-            if (reply.kind === 'act') {
+            if (reply.kind === 'act' || reply.kind === 'propose') {
                 // Hand off through the existing event-bus channel App.vue
                 // already listens on. <Transaction> opens prefilled; the
-                // user reviews and the wallet signs (§4.5).
+                // user reviews and the wallet signs (§4.5). W6: propose
+                // emits inner actions through the SAME channel — the user
+                // clicks "Create Proposal" inside the modal and copies
+                // proposalName + requested approvers from the bubble's
+                // ProposalCard (Transaction.vue is frozen per decision 10 —
+                // no programmatic pre-fill of proposalName / signatures).
                 emitter.emit('updateAppActions', reply.actions);
             }
         } catch (err) {

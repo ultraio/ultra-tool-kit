@@ -108,6 +108,15 @@ const PROPOSE_RE = wordBoundaryRe(PROPOSE_VERBS);
 const ANSWER_RE = wordBoundaryRe(ANSWER_WORDS);
 const OUT_OF_SCOPE_RE = wordBoundaryRe(OUT_OF_SCOPE_KEYWORDS);
 
+// W6 defensive narrowing — a sentence that STARTS with a question word is
+// a knowledge query, not an action verb, even if the body mentions
+// "propose" / "transfer" / etc. ("what does propose mean?" → answer, not
+// propose). Narrows propose triggers per the W6 prompt ("Do NOT broaden
+// the classifier beyond strict propose-intent triggers"). Trailing-? alone
+// still falls through to ANSWER_RE in the bottom branch — this only
+// rescues sentences that LEAD with an interrogative.
+const STARTS_WITH_QUESTION_RE = new RegExp(`^\\s*(${ANSWER_WORDS.join('|')})\\b`, 'i');
+
 export function classify(text: string): ClassifyResult {
     const trimmed = text.trim();
     if (trimmed.length === 0) return { kind: 'ask' };
@@ -121,6 +130,9 @@ export function classify(text: string): ClassifyResult {
     }
 
     if (OUT_OF_SCOPE_RE.test(trimmed)) return { kind: 'refuse', reason: 'out-of-scope' };
+
+    // W6: must run above PROPOSE_RE and ACT_RE (see STARTS_WITH_QUESTION_RE).
+    if (STARTS_WITH_QUESTION_RE.test(trimmed)) return { kind: 'answer' };
 
     if (PROPOSE_RE.test(trimmed)) return { kind: 'propose' };
     if (ACT_RE.test(trimmed)) return { kind: 'act' };

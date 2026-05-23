@@ -83,6 +83,37 @@ describe('classify — intent verbs', () => {
     });
 });
 
+describe('classify — W6 propose intent + question-led narrowing', () => {
+    // Wave W6 cases from the prompt — propose path acceptance criteria.
+    it('classifies "propose: transfer 100 UOS from corp@active, require ceo + cfo" as propose', () => {
+        expect(
+            classify('propose: transfer 100 UOS from corp@active, require ceo + cfo').kind
+        ).toBe('propose');
+    });
+
+    it('classifies "create a multisig proposal to set the new oracle" as propose', () => {
+        expect(classify('create a multisig proposal to set the new oracle').kind).toBe('propose');
+    });
+
+    it('classifies "send 100 UOS to alice" as act (no false-positive on the word "send")', () => {
+        expect(classify('send 100 UOS to alice').kind).toBe('act');
+    });
+
+    it('classifies "what does propose mean?" as answer (interrogative-led overrides propose verb)', () => {
+        expect(classify('what does propose mean?').kind).toBe('answer');
+    });
+
+    // The interrogative-led narrowing is W6-specific defense. Extra coverage
+    // so a future regex tweak can't silently re-introduce the false positive.
+    it('"how do I propose an action" classifies as answer (question word leads)', () => {
+        expect(classify('how do I propose an action').kind).toBe('answer');
+    });
+
+    it('"explain msig" classifies as answer (knowledge query, not propose)', () => {
+        expect(classify('explain msig').kind).toBe('answer');
+    });
+});
+
 describe('classify — answer / ask fallbacks', () => {
     // Answer wording must not contain a propose or act verb — the
     // documented precedence (propose > act > answer) means a sentence
