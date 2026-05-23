@@ -249,6 +249,12 @@ export type ValidateContext = {
     // even when it isn't echoed in the user message (the user signed in as
     // it, so it isn't "invented" if the LLM proposes it).
     jwtAccount: string;
+    // W4: identifiers that appeared in <chain_read> responses THIS turn.
+    // Gate 5 treats these as cited (rule 2's "tool response"). Optional —
+    // callers that don't pass it (W3 routes, isolated tests) get the W3
+    // behaviour unchanged. Populated by the route handler via
+    // extractIdentifiers() over each tool response payload.
+    toolReturnedIdentifiers?: Set<string>;
 };
 
 export type ValidateOk = { kind: 'ok'; reply: ActReply };
@@ -340,10 +346,11 @@ export function validateAct(
     // ─── Gate 5: no invented identifiers ─────────────────────────────────
     // Every name-typed string value in `data` must trace to: the user's
     // current message, `context.knownAccounts`, the JWT's `account` claim,
-    // or `context.selectedAccount` (the account the user has surfaced in
+    // `context.selectedAccount` (the account the user has surfaced in
     // session_context — the system prompt explicitly lists session_context
-    // as a permitted source per rule 2). No tool responses to consult yet
-    // (W4 wires those in).
+    // as a permitted source per rule 2), or `context.toolReturnedIdentifiers`
+    // (W4: identifiers that appeared in a <chain_read> tool response this
+    // turn — rule 2's "tool response" source).
     //
     // `validatedAccounts` is deliberately NOT in this set. validatedAccounts
     // is the full wallet-attested list (often dozens of accounts across
@@ -351,6 +358,9 @@ export function validateAct(
     // 5's purpose. Gate 4 is where validatedAccounts gates the actor.
     const knownSet = new Set<string>([...ctx.knownAccounts, ctx.jwtAccount]);
     if (ctx.selectedAccount) knownSet.add(ctx.selectedAccount);
+    if (ctx.toolReturnedIdentifiers) {
+        for (const id of ctx.toolReturnedIdentifiers) knownSet.add(id);
+    }
 
     for (const p of rules.params) {
         if (!NAME_TYPES.has(p.type)) continue;
@@ -396,6 +406,61 @@ export function validateAct(
         rationale: reply.rationale,
     };
     return { kind: 'ok', reply: ok };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// W4: extractIdentifiers — walk a JSON-shaped tool response and return every
+// string value (or object key) that matches the EOSIO name regex. The route
+// handler calls this on each tool response and feeds the union into
+// ValidateContext.toolReturnedIdentifiers. Used by gate 5 as the "tool
+// response" source per §4.1 rule 2 + §4.3 gate 5.
+//
+// Caveats:
+//   - Walks objects and arrays. Skips null/undefined/numbers/booleans/Dates.
+//   - Stops at maxDepth (default 5) instead of throwing — defensive against
+//     deeply nested ABIs.
+//   - Caps output at 100 identifiers — defensive against a tool returning a
+//     huge table page (e.g. 1000 accounts). The harness already caps rows at
+//     20 per tool, so 100 is plenty of headroom.
+//   - Object KEYS are also matched — permission names appear as keys
+//     (`active`, `owner`) in /v1/chain/get_account responses, not values.
+// ─────────────────────────────────────────────────────────────────────────
+
+const EOSIO_NAME_RE = /^[a-z][a-z1-5.]{0,11}[a-j1-5]?$/;
+const EXTRACT_IDENTIFIERS_CAP = 100;
+
+export function extractIdentifiers(payload: unknown, maxDepth = 5): Set<string> {
+    const out = new Set<string>();
+    walk(payload, 0, maxDepth, out);
+    return out;
+}
+
+function walk(node: unknown, depth: number, maxDepth: number, out: Set<string>): void {
+    if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
+    if (node === null || node === undefined) return;
+    if (depth > maxDepth) return;
+    if (node instanceof Date) return;
+    const t = typeof node;
+    if (t === 'number' || t === 'boolean') return;
+    if (t === 'string') {
+        if (EOSIO_NAME_RE.test(node as string)) out.add(node as string);
+        return;
+    }
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
+            walk(item, depth + 1, maxDepth, out);
+        }
+        return;
+    }
+    if (t === 'object') {
+        for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+            if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
+            if (EOSIO_NAME_RE.test(k)) out.add(k);
+            if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
+            walk(v, depth + 1, maxDepth, out);
+        }
+    }
 }
 
 // Catalog auths can include `$placeholder` actors (`$from`, `$proposer`) that

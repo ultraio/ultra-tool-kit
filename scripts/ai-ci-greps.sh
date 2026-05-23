@@ -233,9 +233,46 @@ if (( ${#GREP7_HITS[@]} > 0 )); then
 fi
 
 # ----------------------------------------------------------------------------
+# Grep #8 (W4): every file under backend/src/pipeline/tools/ whose basename
+# matches ^[a-z_]+\.ts$ — excluding the dispatcher (index.ts), the host
+# allowlist (host-allowlist.ts), and the shared types module (types.ts) —
+# MUST have a corresponding row in docs/00-ai-global-guidelines.md §4.2.
+#
+# The §4.2 table uses the shape: `| ` + backtick + tool-name + backtick + ` |`.
+# Adding a tool without a doc row → fail. Guidelines §4.2 ("New tool / new
+# allowlist row → doc change first, then PR"). See also §8: "tool-call
+# budget per turn (§4.2)".
+# ----------------------------------------------------------------------------
+GREP8_DOC="docs/00-ai-global-guidelines.md"
+GREP8_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/pipeline/tools/*.ts) ;;
+        *) continue ;;
+    esac
+    base="$(basename "$f")"
+    case "$base" in
+        index.ts|host-allowlist.ts|types.ts) continue ;;
+    esac
+    # Only [a-z_] basenames are tool files; skip anything else (defensive).
+    case "$base" in
+        *[!a-z_.]*) continue ;;
+    esac
+    name="${base%.ts}"
+    if ! grep -qE "^\| \`${name}\`" "$GREP8_DOC" 2>/dev/null; then
+        GREP8_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP8_HITS[@]} > 0 )); then
+    fail "Grep #8: tool file in backend/src/pipeline/tools/ without a matching row in $GREP8_DOC §4.2 (docs PR first; §4.2 + §8)"
+    for f in "${GREP8_HITS[@]}"; do
+        echo "  $f (no row '| \`$(basename "${f%.ts}")\`' in $GREP8_DOC)" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
 # TODO — remaining greps land in their owning waves:
 #   #6 (W3+):  dangerouslySetInnerHTML / v-html in src/components/ai/**
-#   #8 (W4):   new tool name in pipeline/tools/ without doc row in §4.2
 # ----------------------------------------------------------------------------
 
 exit "$FAILED"

@@ -22,6 +22,7 @@ import { loadEosioTypes } from './pipeline/validate.js';
 import type { ChatProvider } from './llm/provider.js';
 import { AnthropicProvider } from './llm/anthropic.js';
 import { OllamaProvider } from './llm/ollama.js';
+import { buildAllowlistFromEnv } from './pipeline/tools/host-allowlist.js';
 
 export type AppConfig = {
     jwtSecret: string;
@@ -29,6 +30,10 @@ export type AppConfig = {
     nonceTtlMs: number;
     devAuthBypass: boolean;
     llmProvider: 'anthropic' | 'ollama';
+    // W4: host allowlist used by every tool that hits the chain RPC. Baseline
+    // (`*.ultra.io`, `localhost`, `127.0.0.1`) is folded in by
+    // buildAllowlistFromEnv — any extras are appended from ALLOWED_CHAIN_HOSTS.
+    allowedChainHosts: string[];
 };
 
 function readConfig(): AppConfig {
@@ -61,12 +66,15 @@ function readConfig(): AppConfig {
         );
     }
 
+    const allowedChainHosts = [...buildAllowlistFromEnv(process.env)];
+
     return {
         jwtSecret: jwtSecret ?? crypto.randomUUID(),
         allowedOrigins,
         nonceTtlMs: nonceTtlSec * 1000,
         devAuthBypass,
         llmProvider: rawProvider,
+        allowedChainHosts,
     };
 }
 
@@ -99,7 +107,10 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
 
     app.use('/api/ai-chat', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
     app.use('/api/ai-chat', rateLimit(rateLimitStore));
-    app.route('/api/ai-chat', createAiChatRouter({ provider, catalog, eosioTypes }));
+    app.route(
+        '/api/ai-chat',
+        createAiChatRouter({ provider, catalog, eosioTypes, allowedChainHosts: cfg.allowedChainHosts })
+    );
 
     return app;
 }

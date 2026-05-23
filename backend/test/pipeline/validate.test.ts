@@ -241,6 +241,51 @@ describe('validateAct — gate 5 (no invented identifiers)', () => {
         expect(outcome.kind).toBe('ask');
         if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(5);
     });
+
+    it('passes when "to" came from a tool response (W4 toolReturnedIdentifiers source)', () => {
+        // The user asked "send 100 UOS to my bookmarked recipient". A
+        // preceding get_account tool call returned bob's account body; the
+        // route handler extracted "bob" into toolReturnedIdentifiers.
+        // bob is NOT in the user message and NOT in knownAccounts — but
+        // gate 5 now accepts it as a tool-cited identifier.
+        const ctx: ValidateContext = {
+            ...baseCtx,
+            userMessage: 'send 100 UOS to my saved friend',
+            validatedAccounts: ['duncan', 'bob'],
+            knownAccounts: [],
+            toolReturnedIdentifiers: new Set(['alice', 'bob']),
+        };
+        const outcome = validateAct(transferReply(), catalog, eosioTypes, ctx);
+        expect(outcome.kind).toBe('ok');
+    });
+
+    it('still downgrades when the identifier is absent from ALL sources including tool returns', () => {
+        const ctx: ValidateContext = {
+            ...baseCtx,
+            userMessage: 'transfer 100 UOS from duncan',
+            validatedAccounts: ['duncan', 'attacker'],
+            knownAccounts: [],
+            toolReturnedIdentifiers: new Set(['alice', 'bob']),
+        };
+        const reply = transferReply({
+            data: {
+                from: 'duncan',
+                to: 'attacker',
+                quantity: '100.00000000 UOS',
+                memo: '',
+            },
+        });
+        const outcome = validateAct(reply, catalog, eosioTypes, ctx);
+        expect(outcome.kind).toBe('ask');
+        if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(5);
+    });
+
+    it('omitting toolReturnedIdentifiers preserves W3 behaviour (the existing happy path still passes)', () => {
+        // baseCtx has no toolReturnedIdentifiers field — the validator must
+        // treat that the same as W3 (no extra source, no extra invention).
+        const outcome = validateAct(transferReply(), catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ok');
+    });
 });
 
 describe('validateAct — gate 6 (memo policy)', () => {
@@ -273,6 +318,29 @@ describe('validateAct — gate 6 (memo policy)', () => {
             },
         });
         const outcome = validateAct(reply, catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ask');
+        if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(6);
+    });
+
+    it('memo policy is unaffected by toolReturnedIdentifiers — memos must still come from the user', () => {
+        // The W4 tool-returned identifiers source extends gate 5 ONLY. Gate
+        // 6 is the phishing defense and stays user-text-only: even if "bob"
+        // is in the tool response, "pay to bob" is not a memo the user
+        // authored.
+        const ctx: ValidateContext = {
+            ...baseCtx,
+            userMessage: 'transfer 100 UOS from duncan to bob',
+            toolReturnedIdentifiers: new Set(['bob']),
+        };
+        const reply = transferReply({
+            data: {
+                from: 'duncan',
+                to: 'bob',
+                quantity: '100.00000000 UOS',
+                memo: 'pay to bob',
+            },
+        });
+        const outcome = validateAct(reply, catalog, eosioTypes, ctx);
         expect(outcome.kind).toBe('ask');
         if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(6);
     });

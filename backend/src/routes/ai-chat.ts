@@ -20,6 +20,7 @@ import type { CatalogIndex } from '../pipeline/catalog.js';
 import { retrieve } from '../pipeline/retrieve.js';
 import { call as harnessCall } from '../pipeline/harness.js';
 import { buildUserMessage, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../pipeline/prompts.js';
+import { TOOL_REGISTRY, type ToolAuditEntry, type ToolCtx } from '../pipeline/tools/index.js';
 import {
     ReplySchema,
     type EosioTypes,
@@ -76,10 +77,28 @@ export type AiChatDeps = {
     provider: ChatProvider;
     catalog: CatalogIndex;
     eosioTypes: EosioTypes;
+    // W4: host allowlist threaded into every ToolCtx. Sourced from
+    // AppConfig.allowedChainHosts (which folds in DEFAULT_ALLOWLIST).
+    allowedChainHosts: readonly string[];
 };
 
-export function createAiChatRouter(deps: AiChatDeps): Hono<AuthContext> {
-    const app = new Hono<AuthContext>();
+// W4: per-session running count of tool calls, bounded by the §4.2 per-session
+// budget (6). In-process; resets on backend restart. The Map lives at module
+// scope per createAiChatRouter factory call. v1 single-instance per roadmap §9;
+// a cross-process LRU is W8 polish.
+const SESSION_TOOL_COUNT_CAP = 10_000;
+
+// Variables added on top of the AuthContext for the ai-chat router. `toolAudit`
+// is W4 plumbing — W8's telemetry middleware reads it off `c.var`.
+type AiChatContext = AuthContext & {
+    Variables: AuthContext['Variables'] & {
+        toolAudit: ToolAuditEntry[];
+    };
+};
+
+export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
+    const app = new Hono<AiChatContext>();
+    const sessionToolCounts = new Map<string, number>();
 
     app.post('/', async (c) => {
         // ─── Body parse / Zod gate ───────────────────────────────────────
@@ -147,12 +166,41 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AuthContext> {
                 },
             });
 
+            // W4: tools wired into the harness. The session counter is the
+            // running total of tool calls this session; the harness enforces
+            // the §4.2 per-turn (3) + per-session (6) caps and returns
+            // `refuse: 'tool-budget'` when either trips.
+            const sessionUsed = sessionToolCounts.get(body.sessionId) ?? 0;
+            const toolCtx: ToolCtx = {
+                endpoint: body.context.endpoint,
+                allowlist: deps.allowedChainHosts,
+                catalog: deps.catalog,
+            };
+            const tools = Object.values(TOOL_REGISTRY);
+
             const out = await harnessCall({
                 provider: deps.provider,
                 schema: ReplySchema,
                 system: SYSTEM_PROMPT,
                 user,
+                tools,
+                toolCtx,
+                toolBudget: { perTurn: 3, perSession: 6, sessionUsed },
             });
+
+            // Update the per-session counter from the audit the harness built.
+            // Cap the Map at SESSION_TOOL_COUNT_CAP entries to prevent unbounded
+            // growth in long-running processes (random-eviction; real LRU is
+            // W8 polish).
+            const audit = out.toolAudit ?? [];
+            if (audit.length > 0) {
+                if (sessionToolCounts.size >= SESSION_TOOL_COUNT_CAP && !sessionToolCounts.has(body.sessionId)) {
+                    const firstKey = sessionToolCounts.keys().next().value;
+                    if (firstKey !== undefined) sessionToolCounts.delete(firstKey);
+                }
+                sessionToolCounts.set(body.sessionId, sessionUsed + audit.length);
+            }
+            c.set('toolAudit', audit);
 
             if (out.kind === 'refuse') {
                 return c.json({ kind: 'refuse', reason: out.reason } as Reply, 200);
@@ -186,7 +234,9 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AuthContext> {
                 return c.json(validated, 200);
             }
 
-            // act — run the gate stack.
+            // act — run the gate stack. Gate 5's "tool response" citation
+            // source (§4.3 gate 5) is the union of identifiers extracted from
+            // every OK tool payload this turn; the harness assembled it.
             const ctx: ValidateContext = {
                 validatedAccounts: body.context.validatedAccounts,
                 knownAccounts: body.context.knownAccounts,
@@ -194,6 +244,7 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AuthContext> {
                 jwtPermission: auth.permission,
                 jwtAccount: auth.account,
                 userMessage,
+                toolReturnedIdentifiers: out.toolReturnedIdentifiers,
             };
             const outcome = validateAct(validated, deps.catalog, deps.eosioTypes, ctx);
             if (outcome.kind === 'ask') {

@@ -257,19 +257,19 @@ describe('harness.call', () => {
     });
 
     describe('tools pass-through', () => {
-        it('accepts a tools array without forwarding it to the provider (W4 wires the dispatcher)', async () => {
+        it('accepts an empty tools array without forwarding it to the provider (W1 pre-W4 shape)', async () => {
             const provider = makeProvider(() => okJson);
             const result = await call({
                 provider,
                 schema: ReplySchema,
                 system: 'sys',
                 user: 'u',
-                tools: [{ name: 'get_account' }],
+                tools: [],
             });
 
             expect(result.kind).toBe('ok');
-            // tools must not appear on the ChatRequest in W1 — the
-            // dispatcher lands in W4.
+            // tools is never forwarded as a `tools` field — the provider
+            // interface is frozen. W4's loop is bypassed when tools is empty.
             expect((provider.lastReq as unknown as { tools?: unknown }).tools).toBeUndefined();
         });
     });

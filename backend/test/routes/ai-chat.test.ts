@@ -29,6 +29,7 @@ const baseCfg: AppConfig = {
     nonceTtlMs: 5 * 60_000,
     devAuthBypass: true,
     llmProvider: 'ollama', // ignored — we inject a mock provider
+    allowedChainHosts: ['localhost', '127.0.0.1'],
 };
 
 const baseRequest = {
