@@ -32,6 +32,7 @@ import {
 
 export {
     BudgetError,
+    EchoedTokenRequiredError,
     EndpointRejectedError,
     UnknownTableError,
     UnknownToolError,

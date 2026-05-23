@@ -13,8 +13,18 @@ import { describe, expect, it } from 'vitest';
 import { escapeFence, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../../src/pipeline/prompts.js';
 
 describe('SYSTEM_PROMPT', () => {
-    it('version is "v1" (bumps require a docs PR per the file header)', () => {
-        expect(SYSTEM_PROMPT_VERSION).toBe('v1');
+    it('version is "v2" (W5 added the NFT.ft tool-use paragraph)', () => {
+        expect(SYSTEM_PROMPT_VERSION).toBe('v2');
+    });
+
+    it('W5: includes the NFT.ft tool-use paragraph naming factory.a / group.a / tokenb.a', () => {
+        expect(SYSTEM_PROMPT).toContain('For NFT.ft work');
+        expect(SYSTEM_PROMPT).toContain('factory.a');
+        expect(SYSTEM_PROMPT).toContain('group.a');
+        expect(SYSTEM_PROMPT).toContain('tokenb.a');
+        // Reinforces the echoedTokens gate: get_balance with code:'eosio.nft.ft'
+        // only when the symbol has been seen.
+        expect(SYSTEM_PROMPT).toMatch(/eosio\.nft\.ft.*symbol/i);
     });
 
     it('declares FIVE hard rules and pins each rule lead-phrase', () => {

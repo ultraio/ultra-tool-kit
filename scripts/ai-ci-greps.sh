@@ -271,6 +271,51 @@ if (( ${#GREP8_HITS[@]} > 0 )); then
 fi
 
 # ----------------------------------------------------------------------------
+# Grep #10 (W5): every backend/catalog/*-metadata.schema.json must have a
+# corresponding source export under src/utilities/schemaValidator/schemas/.
+#
+# The backend's Zod-mirror validators (backend/src/pipeline/metadata.ts)
+# duplicate the frontend's FactorySchema / TokenSchema definitions on purpose
+# (collapsing would couple front/back builds — see roadmap §3). This grep
+# guards the parity contract: when a new metadata.schema.json lands in the
+# backend catalog, the matching named export must exist in the frontend file.
+#
+# Mapping table is hardcoded — POSIX bash 3.2 doesn't have associative arrays,
+# so we round-trip through a case statement keyed by the catalog filename.
+# ----------------------------------------------------------------------------
+GREP10_SOURCE="src/utilities/schemaValidator/schemas/index.ts"
+GREP10_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/catalog/*-metadata.schema.json) ;;
+        *) continue ;;
+    esac
+    base="$(basename "$f")"
+    expected_export=""
+    case "$base" in
+        factory-metadata.schema.json) expected_export="export const FactorySchema" ;;
+        uniq-metadata.schema.json)    expected_export="export const TokenSchema" ;;
+        *)
+            GREP10_HITS+=("$f (no mapping table entry for $base)")
+            continue
+            ;;
+    esac
+    if [[ ! -f "$GREP10_SOURCE" ]]; then
+        GREP10_HITS+=("$f (source file $GREP10_SOURCE missing)")
+        continue
+    fi
+    if ! grep -qF "$expected_export" "$GREP10_SOURCE"; then
+        GREP10_HITS+=("$f (source $GREP10_SOURCE missing '$expected_export')")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP10_HITS[@]} > 0 )); then
+    fail "Grep #10: backend/catalog/*-metadata.schema.json without a matching source export in $GREP10_SOURCE (roadmap §6 row W5)"
+    for f in "${GREP10_HITS[@]}"; do
+        echo "  $f" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
 # TODO — remaining greps land in their owning waves:
 #   #6 (W3+):  dangerouslySetInnerHTML / v-html in src/components/ai/**
 # ----------------------------------------------------------------------------

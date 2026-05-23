@@ -12,6 +12,8 @@
 // Excluded from the glob:
 //   - eosio-types.json  — canonical EOSIO type + regex catalog (not a contract)
 //   - known-symbols.json — token-symbol reference (not a contract)
+//   - *-metadata.schema.json — JSON-Schema mirrors of the frontend metadata
+//     validators (W5; live in catalog/ for the parity grep #10).
 //
 // Assertion deviation from a strict "first action has auths + field_constraints":
 //   eosio.msig validates whole transactions, not individual fields — its
@@ -27,7 +29,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const CATALOG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'catalog');
-const NON_CONTRACT_CATALOGS = new Set(['eosio-types.json', 'known-symbols.json']);
+const NON_CONTRACT_CATALOGS = new Set([
+    'eosio-types.json',
+    'known-symbols.json',
+    'factory-metadata.schema.json',
+    'uniq-metadata.schema.json',
+]);
 
 type ActionRow = {
     contract: string;

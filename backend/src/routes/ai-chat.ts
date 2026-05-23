@@ -86,7 +86,26 @@ export type AiChatDeps = {
 // budget (6). In-process; resets on backend restart. The Map lives at module
 // scope per createAiChatRouter factory call. v1 single-instance per roadmap §9;
 // a cross-process LRU is W8 polish.
+//
+// W5: parallel sessionEchoedTokens Map — a Set<`${contract}::${symbol}`> per
+// session. Cross-turn echoes accumulate so a token surfaced in turn 1's
+// get_table_rows is still cited in turn 3's get_balance. Lost on restart per
+// roadmap §9 single-instance v1; a future Redis-backed store inherits the
+// same Map<sessionId, Set<string>> interface. Bounded by the same random-
+// eviction policy.
 const SESSION_TOOL_COUNT_CAP = 10_000;
+
+// Random-eviction helper shared by sessionToolCounts and sessionEchoedTokens.
+// Drops the oldest insertion when at cap and the sessionId isn't already
+// tracked — keeps both Maps' bounded-growth discipline identical (a future
+// real LRU swap in W8 lands here).
+function setWithEviction<V>(map: Map<string, V>, sessionId: string, value: V): void {
+    if (map.size >= SESSION_TOOL_COUNT_CAP && !map.has(sessionId)) {
+        const firstKey = map.keys().next().value;
+        if (firstKey !== undefined) map.delete(firstKey);
+    }
+    map.set(sessionId, value);
+}
 
 // Variables added on top of the AuthContext for the ai-chat router. `toolAudit`
 // is W4 plumbing — W8's telemetry middleware reads it off `c.var`.
@@ -99,6 +118,9 @@ type AiChatContext = AuthContext & {
 export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
     const app = new Hono<AiChatContext>();
     const sessionToolCounts = new Map<string, number>();
+    // W5: cross-turn echoed-token store. Same eviction discipline as
+    // sessionToolCounts; same single-instance v1 caveat.
+    const sessionEchoedTokens = new Map<string, Set<string>>();
 
     app.post('/', async (c) => {
         // ─── Body parse / Zod gate ───────────────────────────────────────
@@ -171,10 +193,14 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             // the §4.2 per-turn (3) + per-session (6) caps and returns
             // `refuse: 'tool-budget'` when either trips.
             const sessionUsed = sessionToolCounts.get(body.sessionId) ?? 0;
+            // W5: pre-populate echoedTokens from the session-scoped store so
+            // a token surfaced in a previous turn remains citable this turn.
+            const priorEchoedTokens = sessionEchoedTokens.get(body.sessionId) ?? new Set<string>();
             const toolCtx: ToolCtx = {
                 endpoint: body.context.endpoint,
                 allowlist: deps.allowedChainHosts,
                 catalog: deps.catalog,
+                echoedTokens: priorEchoedTokens,
             };
             const tools = Object.values(TOOL_REGISTRY);
 
@@ -194,11 +220,13 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             // W8 polish).
             const audit = out.toolAudit ?? [];
             if (audit.length > 0) {
-                if (sessionToolCounts.size >= SESSION_TOOL_COUNT_CAP && !sessionToolCounts.has(body.sessionId)) {
-                    const firstKey = sessionToolCounts.keys().next().value;
-                    if (firstKey !== undefined) sessionToolCounts.delete(firstKey);
-                }
-                sessionToolCounts.set(body.sessionId, sessionUsed + audit.length);
+                setWithEviction(sessionToolCounts, body.sessionId, sessionUsed + audit.length);
+            }
+            // W5: fold in this turn's echoed tokens (union into the
+            // session-scoped Set). Same cap policy as tool counts.
+            if (out.echoedTokens && out.echoedTokens.size > 0) {
+                const updated = new Set([...priorEchoedTokens, ...out.echoedTokens]);
+                setWithEviction(sessionEchoedTokens, body.sessionId, updated);
             }
             c.set('toolAudit', audit);
 

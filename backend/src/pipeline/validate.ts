@@ -30,6 +30,38 @@ import type { AbiParam, ActionRules, AuthRef } from '../extractor/types.js';
 import { logger } from '../middleware/logging.js';
 
 // ─────────────────────────────────────────────────────────────────────────
+// Metadata validator hook (W5).
+//
+// Mechanism for catching invented inline-metadata blobs at gate 3. Entry
+// shape: a (contract, action, field) triple plus a validator. When gate 3
+// finds a present `data[field]` for a matching (contract, action), it runs
+// `validate(value)`; on `{ ok: false }` the gate downgrades to ask.
+//
+// PRODUCTION TABLE IS EMPTY (and stays that way until the extractor exposes
+// the inner shape of struct params like `create_wrap` / `issue_wrap`).
+// No real eosio.nft.ft action carries an inline metadata-JSON blob at its
+// top-level `data` map today — every metadata lives off-chain at the URIs in
+// `meta_uris` / `uri` / `factory_uri` / `hash`. The mechanism is wired in so
+// that the moment a future action lands with an on-chain metadata field, the
+// gate is already in place to catch invented values. See roadmap §6 row W5
+// and guidelines §4.3 gate 3.
+//
+// Tests inject synthetic entries via ValidateContext.metadataValidators
+// (preferred — mirrors the existing toolReturnedIdentifiers? pattern). Never
+// add a synthetic entry here that doesn't correspond to a real catalog
+// (contract, action, field) tuple.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type MetadataValidator = {
+    contract: string;
+    action: string;
+    field: string;
+    validate: (value: unknown) => { ok: true } | { ok: false; errors: string[] };
+};
+
+export const METADATA_VALIDATORS: ReadonlyArray<MetadataValidator> = [];
+
+// ─────────────────────────────────────────────────────────────────────────
 // Reply union — the five contract kinds. Locked per docs §3 trust boundary
 // box and §4.3. Adding/removing/renaming a kind is a docs change first.
 // ─────────────────────────────────────────────────────────────────────────
@@ -253,8 +285,14 @@ export type ValidateContext = {
     // Gate 5 treats these as cited (rule 2's "tool response"). Optional —
     // callers that don't pass it (W3 routes, isolated tests) get the W3
     // behaviour unchanged. Populated by the route handler via
-    // extractIdentifiers() over each tool response payload.
+    // extractIdentifiers() over each tool response payload. W5: the same
+    // Set may also carry numeric *_id values harvested by extractIdentifiers
+    // from object pairs like {token_id: 42} — see extractIdentifiers below.
     toolReturnedIdentifiers?: Set<string>;
+    // W5: optional override / test-only injection of the metadata-validator
+    // table. Falls back to the empty module-level `METADATA_VALIDATORS` in
+    // production. When set, completely replaces the default table.
+    metadataValidators?: ReadonlyArray<MetadataValidator>;
 };
 
 export type ValidateOk = { kind: 'ok'; reply: ActReply };
@@ -280,6 +318,195 @@ function userMessageContains(userMessage: string, value: string): boolean {
     return userMessage.includes(value);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// W5: field-shape helper. Drives gate 3 across the full eosio-types regex
+// table plus a per-type branch for ints, bools, arrays, extended_asset,
+// optionals, and structs. Replaces the W3 "non-string fall-through" with an
+// explicit per-shape check.
+//
+// Returns:
+//   { ok: true, coerced }    — value passed the shape check; `coerced` is
+//                              the canonical form (number for ints, boolean
+//                              for bools, the original string for regex
+//                              types, etc.). Caller MUST use `coerced`
+//                              when echoing the value into the validated
+//                              reply (so downstream consumers see a
+//                              normalised value).
+//   { ok: false, reason }    — value failed. Caller downgrades to ask gate 3.
+//
+// Unknown / struct types fall through to ok with a debug breadcrumb so the
+// existing W3 behaviour (struct param accepted as-is) is preserved. When the
+// extractor lands a struct-shape feature, the lookup goes here.
+// ─────────────────────────────────────────────────────────────────────────
+
+const UINT_TYPE_RE = /^u?int(8|16|32|64)$/;
+const VECTOR_BRACKET_RE = /^(.+?)\[\]$/;
+const VECTOR_SUFFIX_RE = /^(.+?)_vector$/;
+const VECTOR_ANGLE_RE = /^vector<(.+)>$/;
+// Some catalogs surface `uint64_t_vector` (a typedef artifact). Treat as vector.
+const VECTOR_T_SUFFIX_RE = /^(.+?)_t_vector$/;
+
+type FieldShapeResult = { ok: true; coerced: unknown } | { ok: false; reason: string };
+
+// Range bounds for the (u?)int(8|16|32|64) family. Returns null for invalid
+// type strings (caller treats as unknown / struct).
+function intBounds(type: string): { signed: boolean; bits: 8 | 16 | 32 | 64 } | null {
+    const m = UINT_TYPE_RE.exec(type);
+    if (!m) return null;
+    const signed = !type.startsWith('u');
+    const bits = Number(m[1]) as 8 | 16 | 32 | 64;
+    return { signed, bits };
+}
+
+// Validate a numeric value against signed/unsigned X-bit bounds. Accepts
+// JS number OR a numeric string (the latter preserves uint64 precision —
+// JS numbers lose precision above 2^53).
+function checkIntInRange(value: unknown, signed: boolean, bits: 8 | 16 | 32 | 64): FieldShapeResult {
+    let asBig: bigint;
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value) || !Number.isInteger(value)) {
+            return { ok: false, reason: 'not an integer' };
+        }
+        asBig = BigInt(value);
+    } else if (typeof value === 'string') {
+        // Strict numeric string (allow leading minus for signed).
+        if (!/^-?\d+$/.test(value)) {
+            return { ok: false, reason: 'not a numeric string' };
+        }
+        try {
+            asBig = BigInt(value);
+        } catch {
+            return { ok: false, reason: 'BigInt parse failed' };
+        }
+    } else {
+        return { ok: false, reason: `int value not number/string: ${typeof value}` };
+    }
+    const max = signed ? (1n << BigInt(bits - 1)) - 1n : (1n << BigInt(bits)) - 1n;
+    const min = signed ? -(1n << BigInt(bits - 1)) : 0n;
+    if (asBig < min || asBig > max) {
+        return { ok: false, reason: `out of range for ${signed ? '' : 'u'}int${bits}` };
+    }
+    // Canonicalise: keep as string for 64-bit to preserve precision; else number.
+    const coerced: unknown = bits === 64 ? asBig.toString() : Number(asBig);
+    return { ok: true, coerced };
+}
+
+function checkBool(value: unknown): FieldShapeResult {
+    if (typeof value === 'boolean') return { ok: true, coerced: value };
+    if (value === 0 || value === 1) return { ok: true, coerced: value === 1 };
+    if (value === 'true') return { ok: true, coerced: true };
+    if (value === 'false') return { ok: true, coerced: false };
+    return { ok: false, reason: 'invalid bool' };
+}
+
+// Unwrap a one-level optional type marker (suffix '?'). Returns the inner
+// type and an explicit flag.
+function unwrapOptional(type: string): { isOpt: boolean; inner: string } {
+    if (type.endsWith('?')) return { isOpt: true, inner: type.slice(0, -1) };
+    return { isOpt: false, inner: type };
+}
+
+// Unwrap a vector type marker. Returns the inner element type or null if
+// the type isn't a vector.
+function vectorElementType(type: string): string | null {
+    const m1 = VECTOR_BRACKET_RE.exec(type);
+    if (m1 && m1[1]) return m1[1];
+    const m2 = VECTOR_T_SUFFIX_RE.exec(type);
+    if (m2 && m2[1]) return m2[1];
+    const m3 = VECTOR_SUFFIX_RE.exec(type);
+    if (m3 && m3[1]) return m3[1];
+    const m4 = VECTOR_ANGLE_RE.exec(type);
+    if (m4 && m4[1]) return m4[1];
+    return null;
+}
+
+// Recursive field shape check. `paramName` is the top-level param name (for
+// breadcrumbs); `path` accumulates a JSON-ish path for nested errors.
+function checkFieldShape(
+    value: unknown,
+    type: string,
+    eosioTypes: EosioTypes,
+    paramName: string,
+    path = ''
+): FieldShapeResult {
+    // ─── Optional unwrap ────────────────────────────────────────────────
+    const { isOpt, inner: typeAfterOpt } = unwrapOptional(type);
+    if (isOpt && (value === null || value === undefined || value === '')) {
+        return { ok: true, coerced: value };
+    }
+
+    // ─── Vector unwrap ──────────────────────────────────────────────────
+    const elem = vectorElementType(typeAfterOpt);
+    if (elem !== null) {
+        if (!Array.isArray(value)) {
+            return { ok: false, reason: `${paramName}${path}: expected array for ${typeAfterOpt}` };
+        }
+        const coercedArr: unknown[] = [];
+        for (let i = 0; i < value.length; i++) {
+            const sub = checkFieldShape(value[i], elem, eosioTypes, paramName, `${path}[${i}]`);
+            if (!sub.ok) return sub;
+            coercedArr.push(sub.coerced);
+        }
+        return { ok: true, coerced: coercedArr };
+    }
+
+    // ─── Integer family ─────────────────────────────────────────────────
+    const ib = intBounds(typeAfterOpt);
+    if (ib) {
+        const r = checkIntInRange(value, ib.signed, ib.bits);
+        if (!r.ok) return { ok: false, reason: `${paramName}${path} (${typeAfterOpt}): ${r.reason}` };
+        return r;
+    }
+
+    // ─── bool ───────────────────────────────────────────────────────────
+    if (typeAfterOpt === 'bool') {
+        const r = checkBool(value);
+        if (!r.ok) return { ok: false, reason: `${paramName}${path} (bool): ${r.reason}` };
+        return r;
+    }
+
+    // ─── extended_asset ────────────────────────────────────────────────
+    if (typeAfterOpt === 'extended_asset') {
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            return { ok: false, reason: `${paramName}${path}: extended_asset must be object` };
+        }
+        const obj = value as Record<string, unknown>;
+        const qRes = checkFieldShape(obj.quantity, 'asset', eosioTypes, paramName, `${path}.quantity`);
+        if (!qRes.ok) return qRes;
+        const cRes = checkFieldShape(obj.contract, 'name', eosioTypes, paramName, `${path}.contract`);
+        if (!cRes.ok) return cRes;
+        return { ok: true, coerced: { quantity: qRes.coerced, contract: cRes.coerced } };
+    }
+
+    // ─── Regex-bearing types from eosio-types.json ──────────────────────
+    const pattern = eosioTypes[typeAfterOpt]?.pattern;
+    if (pattern) {
+        // Apply coerceLlmShape first (the legacy gate-3 path does this).
+        const coerced = coerceLlmShape(value, typeAfterOpt, paramName);
+        if (typeof coerced !== 'string') {
+            return { ok: false, reason: `${paramName}${path} (${typeAfterOpt}): not a string after coerce` };
+        }
+        if (!new RegExp(pattern).test(coerced)) {
+            return { ok: false, reason: `${paramName}${path} (${typeAfterOpt}) failed regex: ${coerced}` };
+        }
+        return { ok: true, coerced };
+    }
+
+    // ─── Catch-all: unknown type (likely a struct). Preserve W3 fall-
+    // through but log a breadcrumb naming the type so the W6 msig audit
+    // can see what the extractor needs to expand next.
+    logger.debug(
+        { unknownType: typeAfterOpt, paramName, path },
+        'gate 3: unknown nested type — falling through (extractor PR needed for struct shape)'
+    );
+    return { ok: true, coerced: value };
+}
+
+// Integer-id type predicate — used by gate 5's W5 numeric branch.
+function isUintIdType(type: string): boolean {
+    return UINT_TYPE_RE.test(unwrapOptional(type).inner);
+}
+
 export function validateAct(
     reply: ActReply,
     catalog: CatalogIndex,
@@ -299,7 +526,12 @@ export function validateAct(
     }
     const rules: ActionRules = entry.rules;
 
-    // ─── Gate 3: field shape (param whitelist + regex) ───────────────────
+    // ─── Gate 3: field shape (param whitelist + type-driven check) ───────
+    // W5: gate now branches per declared type (int / bool / array / asset /
+    // extended_asset / name-regex / struct fall-through), not just "regex
+    // string". checkFieldShape handles all the cases; unknown types log a
+    // breadcrumb and accept the value (preserving W3 behaviour for struct
+    // params the extractor hasn't expanded yet).
     const paramByName = new Map<string, AbiParam>();
     for (const p of rules.params) paramByName.set(p.name, p);
 
@@ -308,24 +540,31 @@ export function validateAct(
             return ask(3, `unknown field ${k} on ${key}`);
         }
     }
-    // Coerce + regex-check every declared param. Missing params on the
-    // reply are tolerated — `data.memo` may legitimately be absent — but
-    // any present value must match the type pattern.
     const coercedData: Record<string, unknown> = {};
     for (const p of rules.params) {
         const raw = action.data[p.name];
         if (raw === undefined) continue;
-        const coerced = coerceLlmShape(raw, p.type, p.name);
-        coercedData[p.name] = coerced;
-        const pattern = eosioTypes[p.type]?.pattern;
-        if (pattern && typeof coerced === 'string') {
-            if (!new RegExp(pattern).test(coerced)) {
-                return ask(3, `field ${p.name} (${p.type}) failed regex: ${coerced}`);
-            }
-        } else if (pattern && typeof coerced !== 'string') {
-            // A regex'd type whose value is still non-string means coerce
-            // couldn't unwrap it. That's a shape failure.
-            return ask(3, `field ${p.name} (${p.type}) not a string after coerce`);
+        const res = checkFieldShape(raw, p.type, eosioTypes, p.name);
+        if (!res.ok) {
+            return ask(3, res.reason);
+        }
+        coercedData[p.name] = res.coerced;
+    }
+
+    // ─── Gate 3 — metadata hook (W5) ─────────────────────────────────────
+    // Empty in production (no real eosio.nft.ft action has an inline
+    // metadata-JSON field; metadata lives at the URIs in meta_uris / uri /
+    // factory_uri). Tests inject via ctx.metadataValidators. When a future
+    // contract DOES land an action with an inline metadata blob, the entry
+    // goes in METADATA_VALIDATORS and gate 3 catches invented values here.
+    const activeMetaValidators = ctx.metadataValidators ?? METADATA_VALIDATORS;
+    for (const mv of activeMetaValidators) {
+        if (mv.contract !== action.contract || mv.action !== action.action) continue;
+        const v = coercedData[mv.field];
+        if (v === undefined) continue;
+        const r = mv.validate(v);
+        if (!r.ok) {
+            return ask(3, `metadata invalid on ${mv.field}: ${r.errors.join('; ')}`);
         }
     }
 
@@ -370,6 +609,48 @@ export function validateAct(
         if (userMessageContains(ctx.userMessage, v)) continue;
         return ask(5, `invented identifier on ${p.name}: ${v}`);
     }
+    // W5: numeric *_id params (uint8/16/32/64 family, with or without `?`
+    // optional). Citation source is the user message (substring) OR the
+    // toolReturnedIdentifiers set (exact match on string form). knownAccounts
+    // is also consulted for completeness (a user-curated bookmark list could
+    // contain numeric IDs in some future extension). Skips arrays — array-
+    // valued *_id params (e.g. `factories: uint64[]` on creategrp) are
+    // checked element-by-element.
+    for (const p of rules.params) {
+        if (!isUintIdType(p.type) || !p.name.endsWith('_id')) continue;
+        const v = coercedData[p.name];
+        if (v === undefined || v === null) continue;
+        const numStr = String(v);
+        if (numStr.length === 0) continue;
+        if (ctx.toolReturnedIdentifiers?.has(numStr)) continue;
+        if (knownSet.has(numStr)) continue;
+        if (userMessageContains(ctx.userMessage, numStr)) continue;
+        return ask(5, `invented numeric id on ${p.name}: ${numStr}`);
+    }
+    // W5: array-of-uint64 params (also commonly *_ids — e.g. `factories` on
+    // creategrp). Each element must be cited like a scalar id. We piggyback
+    // on the same uint-id rule; the heuristic for "this is an id array" is
+    // simply "type matched a vector whose element is a uint family". Param
+    // names like `factories` / `token_ids` don't always end in `_id`, so the
+    // gate runs on EVERY array-of-uint param. Scalar non-`_id` uints are
+    // intentionally not checked here (e.g. `quantity: uint32` on authminter
+    // can legitimately be `1` without the user writing the word "1").
+    for (const p of rules.params) {
+        const inner = vectorElementType(unwrapOptional(p.type).inner);
+        if (inner === null) continue;
+        if (!UINT_TYPE_RE.test(inner)) continue;
+        const v = coercedData[p.name];
+        if (!Array.isArray(v)) continue;
+        for (const elem of v) {
+            if (elem === undefined || elem === null) continue;
+            const numStr = String(elem);
+            if (numStr.length === 0) continue;
+            if (ctx.toolReturnedIdentifiers?.has(numStr)) continue;
+            if (knownSet.has(numStr)) continue;
+            if (userMessageContains(ctx.userMessage, numStr)) continue;
+            return ask(5, `invented numeric id in ${p.name}: ${numStr}`);
+        }
+    }
     // Also check authorization.actor against the same set — although gate
     // 4 already requires it to be a validatedAccount, gate 5 makes the
     // citation chain explicit.
@@ -409,14 +690,21 @@ export function validateAct(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// W4: extractIdentifiers — walk a JSON-shaped tool response and return every
-// string value (or object key) that matches the EOSIO name regex. The route
+// W4 + W5: extractIdentifiers — walk a JSON-shaped tool response and return
+// every string value (or object key) that matches the EOSIO name regex,
+// PLUS every numeric value sitting under a `*_id` key (W5). The route
 // handler calls this on each tool response and feeds the union into
 // ValidateContext.toolReturnedIdentifiers. Used by gate 5 as the "tool
 // response" source per §4.1 rule 2 + §4.3 gate 5.
 //
+// W5 numeric-id addition: when walking an object's `[key, value]` pairs, if
+// `key` ends in `_id` AND `value` is a number / numeric string, add
+// `String(value)` to the Set. The Set holds names AND numeric strings; gate
+// 5's W5 uint-id branch consults exact-match against this Set. The Set's
+// existing name-citation semantics are unchanged.
+//
 // Caveats:
-//   - Walks objects and arrays. Skips null/undefined/numbers/booleans/Dates.
+//   - Walks objects and arrays. Skips null/undefined/Dates.
 //   - Stops at maxDepth (default 5) instead of throwing — defensive against
 //     deeply nested ABIs.
 //   - Caps output at 100 identifiers — defensive against a tool returning a
@@ -424,15 +712,38 @@ export function validateAct(
 //     20 per tool, so 100 is plenty of headroom.
 //   - Object KEYS are also matched — permission names appear as keys
 //     (`active`, `owner`) in /v1/chain/get_account responses, not values.
+//   - Numeric-id harvest happens at the [key, value] level; nested arrays
+//     like `factories: [1,2,3]` (key `factories`, value an array) are not
+//     captured by name (the key doesn't end in `_id`). Catch them via the
+//     inner walk's numeric pickups would over-collect; instead a future
+//     extension could whitelist array-bearing keys like `token_ids`.
 // ─────────────────────────────────────────────────────────────────────────
 
 const EOSIO_NAME_RE = /^[a-z][a-z1-5.]{0,11}[a-j1-5]?$/;
 const EXTRACT_IDENTIFIERS_CAP = 100;
+const ID_KEY_SUFFIX = '_id';
+const NUMERIC_STRING_RE = /^-?\d+$/;
 
 export function extractIdentifiers(payload: unknown, maxDepth = 5): Set<string> {
     const out = new Set<string>();
     walk(payload, 0, maxDepth, out);
     return out;
+}
+
+// Add a numeric *_id value (number or numeric string) under a key ending
+// in `_id`. Helper kept out-of-line so the walker stays readable.
+function addNumericId(key: string, value: unknown, out: Set<string>): void {
+    if (!key.endsWith(ID_KEY_SUFFIX)) return;
+    if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
+    if (typeof value === 'number') {
+        if (Number.isFinite(value) && Number.isInteger(value)) {
+            out.add(String(value));
+        }
+        return;
+    }
+    if (typeof value === 'string' && NUMERIC_STRING_RE.test(value)) {
+        out.add(value);
+    }
 }
 
 function walk(node: unknown, depth: number, maxDepth: number, out: Set<string>): void {
@@ -457,8 +768,90 @@ function walk(node: unknown, depth: number, maxDepth: number, out: Set<string>):
         for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
             if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
             if (EOSIO_NAME_RE.test(k)) out.add(k);
+            // W5: numeric-id harvest.
+            addNumericId(k, v, out);
             if (out.size >= EXTRACT_IDENTIFIERS_CAP) return;
             walk(v, depth + 1, maxDepth, out);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// W5: extractEchoedTokens — sibling of extractIdentifiers. Walks a tool
+// payload looking for object nodes that reveal a (contract, symbol) pair,
+// and emits a Set of `${contract}::${symbol}` strings.
+//
+// Heuristics (only emits when BOTH contract and symbol are visible at the
+// SAME object node — over-aggressive aggregation across siblings would
+// falsely cite tokens the chain never linked):
+//   1. node has `contract` (matching NAME_RE) AND `symbol` (matching
+//      SYMBOL_RE) string fields → emit `${contract}::${symbol}`.
+//   2. node has a `quantity` asset-string ("<amount> <SYMBOL>") AND a
+//      `contract` field → emit `${contract}::<SYMBOL>`.
+//   3. node has a `sym` field shaped "<precision>,<CODE>" AND a `contract`
+//      field → emit `${contract}::<CODE>`. (Common in extended_symbol.)
+//
+// Cap at 50 entries; depth limit 5. Empty Set is normalized at the call
+// site, not here.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const _EXTRACT_ECHOED_TOKENS_CAP = 50;
+const SYMBOL_CODE_RE = /^[A-Z]{1,7}$/;
+const ASSET_STRING_RE = /^-?(0|[1-9][0-9]*)(\.[0-9]+)? ([A-Z]{1,7})$/;
+const SYM_STRING_RE = /^([0-9]|1[0-8]),([A-Z]{1,7})$/;
+
+export function extractEchoedTokens(payload: unknown, maxDepth = 5): Set<string> {
+    const out = new Set<string>();
+    walkForTokens(payload, 0, maxDepth, out);
+    return out;
+}
+
+function emitToken(out: Set<string>, contract: string, code: string): void {
+    if (out.size >= _EXTRACT_ECHOED_TOKENS_CAP) return;
+    out.add(`${contract}::${code}`);
+}
+
+function tryEmitTokensFromObject(obj: Record<string, unknown>, out: Set<string>): void {
+    const contract = obj.contract;
+    if (typeof contract !== 'string' || !EOSIO_NAME_RE.test(contract)) return;
+    // Shape 1: explicit symbol field.
+    const sym = obj.symbol;
+    if (typeof sym === 'string' && SYMBOL_CODE_RE.test(sym)) {
+        emitToken(out, contract, sym);
+    }
+    // Shape 2: asset-string quantity.
+    const qty = obj.quantity;
+    if (typeof qty === 'string') {
+        const m = ASSET_STRING_RE.exec(qty);
+        if (m && m[3]) emitToken(out, contract, m[3]);
+    }
+    // Shape 3: extended_symbol-shaped sym.
+    const symField = obj.sym;
+    if (typeof symField === 'string') {
+        const m = SYM_STRING_RE.exec(symField);
+        if (m && m[2]) emitToken(out, contract, m[2]);
+    }
+}
+
+function walkForTokens(node: unknown, depth: number, maxDepth: number, out: Set<string>): void {
+    if (out.size >= _EXTRACT_ECHOED_TOKENS_CAP) return;
+    if (node === null || node === undefined) return;
+    if (depth > maxDepth) return;
+    if (node instanceof Date) return;
+    const t = typeof node;
+    if (t === 'number' || t === 'boolean' || t === 'string') return;
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            if (out.size >= _EXTRACT_ECHOED_TOKENS_CAP) return;
+            walkForTokens(item, depth + 1, maxDepth, out);
+        }
+        return;
+    }
+    if (t === 'object') {
+        tryEmitTokensFromObject(node as Record<string, unknown>, out);
+        for (const v of Object.values(node as Record<string, unknown>)) {
+            if (out.size >= _EXTRACT_ECHOED_TOKENS_CAP) return;
+            walkForTokens(v, depth + 1, maxDepth, out);
         }
     }
 }

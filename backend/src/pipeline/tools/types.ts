@@ -21,6 +21,15 @@ export type ToolCtx = {
     allowlist: readonly string[];
     catalog: CatalogIndex;
     fetchImpl?: typeof globalThis.fetch;
+    // W5: set of `<contract>::<symbol>` entries the LLM has SEEN in a prior
+    // tool response (or known via catalog/static). Populated by the route
+    // handler from the running session-level `extractEchoedTokens` union and
+    // by the harness from this turn's accumulated tool payloads. Tools that
+    // accept a `(contract, symbol)` pair (notably get_balance for non-
+    // `eosio.token` codes) must require an entry here so the LLM can't ask
+    // chain about a token it invented. Tools that don't care MAY ignore this
+    // field — its absence/emptiness is the safe default.
+    echoedTokens?: ReadonlySet<string>;
 };
 
 export type ToolSpec = {
@@ -64,6 +73,20 @@ export class EndpointRejectedError extends Error {
     constructor(endpoint: string) {
         super(`endpoint rejected by host allowlist: ${endpoint}`);
         this.endpoint = endpoint;
+    }
+}
+
+export class EchoedTokenRequiredError extends Error {
+    public override readonly name = 'EchoedTokenRequiredError';
+    public readonly code: string;
+    public readonly symbol: string;
+    constructor(code: string, symbol: string) {
+        super(
+            `(${code}, ${symbol}) is not in this turn's echoedTokens; ` +
+                `the LLM must surface a token via get_table_rows (factory.a / tokenb.a) before calling get_balance for non-eosio.token codes`
+        );
+        this.code = code;
+        this.symbol = symbol;
     }
 }
 

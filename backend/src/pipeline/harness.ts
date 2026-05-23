@@ -34,7 +34,7 @@ import {
     type ToolName,
     type ToolSpec,
 } from './tools/index.js';
-import { extractIdentifiers } from './validate.js';
+import { extractEchoedTokens, extractIdentifiers } from './validate.js';
 
 export type HarnessBudget = {
     maxInputTokens?: number;
@@ -97,14 +97,26 @@ export type HarnessResult<T> =
           // response this turn. Route handler feeds this to validate.ts gate 5
           // as the "tool response" citation source (§4.3 gate 5, §4.1 rule 2).
           toolReturnedIdentifiers?: Set<string>;
+          // W5: union of `${contract}::${symbol}` entries across every OK
+          // tool response this turn. Route handler folds this into the
+          // session-scoped echoedTokens map so get_balance for non-baseline
+          // contracts can only target tokens the LLM has actually seen.
+          echoedTokens?: Set<string>;
       }
-    | { kind: 'ask'; question: string; toolAudit?: ToolAuditEntry[]; toolReturnedIdentifiers?: Set<string> }
+    | {
+          kind: 'ask';
+          question: string;
+          toolAudit?: ToolAuditEntry[];
+          toolReturnedIdentifiers?: Set<string>;
+          echoedTokens?: Set<string>;
+      }
     | {
           kind: 'refuse';
           reason: HarnessRefuseReason;
           detail?: string;
           toolAudit?: ToolAuditEntry[];
           toolReturnedIdentifiers?: Set<string>;
+          echoedTokens?: Set<string>;
       };
 
 // Generic clarifying question used when the schema gate fails twice. Specific
@@ -220,16 +232,23 @@ export async function call<T extends ZodTypeAny>(
         // W4: union of identifiers seen in every OK tool payload this turn.
         // Returned on the result so the route handler can pass it to gate 5.
         const collectedIdentifiers = new Set<string>();
+        // W5: union of `${contract}::${symbol}` entries seen this turn. Fed
+        // back into the next-turn dispatch ctx so get_balance for non-baseline
+        // contracts can be gated on what the LLM has actually surfaced.
+        const collectedEchoedTokens = new Set<string>();
         // Empty Set is normalized to undefined so the route handler's `?:`
         // chain stays clean.
         const identifiersOut = (): Set<string> | undefined =>
             collectedIdentifiers.size > 0 ? collectedIdentifiers : undefined;
+        const echoedTokensOut = (): Set<string> | undefined =>
+            collectedEchoedTokens.size > 0 ? collectedEchoedTokens : undefined;
         const auditOut = (): ToolAuditEntry[] | undefined => (toolsEnabled ? toolAudit : undefined);
         const wallClockRefuse = (): HarnessResult<z.infer<T>> => ({
             kind: 'refuse',
             reason: 'wall-clock',
             toolAudit: auditOut(),
             toolReturnedIdentifiers: identifiersOut(),
+            echoedTokens: echoedTokensOut(),
         });
 
         // Outer loop covers transient provider errors (network / 5xx), the
@@ -260,6 +279,7 @@ export async function call<T extends ZodTypeAny>(
                         detail: err instanceof Error ? err.message : String(err),
                         toolAudit: auditOut(),
                         toolReturnedIdentifiers: identifiersOut(),
+                        echoedTokens: echoedTokensOut(),
                     };
                 }
                 transientRetries++;
@@ -284,6 +304,7 @@ export async function call<T extends ZodTypeAny>(
                     question: TERMINAL_ASK_QUESTION,
                     toolAudit: auditOut(),
                     toolReturnedIdentifiers: identifiersOut(),
+                    echoedTokens: echoedTokensOut(),
                 };
             }
 
@@ -299,6 +320,7 @@ export async function call<T extends ZodTypeAny>(
                         reason: 'tool-budget',
                         toolAudit,
                         toolReturnedIdentifiers: identifiersOut(),
+                        echoedTokens: echoedTokensOut(),
                     };
                 }
                 const toolUse = parsed.data as ToolUseRequest;
@@ -325,6 +347,7 @@ export async function call<T extends ZodTypeAny>(
                             reason: 'tool-budget',
                             toolAudit,
                             toolReturnedIdentifiers: identifiersOut(),
+                            echoedTokens: echoedTokensOut(),
                         };
                     }
                     throw err;
@@ -341,6 +364,7 @@ export async function call<T extends ZodTypeAny>(
                             reason: 'unknown-tool',
                             toolAudit,
                             toolReturnedIdentifiers: identifiersOut(),
+                            echoedTokens: echoedTokensOut(),
                         };
                     }
                 }
@@ -353,12 +377,25 @@ export async function call<T extends ZodTypeAny>(
                 // duplicated here intentionally so the loop owns its own
                 // boundary. Each result keeps its request-index so we can
                 // sort deterministically afterwards.
+                // W5: thread within-turn echoed tokens into the per-dispatch
+                // ctx so a tool called LATER in the turn (e.g. turn-2
+                // get_balance) sees what an EARLIER tool (turn-1
+                // get_table_rows) already surfaced. Union with the caller-
+                // supplied set (the route handler folds in the session-scoped
+                // running echoes from prior turns).
+                const dispatchCtx: ToolCtx = {
+                    ...opts.toolCtx!,
+                    echoedTokens: new Set([
+                        ...(opts.toolCtx?.echoedTokens ?? []),
+                        ...collectedEchoedTokens,
+                    ]),
+                };
                 const results = await Promise.all(
                     toolUse.calls.map(async (c, idx) => {
                         const spec = enabledTools.find((s) => s.name === c.tool)!;
                         const start = performance.now();
                         try {
-                            const payload = await spec.call(c.input, opts.toolCtx!);
+                            const payload = await spec.call(c.input, dispatchCtx);
                             const audit: ToolAuditEntry = {
                                 name: spec.name,
                                 input: c.input,
@@ -391,6 +428,12 @@ export async function call<T extends ZodTypeAny>(
                     if (r.audit.status === 'ok') {
                         for (const id of extractIdentifiers(r.payload)) {
                             collectedIdentifiers.add(id);
+                        }
+                        // W5: harvest `${contract}::${symbol}` tokens from
+                        // the payload; threaded back into the next-turn
+                        // dispatch ctx so get_balance can gate against it.
+                        for (const tok of extractEchoedTokens(r.payload)) {
+                            collectedEchoedTokens.add(tok);
                         }
                     }
                 }
@@ -451,6 +494,7 @@ export async function call<T extends ZodTypeAny>(
                     question: TERMINAL_ASK_QUESTION,
                     toolAudit: auditOut(),
                     toolReturnedIdentifiers: identifiersOut(),
+                    echoedTokens: echoedTokensOut(),
                 };
             }
             return {
@@ -460,6 +504,7 @@ export async function call<T extends ZodTypeAny>(
                 attempts,
                 toolAudit: auditOut(),
                 toolReturnedIdentifiers: identifiersOut(),
+                echoedTokens: echoedTokensOut(),
             };
         }
     } finally {

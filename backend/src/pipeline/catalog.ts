@@ -19,8 +19,15 @@ import { type Bm25Index, type CatalogDoc, buildBm25Index, buildDoc } from './ret
 
 // Reference data, not contract definitions — see backend/CLAUDE.md layout
 // note. Skip by filename so the loader never has to introspect the schema
-// to figure out what it's looking at.
-const NON_CONTRACT_CATALOGS = new Set(['eosio-types.json', 'known-symbols.json']);
+// to figure out what it's looking at. W5 adds the metadata JSON-Schema
+// files (factory-metadata.schema.json / uniq-metadata.schema.json) which
+// live in catalog/ for the parity grep (#10) but are not action catalogs.
+const NON_CONTRACT_CATALOGS = new Set([
+    'eosio-types.json',
+    'known-symbols.json',
+    'factory-metadata.schema.json',
+    'uniq-metadata.schema.json',
+]);
 
 const DEFAULT_CATALOG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'catalog');
 

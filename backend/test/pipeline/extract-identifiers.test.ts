@@ -104,4 +104,33 @@ describe('extractIdentifiers', () => {
         expect(out.has('duncan')).toBe(true);
         expect(out.size).toBe(1);
     });
+
+    // W5: numeric *_id harvest. Object pairs whose key ends in `_id` and
+    // whose value is a number / numeric string emit `String(value)` into
+    // the Set. Gate 5's W5 uint-id branch consults this Set.
+    it('W5: harvests numeric values under *_id object keys', () => {
+        const payload = {
+            token_id: 42,
+            factory_id: '7',
+            other: 99, // key doesn't end in _id → skipped
+        };
+        const out = extractIdentifiers(payload);
+        expect(out.has('42')).toBe(true);
+        expect(out.has('7')).toBe(true);
+        expect(out.has('99')).toBe(false);
+    });
+
+    it('W5: ignores fractional values and uppercase strings under *_id keys', () => {
+        // The numeric-id branch only emits integers (number or strict
+        // numeric string). Fractionals are skipped. (A lowercase name-shaped
+        // string like 'notanumber' would still be picked up by the name
+        // walker — that's the W4 path, not what we're testing here.)
+        const payload = {
+            token_id: 1.5,
+            factory_id: 'BAD-VALUE',
+        };
+        const out = extractIdentifiers(payload);
+        expect(out.has('1.5')).toBe(false);
+        expect(out.has('BAD-VALUE')).toBe(false);
+    });
 });
