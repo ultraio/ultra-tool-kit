@@ -61,7 +61,6 @@
                             :role="m.role"
                             :content="m.content"
                             :state="props.state"
-                            @apply="onApply"
                             @quick-reply="onQuickReply"
                             @reset="reset"
                         />
@@ -105,19 +104,16 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { useRouter } from 'vue-router/auto';
 import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
-import type { ReplyPropose } from '../../utilities/aiClient';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const stateRef = computed(() => props.state);
-const { messages, pending, warming, inlineError, sendMessage, applyProposal, reset } = useAiChat(
-    stateRef as any,
-    useRouter()
-);
+// JWT acquisition is a follow-up. Local dev uses DEV_AUTH_BYPASS=true on
+// the backend so loopback requests don't need a Bearer token.
+const { messages, pending, warming, inlineError, sendMessage, reset } = useAiChat(stateRef);
 
 const draft = ref<string>('');
 const scrollEl = ref<HTMLElement | null>(null);
@@ -135,11 +131,6 @@ function onKeydown(e: KeyboardEvent) {
         e.preventDefault();
         onSend();
     }
-}
-
-function onApply(proposal: ReplyPropose, mode: 'sign' | 'builder') {
-    applyProposal(proposal, mode);
-    emit('close');
 }
 
 function onQuickReply(text: string) {

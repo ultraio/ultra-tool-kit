@@ -199,9 +199,42 @@ if (( ${#GREP9_HITS[@]} > 0 )); then
 fi
 
 # ----------------------------------------------------------------------------
+# Grep #7 (W3): `... as <CapitalizedType>` cast chained off an LLM response.
+#
+# Guidelines §5 rule 7. The schema gate (harness Zod parse + validator
+# re-parse) is the only sanctioned way to give an LLM response a concrete
+# type. A raw `harness.call(...).value as Reply` bypasses the gate.
+#
+# Pattern: `(harness|provider|chat).<call|chat>(...)` followed by chained
+# access and an `as <CapitalizedType>` cast on the same line. Also catches
+# the common `.json as Reply` / `.json as <T>` shape. backend/src/llm/** is
+# excluded — the provider implementations legitimately cast SDK shapes.
+# ----------------------------------------------------------------------------
+GREP7_PATTERN='(harness|provider|chat)\.(call|chat)\([^)]*\)[^;]*[[:space:]]+as[[:space:]]+[A-Z]|\.json[[:space:]]+as[[:space:]]+[A-Z]'
+GREP7_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/llm/*) continue ;;
+        scripts/ai-ci-greps.sh) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP7_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP7_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP7_HITS[@]} > 0 )); then
+    fail "Grep #7: \`as <Type>\` cast chained off an LLM response (schema gate must come first; §4.3 gate 1)"
+    for f in "${GREP7_HITS[@]}"; do
+        grep -nE "$GREP7_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
 # TODO — remaining greps land in their owning waves:
 #   #6 (W3+):  dangerouslySetInnerHTML / v-html in src/components/ai/**
-#   #7 (W3+):  `cast(.*as.*)` chained off LLM responses in TS (schema gate first)
 #   #8 (W4):   new tool name in pipeline/tools/ without doc row in §4.2
 # ----------------------------------------------------------------------------
 

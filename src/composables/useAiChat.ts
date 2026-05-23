@@ -1,19 +1,26 @@
 // Reactive chat state + handoff into the toolkit's existing flows.
-// - `messages` / `pending` / `lastReply` / `warming` drive ChatDrawer + ProposalCard.
-// - `applyProposal('sign')` emits `updateAppActions` (App.vue picks it up and renders <Transaction>).
-// - `applyProposal('builder')` writes the proposal into module-level `aiHandoff` and routes to /builder.
-// - sessionId persists in `sessionStorage` so reopening the drawer in the same tab continues the session.
+//
+// W3 wire-up:
+//   - `sendMessage(text)` POSTs to `/api/ai-chat` via aiClient.postAiChat.
+//   - On `kind: 'act'` the reply's I.Action[] is emitted onto the existing
+//     `updateAppActions` event bus channel — same channel every other page
+//     uses to open <Transaction>. Decision 10 (root CLAUDE.md): we do NOT
+//     touch wallet code or Transaction.vue; we hand off through the bus
+//     and let App.vue route it through the normal modal flow.
+//   - Other kinds (ask/refuse/answer) render as bubbles via MessageBubble.
+//
+// sessionId persists in `sessionStorage` so reopening the drawer in the same
+// tab continues the session. Per scripts/ai-ci-greps.sh grep #3, the value
+// is a UUID — none of {jwt, bearer, pubkey} appear in the key.
 
 import { ref, type Ref } from 'vue';
-import type { Router } from 'vue-router';
 import { emitter } from '../eventBus';
 import * as I from '../interfaces';
 import {
-    postAiAction,
+    postAiChat,
     AiClientError,
     type Reply,
-    type ReplyPropose,
-    type AiActionRequest,
+    type AiChatRequest,
 } from '../utilities/aiClient';
 
 export const MAX_MESSAGE_CHARS = 1000;
@@ -25,14 +32,6 @@ export interface ChatTurn {
     content: string | Reply;
 }
 
-export interface AiHandoff {
-    contract: string;
-    action: string;
-    data: Record<string, unknown>;
-    authorization: { actor: string; permission: string };
-    rationale?: string;
-}
-
 // Module-singleton state. Multiple ChatDrawer mounts share one conversation.
 const messages = ref<ChatTurn[]>([]);
 const pending = ref<boolean>(false);
@@ -41,28 +40,23 @@ const lastReply = ref<Reply | null>(null);
 const inlineError = ref<string | null>(null);
 const sessionId = ref<string>(loadOrCreateSessionId());
 
-// Module-shared handoff slot. Builder page reads + clears this on mount.
-export const aiHandoff = ref<AiHandoff | null>(null);
-
-function newUuid(): string {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-    // Fallback for very old browsers / SSR shims.
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === 'x' ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-    });
-}
-
 function loadOrCreateSessionId(): string {
     const existing = sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (existing) return existing;
-    const fresh = newUuid();
+    const fresh = crypto.randomUUID();
     sessionStorage.setItem(SESSION_STORAGE_KEY, fresh);
     return fresh;
 }
 
-export function useAiChat(authState?: Ref<I.AuthState>, router?: Router) {
+export interface UseAiChatOpts {
+    // Source of an in-memory JWT for the backend's Authorization header.
+    // W3 has no frontend acquisition flow yet (the wallet challenge/verify
+    // wiring lands in a follow-up); local dev relies on the backend's
+    // DEV_AUTH_BYPASS=true.
+    getJwt?: () => string | undefined;
+}
+
+export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}) {
     async function sendMessage(text: string): Promise<void> {
         inlineError.value = null;
         const trimmed = text.trim();
@@ -73,7 +67,7 @@ export function useAiChat(authState?: Ref<I.AuthState>, router?: Router) {
             return;
         }
         if (messages.value.length >= MAX_SESSION_MESSAGES) {
-            inlineError.value = "This conversation is getting long — start a new one.";
+            inlineError.value = 'This conversation is getting long — start a new one.';
             return;
         }
 
@@ -82,34 +76,42 @@ export function useAiChat(authState?: Ref<I.AuthState>, router?: Router) {
         warming.value = false;
 
         const ctx = authState?.value;
-        const req: AiActionRequest = {
+        const selectedAccount = ctx?.accountName;
+        const validatedAccounts = selectedAccount ? [selectedAccount] : [];
+        const req: AiChatRequest = {
             sessionId: sessionId.value,
             messages: messages.value.map((m) => ({
                 role: m.role,
                 content: typeof m.content === 'string' ? m.content : summarizeReply(m.content),
             })),
             context: {
-                account: ctx?.accountName ?? 'unknown',
-                permission: ctx?.accountPerm ?? 'active',
-                endpoint: ctx?.endpoint ?? '',
-                chainId: ctx?.chainId ?? '',
-                isAdmin: ctx?.isAdmin ?? false,
+                validatedAccounts,
                 knownAccounts: [],
+                selectedAccount,
+                chainId: ctx?.chainId ?? '',
+                endpoint: ctx?.endpoint ?? '',
             },
         };
 
         try {
-            const reply = await postAiAction(req, {
+            const reply = await postAiChat(req, {
                 onWarming: () => {
                     warming.value = true;
                 },
+                jwt: opts.getJwt?.(),
             });
             lastReply.value = reply;
             messages.value.push({ role: 'assistant', content: reply });
+            if (reply.kind === 'act') {
+                // Hand off through the existing event-bus channel App.vue
+                // already listens on. <Transaction> opens prefilled; the
+                // user reviews and the wallet signs (§4.5).
+                emitter.emit('updateAppActions', reply.actions);
+            }
         } catch (err) {
             const msg = err instanceof AiClientError ? err.message : "Couldn't reach the AI backend.";
             inlineError.value = msg;
-            const fallback: Reply = { kind: 'refuse', reason: 'transport-error', detail: msg };
+            const fallback: Reply = { kind: 'refuse', reason: 'transport-error' };
             lastReply.value = fallback;
             messages.value.push({ role: 'assistant', content: fallback });
         } finally {
@@ -118,35 +120,11 @@ export function useAiChat(authState?: Ref<I.AuthState>, router?: Router) {
         }
     }
 
-    function applyProposal(p: ReplyPropose, mode: 'sign' | 'builder'): void {
-        if (mode === 'sign') {
-            const action: I.Action = {
-                contract: p.contract,
-                action: p.action,
-                data: p.data,
-                authorization: [p.authorization],
-            };
-            emitter.emit('updateAppActions', [action]);
-            return;
-        }
-
-        // 'builder': stash the proposal and navigate. The builder page picks
-        // it up on mount via `aiHandoff`.
-        aiHandoff.value = {
-            contract: p.contract,
-            action: p.action,
-            data: p.data,
-            authorization: p.authorization,
-            rationale: p.rationale,
-        };
-        router?.push({ path: '/builder', query: { ai: 'pending' } });
-    }
-
     function reset(): void {
         messages.value = [];
         lastReply.value = null;
         inlineError.value = null;
-        const fresh = newUuid();
+        const fresh = crypto.randomUUID();
         sessionId.value = fresh;
         sessionStorage.setItem(SESSION_STORAGE_KEY, fresh);
     }
@@ -159,7 +137,6 @@ export function useAiChat(authState?: Ref<I.AuthState>, router?: Router) {
         inlineError,
         sessionId,
         sendMessage,
-        applyProposal,
         reset,
     };
 }
@@ -171,6 +148,12 @@ function summarizeReply(reply: Reply): string {
         case 'refuse':
             return `[refused: ${reply.reason}]`;
         case 'propose':
-            return `[proposed ${reply.contract}::${reply.action}]`;
+            return `[proposed ${reply.proposalName}]`;
+        case 'act': {
+            const a = reply.actions[0];
+            return a ? `[composed ${a.contract}::${a.action}]` : '[composed action]';
+        }
+        case 'answer':
+            return reply.text;
     }
 }
