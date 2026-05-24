@@ -111,7 +111,12 @@ describe('POST /api/ai-chat — act path (happy)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; actions?: unknown[] };
+        // W8: response is now `{ reply, usage }`. Unwrap to read the Reply.
+        const envelope = (await res.json()) as {
+            reply: { kind: string; actions?: unknown[] };
+            usage?: { cost_usd: number; tokens_in: number; tokens_out: number };
+        };
+        const body = envelope.reply;
         expect(body.kind).toBe('act');
         expect(body.actions).toEqual([
             {
@@ -127,6 +132,11 @@ describe('POST /api/ai-chat — act path (happy)', () => {
             },
         ]);
         expect(provider.calls).toBe(1);
+        // W8: harness call landed → usage sidecar populated with numeric fields.
+        expect(envelope.usage).toBeDefined();
+        expect(typeof envelope.usage!.cost_usd).toBe('number');
+        expect(typeof envelope.usage!.tokens_in).toBe('number');
+        expect(typeof envelope.usage!.tokens_out).toBe('number');
     });
 });
 
@@ -153,8 +163,10 @@ describe('POST /api/ai-chat — gate 5 (no invented identifiers)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string };
-        expect(body.kind).toBe('ask');
+        const envelope = (await res.json()) as { reply: { kind: string }; usage?: unknown };
+        expect(envelope.reply.kind).toBe('ask');
+        // Harness DID run — usage sidecar present even on downgrade.
+        expect(envelope.usage).toBeDefined();
     });
 });
 
@@ -174,8 +186,9 @@ describe('POST /api/ai-chat — gate 6 (memo policy)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string };
-        expect(body.kind).toBe('ask');
+        const envelope = (await res.json()) as { reply: { kind: string }; usage?: unknown };
+        expect(envelope.reply.kind).toBe('ask');
+        expect(envelope.usage).toBeDefined();
     });
 });
 
@@ -198,12 +211,17 @@ describe('POST /api/ai-chat — classifier short-circuits (cost + safety)', () =
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; reason?: string };
-        expect(body.kind).toBe('refuse');
-        expect(body.reason).toBe('out-of-scope');
+        const envelope = (await res.json()) as {
+            reply: { kind: string; reason?: string };
+            usage?: unknown;
+        };
+        expect(envelope.reply.kind).toBe('refuse');
+        expect(envelope.reply.reason).toBe('out-of-scope');
         // Load-bearing assertion per the W3 simplifier exclusion list — the
         // classifier short-circuit is the cost + safety win of W2.
         expect(provider.calls).toBe(0);
+        // W8: no provider call → no usage sidecar (omitted, not zeroed).
+        expect(envelope.usage).toBeUndefined();
     });
 
     it('refuses prompt-injection prefixes WITHOUT calling the provider', async () => {
@@ -229,11 +247,15 @@ describe('POST /api/ai-chat — classifier short-circuits (cost + safety)', () =
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; reason?: string };
-        expect(body.kind).toBe('refuse');
-        expect(body.reason).toBe('injection-prefix');
+        const envelope = (await res.json()) as {
+            reply: { kind: string; reason?: string };
+            usage?: unknown;
+        };
+        expect(envelope.reply.kind).toBe('refuse');
+        expect(envelope.reply.reason).toBe('injection-prefix');
         // Same "provider never called" load-bearing assertion.
         expect(provider.calls).toBe(0);
+        expect(envelope.usage).toBeUndefined();
     });
 });
 

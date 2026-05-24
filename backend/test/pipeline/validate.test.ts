@@ -363,3 +363,35 @@ describe('validateAct — happy path output shape', () => {
         });
     });
 });
+
+// W8 — telemetry-only `coerced: boolean` on the OK outcome. Observability
+// for the per-turn usage-log middleware; no gate decision reads this field.
+describe('validateAct — W8 coerced telemetry flag', () => {
+    it('coerced === false when no field-shape branch reshapes the input', () => {
+        const outcome = validateAct(transferReply(), catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ok');
+        if (outcome.kind === 'ok') {
+            expect(outcome.coerced).toBe(false);
+        }
+    });
+
+    it('coerced === true when coerceLlmShape unwraps an auth-shape leak on a name field', () => {
+        // `from: {actor: "duncan"}` is the auth-shape-leak branch in
+        // coerceLlmShape — a real reshape (`coerced !== value`).
+        const reply = transferReply({
+            data: {
+                from: { actor: 'duncan' } as unknown as string,
+                to: 'bob',
+                quantity: '100.00000000 UOS',
+                memo: '',
+            },
+        });
+        const outcome = validateAct(reply, catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ok');
+        if (outcome.kind === 'ok') {
+            expect(outcome.coerced).toBe(true);
+            // Sanity: the actual value is still the canonical string.
+            expect(outcome.reply.actions[0]!.data.from).toBe('duncan');
+        }
+    });
+});

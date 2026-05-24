@@ -1,3 +1,14 @@
+// Anthropic provider for the AI harness (Haiku 4.5 by default).
+//
+// Prompt caching is ON by default: the system block carries
+// `cache_control: { type: 'ephemeral' }`, which the Anthropic API uses to
+// reuse the cached prefix across turns (roadmap §3 — ~80% input-token
+// savings on the cached portion once the prompt exceeds the model's
+// minimum cacheable size; W7 grew the system prompt past that threshold).
+//
+// `ANTHROPIC_PROMPT_CACHE=off` disables the directive at runtime. This is
+// a rollback-only escape hatch for cache-related misbehaviour in
+// production; the default stays on.
 import Anthropic from '@anthropic-ai/sdk';
 import {
     ProviderError,
@@ -5,6 +16,14 @@ import {
     type ChatRequest,
     type ChatResponse,
 } from './provider.js';
+
+// Read the rollback toggle. Strict 'off' (case-insensitive, trimmed)
+// disables prompt caching; any other value (including unset) keeps it on.
+function isPromptCacheOn(): boolean {
+    const raw = process.env.ANTHROPIC_PROMPT_CACHE;
+    if (typeof raw !== 'string') return true;
+    return raw.trim().toLowerCase() !== 'off';
+}
 
 export type AnthropicConfig = {
     apiKey: string;
@@ -50,13 +69,15 @@ export class AnthropicProvider implements ChatProvider {
         // caching on system prompt"). Real cache hits require the cached
         // block to exceed the model's minimum cacheable size; for short
         // system prompts the SDK still accepts the directive and treats it
-        // as a no-op. W2+ will feed a system prompt large enough to benefit.
+        // as a no-op. W7 grew the system prompt past the threshold.
+        //
+        // `ANTHROPIC_PROMPT_CACHE=off` drops the directive — rollback-only
+        // for cache misbehaviour; production stays default-on.
+        const cacheOn = isPromptCacheOn();
         const system: Anthropic.TextBlockParam[] = [
-            {
-                type: 'text',
-                text: req.system,
-                cache_control: { type: 'ephemeral' },
-            },
+            cacheOn
+                ? { type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }
+                : { type: 'text', text: req.system },
         ];
 
         const res = await this.client().messages.create(

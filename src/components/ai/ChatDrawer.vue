@@ -21,11 +21,16 @@
                             <Icon icon="fa-comments" class="text-purple-400" />
                             <span>AI Assistant</span>
                         </div>
-                        <div class="flex items-center gap-1">
+                        <div class="flex items-center gap-2">
+                            <CostBadge
+                                :last-usage="lastUsage"
+                                :open="props.open"
+                                :reset-counter="resetCounter"
+                            />
                             <button
                                 class="p-1.5 text-neutral-400 hover:text-neutral-100"
                                 title="Reset session"
-                                @click="reset"
+                                @click="handleReset"
                             >
                                 <Icon icon="fa-rotate-left" />
                             </button>
@@ -62,7 +67,7 @@
                             :content="m.content"
                             :state="props.state"
                             @quick-reply="onQuickReply"
-                            @reset="reset"
+                            @reset="handleReset"
                         />
                         <div v-if="pending" class="text-xs text-neutral-500 italic">Thinking…</div>
                     </div>
@@ -106,6 +111,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
+import CostBadge from './CostBadge.vue';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -113,7 +119,14 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const stateRef = computed(() => props.state);
 // JWT acquisition is a follow-up. Local dev uses DEV_AUTH_BYPASS=true on
 // the backend so loopback requests don't need a Bearer token.
-const { messages, pending, warming, inlineError, sendMessage, reset } = useAiChat(stateRef);
+const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage } = useAiChat(stateRef);
+
+// W8: bumped on every reset so CostBadge zeros out its session running total.
+const resetCounter = ref(0);
+function handleReset() {
+    reset();
+    resetCounter.value += 1;
+}
 
 const draft = ref<string>('');
 const scrollEl = ref<HTMLElement | null>(null);

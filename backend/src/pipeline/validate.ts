@@ -5,6 +5,12 @@
 // mirrors that). Roadmap §6 row W3 acceptance. backend/CLAUDE.md hard
 // rules 3 + 8.
 //
+// W8 telemetry note: ValidateOk / ValidateProposeOk / ValidateAnswerOk each
+// carry a `coerced: boolean` so the route handler can forward it to the
+// per-turn usage-log middleware (docs/00-ai-global-guidelines.md §7
+// `validation_outcome`). The field is observability-only — no gate logic
+// reads it and no pass/fail decision depends on it.
+//
 // What's in this file:
 //   - Reply Zod union covering all five reply kinds.
 //   - cleanText + coerceLlmShape (W0 carry-over). Every branch fixes a real
@@ -300,7 +306,10 @@ export type ValidateContext = {
     metadataValidators?: ReadonlyArray<MetadataValidator>;
 };
 
-export type ValidateOk = { kind: 'ok'; reply: ActReply };
+// W8: `coerced: boolean` on the OK variant lets the route handler forward
+// the validation outcome to the usage-log middleware (§7 `validation_outcome`).
+// Observability-only — no gate decision reads it.
+export type ValidateOk = { kind: 'ok'; reply: ActReply; coerced: boolean };
 // `innerIndex` is set only by validatePropose (W6) when an inner action
 // failed gates 1–6 OR when gate 7 is propose-level (innerIndex omitted).
 // Existing validateAct callers ignore it.
@@ -309,7 +318,8 @@ export type ValidateOutcome = ValidateOk | ValidateAsk;
 
 // W6 sibling outcome for propose flows. Mirrors ValidateOutcome with a
 // ProposeReply payload on success — keeps the caller's narrow happy.
-export type ValidateProposeOk = { kind: 'ok'; reply: ProposeReply };
+// W8: same `coerced: boolean` observability flag as ValidateOk.
+export type ValidateProposeOk = { kind: 'ok'; reply: ProposeReply; coerced: boolean };
 export type ValidateProposeOutcome = ValidateProposeOk | ValidateAsk;
 
 // Generic clarifier surfaced to the user when any gate trips. Generic by
@@ -359,7 +369,14 @@ const VECTOR_ANGLE_RE = /^vector<(.+)>$/;
 // Some catalogs surface `uint64_t_vector` (a typedef artifact). Treat as vector.
 const VECTOR_T_SUFFIX_RE = /^(.+?)_t_vector$/;
 
-type FieldShapeResult = { ok: true; coerced: unknown } | { ok: false; reason: string };
+// W8: `wasCoerced` is the observability flag — true whenever a branch actually
+// reshaped the input (numeric-string→bigint, non-bool→bool, coerceLlmShape
+// returned a different reference, vector child reshape, extended_asset
+// inner reshape). NOT set just because a regex check ran on an already-good
+// string. The existing `coerced: unknown` (canonical value) is unchanged.
+type FieldShapeResult =
+    | { ok: true; coerced: unknown; wasCoerced: boolean }
+    | { ok: false; reason: string };
 
 // Range bounds for the (u?)int(8|16|32|64) family. Returns null for invalid
 // type strings (caller treats as unknown / struct).
@@ -376,6 +393,10 @@ function intBounds(type: string): { signed: boolean; bits: 8 | 16 | 32 | 64 } | 
 // JS numbers lose precision above 2^53).
 function checkIntInRange(value: unknown, signed: boolean, bits: 8 | 16 | 32 | 64): FieldShapeResult {
     let asBig: bigint;
+    // W8: a JS-number input that stays a JS number is NOT a coerce; a
+    // numeric-string input that gets reshaped (to bigint, then either kept
+    // as string for 64-bit precision or coerced to JS number) IS.
+    let wasCoerced = false;
     if (typeof value === 'number') {
         if (!Number.isFinite(value) || !Number.isInteger(value)) {
             return { ok: false, reason: 'not an integer' };
@@ -391,6 +412,7 @@ function checkIntInRange(value: unknown, signed: boolean, bits: 8 | 16 | 32 | 64
         } catch {
             return { ok: false, reason: 'BigInt parse failed' };
         }
+        wasCoerced = true;
     } else {
         return { ok: false, reason: `int value not number/string: ${typeof value}` };
     }
@@ -401,14 +423,16 @@ function checkIntInRange(value: unknown, signed: boolean, bits: 8 | 16 | 32 | 64
     }
     // Canonicalise: keep as string for 64-bit to preserve precision; else number.
     const coerced: unknown = bits === 64 ? asBig.toString() : Number(asBig);
-    return { ok: true, coerced };
+    return { ok: true, coerced, wasCoerced };
 }
 
 function checkBool(value: unknown): FieldShapeResult {
-    if (typeof value === 'boolean') return { ok: true, coerced: value };
-    if (value === 0 || value === 1) return { ok: true, coerced: value === 1 };
-    if (value === 'true') return { ok: true, coerced: true };
-    if (value === 'false') return { ok: true, coerced: false };
+    // W8: boolean → boolean is not a coerce; everything else that we accept
+    // (0/1/'true'/'false') IS.
+    if (typeof value === 'boolean') return { ok: true, coerced: value, wasCoerced: false };
+    if (value === 0 || value === 1) return { ok: true, coerced: value === 1, wasCoerced: true };
+    if (value === 'true') return { ok: true, coerced: true, wasCoerced: true };
+    if (value === 'false') return { ok: true, coerced: false, wasCoerced: true };
     return { ok: false, reason: 'invalid bool' };
 }
 
@@ -445,7 +469,8 @@ function checkFieldShape(
     // ─── Optional unwrap ────────────────────────────────────────────────
     const { isOpt, inner: typeAfterOpt } = unwrapOptional(type);
     if (isOpt && (value === null || value === undefined || value === '')) {
-        return { ok: true, coerced: value };
+        // W8: pass-through unchanged — no reshape happened.
+        return { ok: true, coerced: value, wasCoerced: false };
     }
 
     // ─── Vector unwrap ──────────────────────────────────────────────────
@@ -455,12 +480,16 @@ function checkFieldShape(
             return { ok: false, reason: `${paramName}${path}: expected array for ${typeAfterOpt}` };
         }
         const coercedArr: unknown[] = [];
+        // W8: OR every child's wasCoerced together — a vector that reshapes
+        // any element counts as a coerce at this level.
+        let anyChildCoerced = false;
         for (let i = 0; i < value.length; i++) {
             const sub = checkFieldShape(value[i], elem, eosioTypes, paramName, `${path}[${i}]`);
             if (!sub.ok) return sub;
             coercedArr.push(sub.coerced);
+            if (sub.wasCoerced) anyChildCoerced = true;
         }
-        return { ok: true, coerced: coercedArr };
+        return { ok: true, coerced: coercedArr, wasCoerced: anyChildCoerced };
     }
 
     // ─── Integer family ─────────────────────────────────────────────────
@@ -488,7 +517,12 @@ function checkFieldShape(
         if (!qRes.ok) return qRes;
         const cRes = checkFieldShape(obj.contract, 'name', eosioTypes, paramName, `${path}.contract`);
         if (!cRes.ok) return cRes;
-        return { ok: true, coerced: { quantity: qRes.coerced, contract: cRes.coerced } };
+        // W8: OR the two child flags together.
+        return {
+            ok: true,
+            coerced: { quantity: qRes.coerced, contract: cRes.coerced },
+            wasCoerced: qRes.wasCoerced || cRes.wasCoerced,
+        };
     }
 
     // ─── Regex-bearing types from eosio-types.json ──────────────────────
@@ -502,7 +536,11 @@ function checkFieldShape(
         if (!new RegExp(pattern).test(coerced)) {
             return { ok: false, reason: `${paramName}${path} (${typeAfterOpt}) failed regex: ${coerced}` };
         }
-        return { ok: true, coerced };
+        // W8: reference inequality is the right operator — coerceLlmShape
+        // returns the same `value` when no branch fired, or a new primitive
+        // when it unwrapped something. A regex pass on an already-good
+        // string is NOT a coerce.
+        return { ok: true, coerced, wasCoerced: coerced !== value };
     }
 
     // ─── Catch-all: unknown type (likely a struct). Preserve W3 fall-
@@ -512,7 +550,8 @@ function checkFieldShape(
         { unknownType: typeAfterOpt, paramName, path },
         'gate 3: unknown nested type — falling through (extractor PR needed for struct shape)'
     );
-    return { ok: true, coerced: value };
+    // W8: no reshape attempted — pass-through.
+    return { ok: true, coerced: value, wasCoerced: false };
 }
 
 // Integer-id type predicate — used by gate 5's W5 numeric branch.
@@ -535,7 +574,12 @@ function isUintIdType(type: string): boolean {
 // Each gate stays its own named branch per the W6 simplifier exclusion list.
 // ─────────────────────────────────────────────────────────────────────────
 
-type InnerActionOk = { kind: 'ok'; coerced: ReplyAction };
+// W8: `wasCoerced` is the OR of every field-shape coerce that fired across
+// gate-3's per-param loop. Observability-only — passed up so validateAct /
+// validatePropose can stamp the public `coerced: boolean` flag on their OK
+// outcome. The existing `coerced: ReplyAction` (the action payload) is the
+// canonical reply value and is unchanged.
+type InnerActionOk = { kind: 'ok'; coerced: ReplyAction; wasCoerced: boolean };
 type InnerActionAsk = { kind: 'ask'; failedGate: number; why: string };
 type InnerActionOutcome = InnerActionOk | InnerActionAsk;
 
@@ -568,6 +612,9 @@ function validateInnerAction(
         }
     }
     const coercedData: Record<string, unknown> = {};
+    // W8: OR of every per-param wasCoerced flag — surfaces to the caller
+    // for telemetry; never read by any gate decision below.
+    let anyFieldCoerced = false;
     for (const p of rules.params) {
         const raw = action.data[p.name];
         if (raw === undefined) continue;
@@ -576,6 +623,7 @@ function validateInnerAction(
             return { kind: 'ask', failedGate: 3, why: res.reason };
         }
         coercedData[p.name] = res.coerced;
+        if (res.wasCoerced) anyFieldCoerced = true;
     }
 
     // ─── Gate 3 — metadata hook (W5) ─────────────────────────────────────
@@ -712,6 +760,7 @@ function validateInnerAction(
             data: coercedData,
             authorization: [auth],
         },
+        wasCoerced: anyFieldCoerced,
     };
 }
 
@@ -738,6 +787,8 @@ export function validateAct(
             actions: [inner.coerced],
             rationale: reply.rationale,
         },
+        // W8: forward inner action's wasCoerced as the public observability flag.
+        coerced: inner.wasCoerced,
     };
 }
 
@@ -781,6 +832,9 @@ export function validatePropose(
     // first failure; the innerIndex breadcrumb is logged but never surfaced
     // to the user (gate-1 "generic clarifier" rule from §4.3).
     const coercedActions: ReplyAction[] = [];
+    // W8: OR every inner action's wasCoerced together — propose-level
+    // observability flag. Never read by gate 7 below.
+    let anyInnerCoerced = false;
     for (let i = 0; i < reply.actions.length; i++) {
         const action = reply.actions[i];
         if (!action) return askPropose(1, `actions[${i}] is missing`, i);
@@ -789,6 +843,7 @@ export function validatePropose(
             return askPropose(inner.failedGate, `inner[${i}] ${inner.why}`, i);
         }
         coercedActions.push(inner.coerced);
+        if (inner.wasCoerced) anyInnerCoerced = true;
     }
 
     // ─── Gate 7 — propose-level checks ──────────────────────────────────
@@ -875,6 +930,8 @@ export function validatePropose(
             requested: reply.requested,
             rationale: reply.rationale,
         },
+        // W8: telemetry — true if any inner action reshaped any field.
+        coerced: anyInnerCoerced,
     };
 }
 
@@ -898,8 +955,13 @@ export function validatePropose(
 // list (mirrors the act/propose gates' discipline).
 // ─────────────────────────────────────────────────────────────────────────
 
+// W8: `coerced: boolean` matches ValidateOk / ValidateProposeOk's flag. The
+// answer path has no reshape branches today (gates A1–A3 read cleanText but
+// the W8 brief explicitly prohibits adding new coercion branches), so this
+// is always `false` for now. Wired in so the route handler's telemetry
+// forward is uniform across all three structured-OK paths.
 export type ValidateAnswerOutcome =
-    | { kind: 'ok'; reply: AnswerReply }
+    | { kind: 'ok'; reply: AnswerReply; coerced: boolean }
     | { kind: 'refuse'; reason: string; failedGate: string };
 
 // User-visible refuse reasons — generic by design (§4.3 gate-1 rule:
@@ -992,7 +1054,10 @@ export function validateAnswer(
         return refuseAnswer('A3', 'answer contains JSON-shaped action blob', ANSWER_REASON_UNSUPPORTED);
     }
 
-    return { kind: 'ok', reply };
+    // W8: always `coerced: false` — gates A1–A3 don't reshape the reply
+    // value (A1 reads cleanText but never mutates reply.text, and the W8
+    // brief is explicit: no new coercion branches in this wave).
+    return { kind: 'ok', reply, coerced: false };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

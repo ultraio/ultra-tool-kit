@@ -12,6 +12,12 @@
 // sessionId persists in `sessionStorage` so reopening the drawer in the same
 // tab continues the session. Per scripts/ai-ci-greps.sh grep #3, the value
 // is a UUID — none of {jwt, bearer, pubkey} appear in the key.
+//
+// W8: the only addition to the public surface is `lastUsage` — a Ref to the
+// most recent per-turn usage sidecar from the backend (null when none seen
+// yet, or after reset). Everything else (return shape, lastReply, sendMessage
+// signature) is unchanged. The CostBadge in the drawer reads this ref to
+// accumulate session-running totals.
 
 import { ref, type Ref } from 'vue';
 import { emitter } from '../eventBus';
@@ -21,6 +27,7 @@ import {
     AiClientError,
     type Reply,
     type AiChatRequest,
+    type AiUsageSidecar,
 } from '../utilities/aiClient';
 
 export const MAX_MESSAGE_CHARS = 1000;
@@ -37,6 +44,7 @@ const messages = ref<ChatTurn[]>([]);
 const pending = ref<boolean>(false);
 const warming = ref<boolean>(false);
 const lastReply = ref<Reply | null>(null);
+const lastUsage = ref<AiUsageSidecar | null>(null);
 const inlineError = ref<string | null>(null);
 const sessionId = ref<string>(loadOrCreateSessionId());
 
@@ -94,13 +102,15 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
         };
 
         try {
-            const reply = await postAiChat(req, {
+            const response = await postAiChat(req, {
                 onWarming: () => {
                     warming.value = true;
                 },
                 jwt: opts.getJwt?.(),
             });
+            const reply = response.reply;
             lastReply.value = reply;
+            lastUsage.value = response.usage ?? null;
             messages.value.push({ role: 'assistant', content: reply });
             if (reply.kind === 'act' || reply.kind === 'propose') {
                 // Hand off through the existing event-bus channel App.vue
@@ -128,6 +138,7 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
     function reset(): void {
         messages.value = [];
         lastReply.value = null;
+        lastUsage.value = null;
         inlineError.value = null;
         const fresh = crypto.randomUUID();
         sessionId.value = fresh;
@@ -139,6 +150,7 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
         pending,
         warming,
         lastReply,
+        lastUsage,
         inlineError,
         sessionId,
         sendMessage,

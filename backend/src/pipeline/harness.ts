@@ -110,6 +110,11 @@ export type HarnessResult<T> =
     | {
           kind: 'ask';
           question: string;
+          // W8: cumulative provider usage across every chat call this harness
+          // invocation made. Route handler folds this into c.var.lastUsage so
+          // the usage-log JSONL row counts tokens spent on retried/coerced
+          // attempts that never produced a clean reply.
+          usage?: ChatUsage;
           toolAudit?: ToolAuditEntry[];
           toolReturnedIdentifiers?: Set<string>;
           echoedTokens?: Set<string>;
@@ -118,6 +123,10 @@ export type HarnessResult<T> =
           kind: 'refuse';
           reason: HarnessRefuseReason;
           detail?: string;
+          // W8: same cumulative-usage surface as the ask variant. May be
+          // undefined for refuses that fired BEFORE any provider call (e.g.
+          // 'input-too-large').
+          usage?: ChatUsage;
           toolAudit?: ToolAuditEntry[];
           toolReturnedIdentifiers?: Set<string>;
           echoedTokens?: Set<string>;
@@ -233,6 +242,12 @@ export async function call<T extends ZodTypeAny>(
         let attempts = 0;
         let toolUseTurns = 0;
         const toolAudit: ToolAuditEntry[] = [];
+        // W8: cumulative usage across every provider.chat call in this harness
+        // invocation. Surfaced on ok / ask / refuse so the route handler can
+        // forward the full token spend to the usage-log middleware (§7).
+        const cumulativeUsage: ChatUsage = { input: 0, output: 0 };
+        const usageOut = (): ChatUsage | undefined =>
+            cumulativeUsage.input > 0 || cumulativeUsage.output > 0 ? { ...cumulativeUsage } : undefined;
         // W4: union of identifiers seen in every OK tool payload this turn.
         // Returned on the result so the route handler can pass it to gate 5.
         const collectedIdentifiers = new Set<string>();
@@ -250,6 +265,7 @@ export async function call<T extends ZodTypeAny>(
         const wallClockRefuse = (): HarnessResult<z.infer<T>> => ({
             kind: 'refuse',
             reason: 'wall-clock',
+            usage: usageOut(),
             toolAudit: auditOut(),
             toolReturnedIdentifiers: identifiersOut(),
             echoedTokens: echoedTokensOut(),
@@ -281,6 +297,7 @@ export async function call<T extends ZodTypeAny>(
                         kind: 'refuse',
                         reason: 'retries-exhausted',
                         detail: err instanceof Error ? err.message : String(err),
+                        usage: usageOut(),
                         toolAudit: auditOut(),
                         toolReturnedIdentifiers: identifiersOut(),
                         echoedTokens: echoedTokensOut(),
@@ -289,6 +306,12 @@ export async function call<T extends ZodTypeAny>(
                 transientRetries++;
                 continue; // No exponential backoff — §4.7 bans it.
             }
+
+            // W8: accumulate provider usage across every call this invocation.
+            // Surfaced on ok / ask / refuse so the route handler can forward
+            // the full token spend to the usage-log middleware (§7).
+            cumulativeUsage.input += res.usage.input;
+            cumulativeUsage.output += res.usage.output;
 
             const parsed = finalSchema.safeParse(res.json);
             if (!parsed.success) {
@@ -306,6 +329,7 @@ export async function call<T extends ZodTypeAny>(
                 return {
                     kind: 'ask',
                     question: TERMINAL_ASK_QUESTION,
+                    usage: usageOut(),
                     toolAudit: auditOut(),
                     toolReturnedIdentifiers: identifiersOut(),
                     echoedTokens: echoedTokensOut(),
@@ -322,6 +346,7 @@ export async function call<T extends ZodTypeAny>(
                     return {
                         kind: 'refuse',
                         reason: 'tool-budget',
+                        usage: usageOut(),
                         toolAudit,
                         toolReturnedIdentifiers: identifiersOut(),
                         echoedTokens: echoedTokensOut(),
@@ -349,6 +374,7 @@ export async function call<T extends ZodTypeAny>(
                         return {
                             kind: 'refuse',
                             reason: 'tool-budget',
+                            usage: usageOut(),
                             toolAudit,
                             toolReturnedIdentifiers: identifiersOut(),
                             echoedTokens: echoedTokensOut(),
@@ -366,6 +392,7 @@ export async function call<T extends ZodTypeAny>(
                         return {
                             kind: 'refuse',
                             reason: 'unknown-tool',
+                            usage: usageOut(),
                             toolAudit,
                             toolReturnedIdentifiers: identifiersOut(),
                             echoedTokens: echoedTokensOut(),
@@ -496,6 +523,7 @@ export async function call<T extends ZodTypeAny>(
                 return {
                     kind: 'ask',
                     question: TERMINAL_ASK_QUESTION,
+                    usage: usageOut(),
                     toolAudit: auditOut(),
                     toolReturnedIdentifiers: identifiersOut(),
                     echoedTokens: echoedTokensOut(),
@@ -504,7 +532,11 @@ export async function call<T extends ZodTypeAny>(
             return {
                 kind: 'ok',
                 value: callerParsed.data as z.infer<T>,
-                usage: res.usage,
+                // W8: surface CUMULATIVE usage across every provider.chat call
+                // this invocation made (retries, schema-nudge retries, tool-use
+                // loop turns). Replaces the prior res.usage which only covered
+                // the last call.
+                usage: { ...cumulativeUsage },
                 attempts,
                 toolAudit: auditOut(),
                 toolReturnedIdentifiers: identifiersOut(),

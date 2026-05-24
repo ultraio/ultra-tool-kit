@@ -13,10 +13,12 @@ import { serve } from '@hono/node-server';
 
 import { createAuthRouter } from './routes/auth.js';
 import { createAiChatRouter } from './routes/ai-chat.js';
+import { createAiUsageRouter } from './routes/ai-usage.js';
 import { NonceStore } from './auth/nonce-store.js';
 import { type AuthContext, jwtAuth } from './middleware/auth.js';
 import { createRateLimitStore, rateLimit } from './middleware/ratelimit.js';
 import { logger, requestLogger } from './middleware/logging.js';
+import { usageLog } from './middleware/usage-log.js';
 import { loadCatalog } from './pipeline/catalog.js';
 import { loadEosioTypes } from './pipeline/validate.js';
 import type { ChatProvider } from './llm/provider.js';
@@ -107,10 +109,21 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
 
     app.use('/api/ai-chat', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
     app.use('/api/ai-chat', rateLimit(rateLimitStore));
+    // W8: §7 telemetry row per turn. MUST sit between rate-limit and the
+    // chat router — it reads c.var.auth (set by jwtAuth) and wraps the
+    // handler with try/finally so the row is written after c.var.toolAudit
+    // / providerModel / lastUsage / validateCoerced are populated.
+    app.use('/api/ai-chat', usageLog());
     app.route(
         '/api/ai-chat',
         createAiChatRouter({ provider, catalog, eosioTypes, allowedChainHosts: cfg.allowedChainHosts })
     );
+
+    // W8: GET /api/ai-usage — read-only aggregate. Behind the SAME jwtAuth
+    // gate as ai-chat (per-sub filtering depends on it) but NOT behind the
+    // rate-limit middleware — this is a cheap log read, not an LLM call.
+    app.use('/api/ai-usage', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
+    app.route('/api/ai-usage', createAiUsageRouter());
 
     return app;
 }

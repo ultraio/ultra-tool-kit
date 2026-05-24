@@ -336,6 +336,44 @@ describe('validatePropose — gate 7.6 (proposer NOT in requested)', () => {
     });
 });
 
+// W8 — telemetry-only `coerced: boolean` on the OK outcome. ORed across
+// every inner action's wasCoerced. Never read by gate 7 below.
+describe('validatePropose — W8 coerced telemetry flag', () => {
+    it('coerced === false when no inner action reshapes any field', () => {
+        const outcome = validatePropose(happyProposal(), catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ok');
+        if (outcome.kind === 'ok') {
+            expect(outcome.coerced).toBe(false);
+        }
+    });
+
+    it('coerced === true when at least one inner action triggers coerceLlmShape', () => {
+        // The first inner action's `quantity` is the structured-asset shape
+        // that coerceLlmShape unwraps to "100.00000000 UOS". Real reshape →
+        // wasCoerced on the inner → coerced on the propose-level OK.
+        const reply = happyProposal({
+            actions: [
+                {
+                    contract: 'eosio.token',
+                    action: 'transfer',
+                    data: {
+                        from: 'duncan',
+                        to: 'bob',
+                        quantity: { amount: 100, precision: 8, symbol: 'UOS' } as unknown as string,
+                        memo: '',
+                    },
+                    authorization: [{ actor: 'duncan', permission: 'active' }],
+                },
+            ],
+        });
+        const outcome = validatePropose(reply, catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ok');
+        if (outcome.kind === 'ok') {
+            expect(outcome.coerced).toBe(true);
+        }
+    });
+});
+
 describe('validatePropose — gate 7.7 (no duplicate approvers)', () => {
     it('downgrades when the same (actor, permission) appears twice', () => {
         const reply = happyProposal({

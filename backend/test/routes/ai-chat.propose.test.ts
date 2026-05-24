@@ -118,12 +118,16 @@ describe('POST /api/ai-chat — propose path (happy)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as {
-            kind: string;
-            proposalName?: string;
-            actions?: unknown[];
-            requested?: Array<{ actor: string; permission: string }>;
+        const envelope = (await res.json()) as {
+            reply: {
+                kind: string;
+                proposalName?: string;
+                actions?: unknown[];
+                requested?: Array<{ actor: string; permission: string }>;
+            };
+            usage?: { cost_usd: number; tokens_in: number; tokens_out: number };
         };
+        const body = envelope.reply;
         expect(body.kind).toBe('propose');
         expect(body.proposalName).toBe('pay123');
         // Load-bearing: exactly the inner action count the provider emitted —
@@ -137,6 +141,11 @@ describe('POST /api/ai-chat — propose path (happy)', () => {
         // Exactly one provider call — propose path matches act's single-shot
         // pattern (no retry loop on success).
         expect(provider.calls).toBe(1);
+        // W8 wrapper: usage sidecar populated.
+        expect(envelope.usage).toBeDefined();
+        expect(typeof envelope.usage!.cost_usd).toBe('number');
+        expect(typeof envelope.usage!.tokens_in).toBe('number');
+        expect(typeof envelope.usage!.tokens_out).toBe('number');
     });
 });
 
@@ -156,10 +165,11 @@ describe('POST /api/ai-chat — propose gate 5 (invented inner-action recipient)
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string };
+        const envelope = (await res.json()) as { reply: { kind: string }; usage?: unknown };
         // GENERIC_CLARIFIER surfaces — failedGate / innerIndex are logged
         // only (per §4.3 gate 1 "exposing structure leaks the contract").
-        expect(body.kind).toBe('ask');
+        expect(envelope.reply.kind).toBe('ask');
+        expect(envelope.usage).toBeDefined();
     });
 });
 
@@ -199,7 +209,8 @@ describe('POST /api/ai-chat — propose gate 7.6 (proposer in requested)', () =>
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string };
-        expect(body.kind).toBe('ask');
+        const envelope = (await res.json()) as { reply: { kind: string }; usage?: unknown };
+        expect(envelope.reply.kind).toBe('ask');
+        expect(envelope.usage).toBeDefined();
     });
 });

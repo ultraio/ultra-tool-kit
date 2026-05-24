@@ -20,6 +20,7 @@ import type { CatalogIndex } from '../pipeline/catalog.js';
 import { retrieve } from '../pipeline/retrieve.js';
 import { call as harnessCall } from '../pipeline/harness.js';
 import { buildUserMessage, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../pipeline/prompts.js';
+import { summarisePriorHistory } from '../pipeline/summary.js';
 import { TOOL_REGISTRY, type ToolAuditEntry, type ToolCtx } from '../pipeline/tools/index.js';
 import {
     ReplySchema,
@@ -33,6 +34,7 @@ import {
 import type { ChatProvider } from '../llm/provider.js';
 import type { AuthContext } from '../middleware/auth.js';
 import { logger } from '../middleware/logging.js';
+import { computeCostUsd } from '../middleware/usage-log.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Request schema. Conservative limits — these are not security gates (the
@@ -70,6 +72,28 @@ const RETRIEVE_TOP_K = 5;
 // the model controlled, only from catch blocks. The reason string maps to a
 // generic chip via ProposalCard.vue's refuseHeading switch.
 const REFUSE_INTERNAL: Reply = { kind: 'refuse', reason: 'internal' };
+
+// W8: response wrapper — the route returns `{ reply, usage }` instead of the
+// bare Reply. The usage sidecar is OPTIONAL: when the route short-circuits
+// before any provider.chat() call (bad-request, classifier-refuse/ask,
+// internal-error catch), `usage` is undefined and JSON.stringify omits it.
+// NOTE: the frontend's src/utilities/aiClient.ts will need a parser update to
+// destructure { reply, usage } before reading `reply.kind`. That change lands
+// in a separate frontend task per the W8 brief.
+type UsageSidecar = { cost_usd: number; tokens_in: number; tokens_out: number };
+type ResponseEnvelope = { reply: Reply; usage?: UsageSidecar };
+
+// Build the usage sidecar from the harness's cumulative usage + the active
+// model tag. Uses computeCostUsd (re-exported from usage-log.ts) so the
+// cost figure on the wire matches what the JSONL row records — single price
+// table, no drift between sidecar and telemetry.
+function buildUsage(modelTag: string, tokensIn: number, tokensOut: number): UsageSidecar {
+    return {
+        cost_usd: computeCostUsd(modelTag, tokensIn, tokensOut),
+        tokens_in: tokensIn,
+        tokens_out: tokensOut,
+    };
+}
 
 // Generic clarifier when the schema gate trips post-harness (gate 1 re-parse
 // failure). Same wording the act/propose paths show. Answer-intent failures
@@ -114,9 +138,18 @@ function setWithEviction<V>(map: Map<string, V>, sessionId: string, value: V): v
 
 // Variables added on top of the AuthContext for the ai-chat router. `toolAudit`
 // is W4 plumbing — W8's telemetry middleware reads it off `c.var`.
+// `validateCoerced` is W8 plumbing — set on every happy path (act/propose/
+// answer) so the usage-log middleware can stamp `validation_outcome: 'coerced'`
+// when the validator silently repaired the LLM's shape (§7).
+// `providerModel` + `lastUsage` are W8 plumbing — set after the harness call
+// so the usage-log middleware can compute cost_usd from the SAME model tag +
+// cumulative token figures the response wrapper's sidecar exposes.
 type AiChatContext = AuthContext & {
     Variables: AuthContext['Variables'] & {
         toolAudit: ToolAuditEntry[];
+        validateCoerced: boolean;
+        providerModel: string;
+        lastUsage: { input: number; output: number };
     };
 };
 
@@ -133,11 +166,12 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
         try {
             raw = await c.req.json();
         } catch {
-            return c.json({ kind: 'refuse', reason: 'bad-request' } as Reply, 200);
+            // W8: short-circuit before any provider call — no usage sidecar.
+            return c.json({ reply: { kind: 'refuse', reason: 'bad-request' } } as ResponseEnvelope, 200);
         }
         const parsed = RequestSchema.safeParse(raw);
         if (!parsed.success) {
-            return c.json({ kind: 'refuse', reason: 'bad-request' } as Reply, 200);
+            return c.json({ reply: { kind: 'refuse', reason: 'bad-request' } } as ResponseEnvelope, 200);
         }
         const body: ChatRequestBody = parsed.data;
 
@@ -146,21 +180,26 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
         // ─── Classifier short-circuits ───────────────────────────────────
         const lastTurn = body.messages[body.messages.length - 1];
         if (!lastTurn || lastTurn.role !== 'user') {
-            return c.json({ kind: 'refuse', reason: 'bad-request' } as Reply, 200);
+            return c.json({ reply: { kind: 'refuse', reason: 'bad-request' } } as ResponseEnvelope, 200);
         }
         const userMessage = lastTurn.content;
         const intent = classify(userMessage);
 
         if (intent.kind === 'refuse') {
-            return c.json({ kind: 'refuse', reason: intent.reason ?? 'refused' } as Reply, 200);
+            return c.json(
+                { reply: { kind: 'refuse', reason: intent.reason ?? 'refused' } } as ResponseEnvelope,
+                200
+            );
         }
         if (intent.kind === 'ask') {
             return c.json(
                 {
-                    kind: 'ask',
-                    question:
-                        "Could you describe the transaction in more detail — what contract, action, and parameters?",
-                } as Reply,
+                    reply: {
+                        kind: 'ask',
+                        question:
+                            "Could you describe the transaction in more detail — what contract, action, and parameters?",
+                    },
+                } as ResponseEnvelope,
                 200
             );
         }
@@ -181,6 +220,18 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 .map((h) => deps.catalog.byKey.get(`${h.contract}::${h.action}`))
                 .filter((e): e is NonNullable<typeof e> => e !== undefined);
 
+            // W8: when history exceeds the window, compress surplus into one
+            // sentence injected before the verbatim <prior_assistant> entries.
+            // Returns { summary: '' } when there's no surplus, when SUMMARY=off,
+            // or when the provider call fails — the route silently continues
+            // with last-N turns verbatim in all three cases. Called BEFORE the
+            // harness so its usage is counted exactly once (we fold it into
+            // lastUsage below).
+            const priorSummaryResult = await summarisePriorHistory(body.messages, {
+                provider: deps.provider,
+            });
+            const priorSummary = priorSummaryResult.summary;
+
             const history = body.messages.slice(-HISTORY_WINDOW - 1, -1);
             const user = buildUserMessage({
                 history,
@@ -194,6 +245,7 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                     validatedAccounts: body.context.validatedAccounts,
                     knownAccounts: body.context.knownAccounts,
                 },
+                priorSummary,
             });
 
             // W4: tools wired into the harness. The session counter is the
@@ -238,11 +290,39 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             }
             c.set('toolAudit', audit);
 
+            // W8: fold harness usage + summary usage into one cumulative
+            // figure. The summary call is a SEPARATE provider.chat — its
+            // tokens land in tokens_in/tokens_out/cost_usd via this fold;
+            // it does NOT consume the §4.2 tool budget (which is keyed off
+            // toolAudit, not provider usage). Set providerModel + lastUsage
+            // so the usage-log middleware records a §7-shaped row and the
+            // response wrapper's sidecar uses the same numbers.
+            const providerModel = deps.provider.modelTag();
+            const harnessUsage = out.usage; // { input, output } | undefined
+            const summaryUsage = priorSummaryResult.usage; // { input, output } | undefined
+            const totalIn = (harnessUsage?.input ?? 0) + (summaryUsage?.input ?? 0);
+            const totalOut = (harnessUsage?.output ?? 0) + (summaryUsage?.output ?? 0);
+            c.set('providerModel', providerModel);
+            c.set('lastUsage', { input: totalIn, output: totalOut });
+            const usageSidecar = buildUsage(providerModel, totalIn, totalOut);
+
             if (out.kind === 'refuse') {
-                return c.json({ kind: 'refuse', reason: out.reason } as Reply, 200);
+                return c.json(
+                    {
+                        reply: { kind: 'refuse', reason: out.reason } as Reply,
+                        usage: usageSidecar,
+                    } as ResponseEnvelope,
+                    200
+                );
             }
             if (out.kind === 'ask') {
-                return c.json({ kind: 'ask', question: out.question } as Reply, 200);
+                return c.json(
+                    {
+                        reply: { kind: 'ask', question: out.question } as Reply,
+                        usage: usageSidecar,
+                    } as ResponseEnvelope,
+                    200
+                );
             }
 
             const reply: Reply = out.value;
@@ -253,7 +333,13 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             const reparsed = ReplySchema.safeParse(reply);
             if (!reparsed.success) {
                 logger.warn({ issues: reparsed.error.issues }, 'ai-chat: reply failed re-parse');
-                return c.json({ kind: 'ask', question: SCHEMA_RECOVERY_QUESTION } as Reply, 200);
+                return c.json(
+                    {
+                        reply: { kind: 'ask', question: SCHEMA_RECOVERY_QUESTION } as Reply,
+                        usage: usageSidecar,
+                    } as ResponseEnvelope,
+                    200
+                );
             }
             const validated = reparsed.data;
 
@@ -280,9 +366,18 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                         { failedGate: outcome.failedGate, classifierIntent: intent.kind },
                         'ai-chat: act reply downgraded to ask'
                     );
-                    return c.json({ kind: 'ask', question: outcome.question } as Reply, 200);
+                    return c.json(
+                        {
+                            reply: { kind: 'ask', question: outcome.question } as Reply,
+                            usage: usageSidecar,
+                        } as ResponseEnvelope,
+                        200
+                    );
                 }
-                return c.json(outcome.reply, 200);
+                // W8: forward the validator's coerced flag for the usage-log
+                // middleware (validation_outcome: 'coerced' when true).
+                c.set('validateCoerced', outcome.coerced);
+                return c.json({ reply: outcome.reply, usage: usageSidecar } as ResponseEnvelope, 200);
             }
 
             // propose reply — run validatePropose. Gates 1–6 run per inner
@@ -307,9 +402,18 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                         },
                         'ai-chat: propose reply downgraded to ask'
                     );
-                    return c.json({ kind: 'ask', question: outcome.question } as Reply, 200);
+                    return c.json(
+                        {
+                            reply: { kind: 'ask', question: outcome.question } as Reply,
+                            usage: usageSidecar,
+                        } as ResponseEnvelope,
+                        200
+                    );
                 }
-                return c.json(outcome.reply, 200);
+                // W8: forward the validator's coerced flag for the usage-log
+                // middleware (validation_outcome: 'coerced' when true).
+                c.set('validateCoerced', outcome.coerced);
+                return c.json({ reply: outcome.reply, usage: usageSidecar } as ResponseEnvelope, 200);
             }
 
             // answer reply — run validateAnswer (W7). The classifier routes
@@ -327,22 +431,33 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                         { failedGate: outcome.failedGate, classifierIntent: intent.kind },
                         'ai-chat: answer refused'
                     );
-                    return c.json({ kind: 'refuse', reason: outcome.reason } as Reply, 200);
+                    return c.json(
+                        {
+                            reply: { kind: 'refuse', reason: outcome.reason } as Reply,
+                            usage: usageSidecar,
+                        } as ResponseEnvelope,
+                        200
+                    );
                 }
-                return c.json(outcome.reply, 200);
+                // W8: forward the validator's coerced flag for the usage-log
+                // middleware. Always false for answer today (no reshape
+                // branches in A1–A3), but plumbed uniformly with act/propose.
+                c.set('validateCoerced', outcome.coerced);
+                return c.json({ reply: outcome.reply, usage: usageSidecar } as ResponseEnvelope, 200);
             }
 
             // Non-structured kinds (ask / refuse): the model is free to
             // downgrade when it cannot safely compose. Pass through.
-            return c.json(validated, 200);
+            return c.json({ reply: validated, usage: usageSidecar } as ResponseEnvelope, 200);
         } catch (err) {
             // Internal errors never reach the user. Log structurally, return
-            // a generic refuse.
+            // a generic refuse. usage is undefined — we don't know whether a
+            // provider call landed before the throw.
             logger.error(
                 { err: err instanceof Error ? err.message : String(err), promptVersion: SYSTEM_PROMPT_VERSION },
                 'ai-chat: unexpected error'
             );
-            return c.json(REFUSE_INTERNAL, 200);
+            return c.json({ reply: REFUSE_INTERNAL } as ResponseEnvelope, 200);
         }
     });
 

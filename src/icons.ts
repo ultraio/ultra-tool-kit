@@ -51,6 +51,7 @@ library.add(
     solid.faGlobe,
     solid.faAnchor,
     solid.faMicrochip,
+    solid.faCoins,
     // brands
     brands.faUsb
 );

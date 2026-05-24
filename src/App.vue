@@ -14,9 +14,20 @@
                 </div>
                 <span>Ultra Tool Kit</span>
             </router-link>
-            <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
-                {{ authState.environment }}
-            </Button>
+            <div class="flex items-center gap-2">
+                <button
+                    class="p-2 rounded text-neutral-300 hover:text-purple-300 hover:bg-neutral-700"
+                    title="Open AI assistant"
+                    aria-label="Open AI assistant"
+                    data-testid="ai-chat-toggle"
+                    @click="aiDrawerOpen = true"
+                >
+                    <Icon icon="fa-comments" />
+                </button>
+                <Button class="mr-2" @onClick="setPageState({ showEndpoint: true })">
+                    {{ authState.environment }}
+                </Button>
+            </div>
         </div>
 
         <!-- Main Content Row -->
@@ -59,6 +70,8 @@
             @transaction-executed="transactionExecuted"
             :allowProposal="actions[0]?.contract == 'eosio.msig' ? false : true"
         />
+
+        <ChatDrawer :open="aiDrawerOpen" :state="authState" @close="aiDrawerOpen = false" />
     </div>
 </template>
 
@@ -78,6 +91,7 @@ import { defaultNetworks, getEnvironmentName, getNetworkByChainId } from './util
 import { fetchWithTimeout } from './utilities/networks';
 import * as NFTAPI from './utilities/nftapi/api';
 import { emitter } from './eventBus';
+import ChatDrawer from './components/ai/ChatDrawer.vue';
 
 // Use `ref` here because we want to be able to set the whole object
 // and trigger a reaction when we set the whole object.
@@ -86,6 +100,7 @@ let pageState = ref<I.PageState>({});
 let actions = ref<I.Action[] | undefined>(undefined);
 let keyRouterUpdate = ref<number>(1);
 let keyUserUpdate = ref<number>(1);
+let aiDrawerOpen = ref<boolean>(false);
 let isNetworkSyncing = false; // Prevents circular sync between wallet↔toolkit
 
 // We never assign a whole object directly to authState,

@@ -109,11 +109,20 @@ describe('POST /api/ai-chat — answer path (happy)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; text?: string };
+        const envelope = (await res.json()) as {
+            reply: { kind: string; text?: string };
+            usage?: { cost_usd: number; tokens_in: number; tokens_out: number };
+        };
+        const body = envelope.reply;
         expect(body.kind).toBe('answer');
         expect(body.text).toContain('eosio.nft.ft::transfer');
         // Provider IS called for the happy path (no classifier short-circuit).
         expect(provider.calls).toBe(1);
+        // W8 wrapper: usage sidecar populated.
+        expect(envelope.usage).toBeDefined();
+        expect(typeof envelope.usage!.cost_usd).toBe('number');
+        expect(typeof envelope.usage!.tokens_in).toBe('number');
+        expect(typeof envelope.usage!.tokens_out).toBe('number');
     });
 });
 
@@ -137,12 +146,17 @@ describe('POST /api/ai-chat — gate A2 (invented reference)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; reason?: string };
-        expect(body.kind).toBe('refuse');
-        expect(body.reason).toBe('unsupported-reference');
+        const envelope = (await res.json()) as {
+            reply: { kind: string; reason?: string };
+            usage?: unknown;
+        };
+        expect(envelope.reply.kind).toBe('refuse');
+        expect(envelope.reply.reason).toBe('unsupported-reference');
         // Provider IS called — the model produced the bad reply, the
         // validator caught it post-harness.
         expect(provider.calls).toBe(1);
+        // Harness ran → usage sidecar present.
+        expect(envelope.usage).toBeDefined();
     });
 });
 
@@ -166,14 +180,18 @@ describe('POST /api/ai-chat — gate A3 (smuggled JSON action)', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; reason?: string };
-        expect(body.kind).toBe('refuse');
+        const envelope = (await res.json()) as {
+            reply: { kind: string; reason?: string };
+            usage?: unknown;
+        };
+        expect(envelope.reply.kind).toBe('refuse');
         // A3 emits 'unsupported-reference' per the validator; the route
         // surfaces that string. The W7 prompt accepts either A3 reason
         // ('unsupported-reference' OR 'malformed-answer'), so assert
         // membership of the W7-defined set.
-        expect(['unsupported-reference', 'malformed-answer']).toContain(body.reason);
+        expect(['unsupported-reference', 'malformed-answer']).toContain(envelope.reply.reason);
         expect(provider.calls).toBe(1);
+        expect(envelope.usage).toBeDefined();
     });
 });
 
@@ -196,12 +214,17 @@ describe('POST /api/ai-chat — classifier short-circuit (W7 cost + safety)', ()
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; reason?: string };
-        expect(body.kind).toBe('refuse');
-        expect(body.reason).toBe('out-of-scope');
+        const envelope = (await res.json()) as {
+            reply: { kind: string; reason?: string };
+            usage?: unknown;
+        };
+        expect(envelope.reply.kind).toBe('refuse');
+        expect(envelope.reply.reason).toBe('out-of-scope');
         // Load-bearing per the W7 simplifier exclusion list — the
         // classifier short-circuit is the cost win of W2 + the safety
         // boundary that keeps non-Ultra topics out of the provider.
         expect(provider.calls).toBe(0);
+        // No provider call → usage sidecar omitted.
+        expect(envelope.usage).toBeUndefined();
     });
 });

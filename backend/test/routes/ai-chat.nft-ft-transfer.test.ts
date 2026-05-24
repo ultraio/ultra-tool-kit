@@ -132,8 +132,9 @@ describe('POST /api/ai-chat — W5 eosio.nft.ft::transfer happy path', () => {
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string };
-        expect(body.kind).toBe('act');
+        const envelope = (await res.json()) as { reply: { kind: string }; usage?: unknown };
+        expect(envelope.reply.kind).toBe('act');
+        expect(envelope.usage).toBeDefined();
         expect(provider.calls).toBe(2);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
     });

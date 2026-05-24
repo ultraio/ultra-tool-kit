@@ -6,6 +6,7 @@
 # W1.5 lands greps #3 / #4 / #5 / #9 (frontend secret-storage discipline,
 #                                     127.0.0.1 bind, no committed
 #                                     DEV_AUTH_BYPASS=true, no `*` CORS).
+# W8   lands grep #11 (baseline-fixture protection).
 # Remaining greps land in their owning waves; rules listed below as TODO so
 # the wave that needs them can pick up where this leaves off.
 #
@@ -313,6 +314,47 @@ if (( ${#GREP10_HITS[@]} > 0 )); then
     for f in "${GREP10_HITS[@]}"; do
         echo "  $f" >&2
     done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #11 (W8): baseline-fixture protection.
+#
+# Guidelines §6 (determinism contract): the regression baseline is
+# operator-seeded only — no workflow re-seeds. A PR that removes a baseline
+# fixture without an explicit operator decision is a drift hazard. Diffing
+# against the merge-base with main catches accidental deletions before they
+# silently shrink the regression surface. See roadmap §6 row W8.
+#
+# A directory that doesn't yet exist is not a removal — the diff simply lists
+# nothing, so this grep is a no-op on a fresh tree. It's also a no-op when run
+# against main itself (no diff = no removals) and when `origin/main` is absent
+# in a fresh clone (we fall back to local `main`, then silently skip).
+# ----------------------------------------------------------------------------
+GREP11_BASE_REF="origin/main"
+# Fall back to local main if origin/main isn't available (fresh clone / dev).
+if ! git rev-parse --verify --quiet "$GREP11_BASE_REF" >/dev/null 2>&1; then
+    GREP11_BASE_REF="main"
+fi
+if git rev-parse --verify --quiet "$GREP11_BASE_REF" >/dev/null 2>&1; then
+    GREP11_MERGE_BASE="$(git merge-base "$GREP11_BASE_REF" HEAD 2>/dev/null || true)"
+    if [[ -n "$GREP11_MERGE_BASE" ]]; then
+        GREP11_HITS=()
+        while IFS=$'\t' read -r status path; do
+            case "$status" in
+                D) ;;
+                *) continue ;;
+            esac
+            case "$path" in
+                backend/test/fixtures/baseline/*) GREP11_HITS+=("$path") ;;
+            esac
+        done < <(git diff --name-status "$GREP11_MERGE_BASE" HEAD 2>/dev/null || true)
+        if (( ${#GREP11_HITS[@]} > 0 )); then
+            fail "Grep #11: baseline fixture removed (regression baseline is operator-seeded; §6)"
+            for f in "${GREP11_HITS[@]}"; do
+                echo "  removed: $f" >&2
+            done
+        fi
+    fi
 fi
 
 # ----------------------------------------------------------------------------

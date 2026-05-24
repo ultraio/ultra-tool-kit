@@ -41,6 +41,30 @@ export type ReplyRefuse = { kind: 'refuse'; reason: string };
 export type ReplyAnswer = { kind: 'answer'; text: string };
 export type Reply = ReplyAct | ReplyPropose | ReplyAsk | ReplyRefuse | ReplyAnswer;
 
+// W8: per-turn usage sidecar from the backend. OMITTED by the backend when it
+// short-circuits before a provider call (e.g. classifier refuse/ask).
+export interface AiUsageSidecar {
+    cost_usd: number;
+    tokens_in: number;
+    tokens_out: number;
+}
+
+// W8: wrapper response shape — `reply` is the unchanged Reply union, `usage`
+// is optional. Pre-W8 backends returned the Reply directly; the parser below
+// handles both shapes for backward compatibility.
+export interface AiChatResponse {
+    reply: Reply;
+    usage?: AiUsageSidecar;
+}
+
+// W8: daily aggregate from GET /api/ai-usage. Same JWT auth as /api/ai-chat.
+export interface AiUsageToday {
+    tokensInToday: number;
+    tokensOutToday: number;
+    costUsdToday: number;
+    turnsToday: number;
+}
+
 export class AiClientError extends Error {
     status?: number;
     cause?: unknown;
@@ -82,7 +106,21 @@ function isAbortError(err: unknown): boolean {
     return err instanceof Error && err.name === 'AbortError';
 }
 
-export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Promise<Reply> {
+// Backend may return either the W8 wrapper `{reply, usage}` or a bare Reply
+// (pre-W8 / legacy). Returns null when the body matches neither.
+function parseAiChatBody(body: unknown): AiChatResponse | null {
+    if (!body || typeof body !== 'object') return null;
+    if ('reply' in body) {
+        const reply = (body as { reply: unknown }).reply;
+        if (reply && typeof reply === 'object' && 'kind' in reply) {
+            return { reply: reply as Reply, usage: (body as AiChatResponse).usage };
+        }
+    }
+    if ('kind' in body) return { reply: body as Reply };
+    return null;
+}
+
+export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Promise<AiChatResponse> {
     const controller = new AbortController();
     const externalAbort = () => controller.abort(opts.signal?.reason);
     if (opts.signal) {
@@ -107,20 +145,24 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
         // documented non-200; surface it as a typed refuse so the caller
         // can prompt re-auth without exception-catching.
         if (res.status === 401) {
-            return { kind: 'refuse', reason: 'auth-required' };
+            return { reply: { kind: 'refuse', reason: 'auth-required' } };
         }
         if (!res.ok) {
             if (res.headers.get('content-type')?.includes('application/json')) {
                 try {
-                    const body = (await res.json()) as Reply;
-                    if (body && typeof body === 'object' && 'kind' in body) return body;
+                    const parsed = parseAiChatBody(await res.json());
+                    if (parsed) return parsed;
                 } catch {
                     /* fall through */
                 }
             }
             throw new AiClientError(`Backend returned ${res.status}`, res.status, await readErrorBody(res));
         }
-        return (await res.json()) as Reply;
+        const body = await res.json();
+        const parsed = parseAiChatBody(body);
+        if (parsed) return parsed;
+        // Fallback: unparseable response. Surface as a transport refuse.
+        throw new AiClientError('Backend returned an unexpected response shape', undefined, body);
     } catch (err) {
         if (err instanceof AiClientError) throw err;
         if (isAbortError(err)) {
@@ -142,4 +184,35 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
         if (warmingId) clearTimeout(warmingId);
         if (opts.signal) opts.signal.removeEventListener('abort', externalAbort);
     }
+}
+
+// W8: GET /api/ai-usage — daily aggregate for the active sub. JWT-protected
+// (same auth as /api/ai-chat). Returns zeros on 401 so the cost chip can
+// quietly display nothing rather than surfacing an error.
+export interface GetAiUsageOptions {
+    jwt?: string;
+    signal?: AbortSignal;
+}
+
+export async function getAiUsage(opts: GetAiUsageOptions = {}): Promise<AiUsageToday> {
+    const headers: Record<string, string> = {};
+    if (opts.jwt) headers.authorization = `Bearer ${opts.jwt}`;
+    const res = await fetch(`${getBaseUrl()}/api/ai-usage`, {
+        method: 'GET',
+        headers,
+        signal: opts.signal,
+    });
+    if (res.status === 401) {
+        // Not authed yet — return zeros (the cost chip shows nothing rather than erroring).
+        return { tokensInToday: 0, tokensOutToday: 0, costUsdToday: 0, turnsToday: 0 };
+    }
+    if (!res.ok) throw new AiClientError(`Usage endpoint returned ${res.status}`, res.status);
+    const body = (await res.json()) as AiUsageToday;
+    // Validate the shape so a malformed response doesn't break the chip.
+    return {
+        tokensInToday: Number(body.tokensInToday) || 0,
+        tokensOutToday: Number(body.tokensOutToday) || 0,
+        costUsdToday: Number(body.costUsdToday) || 0,
+        turnsToday: Number(body.turnsToday) || 0,
+    };
 }

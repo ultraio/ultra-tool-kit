@@ -118,13 +118,19 @@ describe('POST /api/ai-chat — W4 tool-use loop (insufficient-funds in one turn
         );
 
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { kind: string; question?: string };
+        const envelope = (await res.json()) as {
+            reply: { kind: string; question?: string };
+            usage?: unknown;
+        };
+        const body = envelope.reply;
         expect(body.kind).toBe('ask');
         // The §6 W4 success criterion — the ask string carries the on-chain
         // balance, not an invented number. The mock provider built the
         // string but the harness only got to that string by completing the
         // tool-use loop with the fetched payload in scope.
         expect(body.question).toContain('5');
+        // W8: harness ran across two turns → usage sidecar present.
+        expect(envelope.usage).toBeDefined();
 
         // Exactly two provider turns (tool_use → ask). Three would mean the
         // harness double-spent the budget; one would mean the tool dispatch

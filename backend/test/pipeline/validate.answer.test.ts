@@ -167,3 +167,19 @@ describe('validateAnswer — gate A3 (no smuggled JSON action)', () => {
         expect(out.kind).toBe('ok');
     });
 });
+
+// W8 — telemetry-only `coerced: boolean` on the OK outcome. Answer never
+// reshapes anything today (gates A1–A3 don't have coerce branches), so this
+// is always `false`. Plumbed for uniformity with act/propose.
+describe('validateAnswer — W8 coerced telemetry flag', () => {
+    it('coerced === false on every OK answer path', () => {
+        const reply = ans(
+            'The eosio.nft.ft::transfer action moves a uniq from one account to another.'
+        );
+        const out = validateAnswer(reply, catalog, baseCtx);
+        expect(out.kind).toBe('ok');
+        if (out.kind === 'ok') {
+            expect(out.coerced).toBe(false);
+        }
+    });
+});
