@@ -121,6 +121,13 @@ function pickValidationOutcome(
 // Shared cost lookup so the route handler's response-wrapper `usage.cost_usd`
 // uses the SAME price table the JSONL row uses. The PRICE_TABLE itself stays
 // module-local — only this function is exported.
+// G6: lets the boot path warn when the active model tag has no entry in
+// PRICE_TABLE — silent cost_usd = 0 across every row otherwise. Read-only
+// view of the table keys; the table itself stays module-local.
+export function isKnownModelTag(modelTag: string): boolean {
+    return Object.prototype.hasOwnProperty.call(PRICE_TABLE, modelTag);
+}
+
 export function computeCostUsd(modelTag: string, tokensIn: number, tokensOut: number): number {
     const price = PRICE_TABLE[modelTag];
     if (!price) return 0;

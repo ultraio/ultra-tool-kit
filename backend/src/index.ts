@@ -18,7 +18,7 @@ import { NonceStore } from './auth/nonce-store.js';
 import { type AuthContext, jwtAuth } from './middleware/auth.js';
 import { createRateLimitStore, rateLimit } from './middleware/ratelimit.js';
 import { logger, requestLogger } from './middleware/logging.js';
-import { usageLog } from './middleware/usage-log.js';
+import { isKnownModelTag, usageLog } from './middleware/usage-log.js';
 import { loadCatalog } from './pipeline/catalog.js';
 import { loadEosioTypes } from './pipeline/validate.js';
 import type { ChatProvider } from './llm/provider.js';
@@ -106,6 +106,18 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
     const catalog = await loadCatalog();
     const eosioTypes = await loadEosioTypes();
     const provider = deps.provider ?? buildProvider(cfg.llmProvider);
+
+    // G6: model-tag → price-table parity check. Silent cost_usd = 0 would
+    // mean the per-day USD cap (§3.3 tier 5) becomes a no-op for this model.
+    // Warning-only — boot still succeeds; operator updates PRICE_TABLE via
+    // doc PR if the model rolled.
+    const tag = provider.modelTag();
+    if (!isKnownModelTag(tag)) {
+        logger.warn(
+            { modelTag: tag },
+            'pricing: provider model tag is not in PRICE_TABLE; cost_usd will be 0 for every row. Update backend/src/middleware/usage-log.ts.'
+        );
+    }
 
     app.use('/api/ai-chat', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
     app.use('/api/ai-chat', rateLimit(rateLimitStore));

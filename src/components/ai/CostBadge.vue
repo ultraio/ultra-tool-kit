@@ -49,11 +49,17 @@ const title = computed(
         `Session cost (this conversation): $${sessionCostFormatted.value}\nToday's spend: $${todayCostFormatted.value}`
 );
 
-// Accumulate session cost on every new usage sidecar.
+// Accumulate session cost on every new usage sidecar. Also re-fetch the
+// daily aggregate (G4): the cost_usd of the just-completed turn lands in
+// usage.jsonl synchronously inside the middleware's try/finally, so by the
+// time we get the sidecar back the JSONL aggregate is fresh. Without this,
+// the "Today" value stays stale until the drawer is closed and reopened.
 watch(
     () => props.lastUsage,
     (u) => {
-        if (u) sessionCost.value += u.cost_usd;
+        if (!u) return;
+        sessionCost.value += u.cost_usd;
+        refresh();
     }
 );
 

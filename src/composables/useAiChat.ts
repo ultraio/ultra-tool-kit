@@ -22,6 +22,7 @@
 import { ref, type Ref } from 'vue';
 import { emitter } from '../eventBus';
 import * as I from '../interfaces';
+import { useWalletAccounts } from '../wallets/wallet-accounts';
 import {
     postAiChat,
     AiClientError,
@@ -85,7 +86,19 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
 
         const ctx = authState?.value;
         const selectedAccount = ctx?.accountName;
-        const validatedAccounts = selectedAccount ? [selectedAccount] : [];
+        // G2/G3: pull the full wallet-attested account list. validatedAccounts
+        // (backend gate 4 — actor must be in this set) gets the full list so
+        // cross-account propose flows work. knownAccounts (gate 5's citation
+        // source — "no invented identifiers") gets the same list so the user
+        // doesn't have to type every account name verbatim in every turn.
+        // Capped at 50 per the backend's Zod limit; deduped via Set in case
+        // the wallet returns the same name twice.
+        const { validatedAccounts: walletValidated } = useWalletAccounts();
+        const walletAccountNames = Array.from(
+            new Set(walletValidated.value.map((a) => a.accountName))
+        );
+        const fallback = selectedAccount ? [selectedAccount] : [];
+        const accountList = (walletAccountNames.length > 0 ? walletAccountNames : fallback).slice(0, 50);
         const req: AiChatRequest = {
             sessionId: sessionId.value,
             messages: messages.value.map((m) => ({
@@ -93,8 +106,8 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
                 content: typeof m.content === 'string' ? m.content : summarizeReply(m.content),
             })),
             context: {
-                validatedAccounts,
-                knownAccounts: [],
+                validatedAccounts: accountList,
+                knownAccounts: accountList,
                 selectedAccount,
                 chainId: ctx?.chainId ?? '',
                 endpoint: ctx?.endpoint ?? '',
