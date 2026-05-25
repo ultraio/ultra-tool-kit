@@ -74,32 +74,51 @@
 
                     <!-- Footer -->
                     <footer class="border-t border-neutral-700 p-3 bg-neutral-800">
+                        <!-- Unauthenticated CTA (guidelines §3.1) -->
                         <div
-                            v-if="inlineError"
-                            class="mb-2 text-xs text-red-400"
-                            data-testid="ai-inline-error"
+                            v-if="!loggedIn"
+                            class="flex flex-col items-center gap-2 py-2 text-center"
+                            data-testid="ai-chat-signin-cta"
                         >
-                            {{ inlineError }}
-                        </div>
-                        <div class="flex gap-2 items-end">
-                            <textarea
-                                v-model="draft"
-                                rows="2"
-                                placeholder="Describe the transaction…"
-                                class="flex-grow resize-none bg-neutral-950 rounded border border-neutral-700 px-2 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-purple-500"
-                                @keydown="onKeydown"
-                                data-testid="ai-chat-input"
-                            />
+                            <div class="text-xs text-neutral-400">
+                                Sign in with your wallet to use AI.
+                            </div>
                             <button
-                                class="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 text-white"
-                                :disabled="pending || !draft.trim()"
-                                @click="onSend"
-                                data-testid="ai-chat-send"
+                                class="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm"
+                                @click="emit('show-login')"
+                                data-testid="ai-chat-signin"
                             >
-                                <Icon icon="fa-paper-plane" />
+                                Sign in
                             </button>
                         </div>
-                        <div class="text-[10px] text-neutral-500 mt-1">Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}</div>
+                        <template v-else>
+                            <div
+                                v-if="inlineError"
+                                class="mb-2 text-xs text-red-400"
+                                data-testid="ai-inline-error"
+                            >
+                                {{ inlineError }}
+                            </div>
+                            <div class="flex gap-2 items-end">
+                                <textarea
+                                    v-model="draft"
+                                    rows="2"
+                                    placeholder="Describe the transaction…"
+                                    class="flex-grow resize-none bg-neutral-950 rounded border border-neutral-700 px-2 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-purple-500"
+                                    @keydown="onKeydown"
+                                    data-testid="ai-chat-input"
+                                />
+                                <button
+                                    class="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 text-white"
+                                    :disabled="pending || !draft.trim()"
+                                    @click="onSend"
+                                    data-testid="ai-chat-send"
+                                >
+                                    <Icon icon="fa-paper-plane" />
+                                </button>
+                            </div>
+                            <div class="text-[10px] text-neutral-500 mt-1">Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}</div>
+                        </template>
                     </footer>
                 </aside>
             </div>
@@ -114,12 +133,17 @@ import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
 import CostBadge from './CostBadge.vue';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
-const emit = defineEmits<{ (e: 'close'): void }>();
+const emit = defineEmits<{ (e: 'close'): void; (e: 'show-login'): void }>();
 
 const stateRef = computed(() => props.state);
 // JWT acquisition is a follow-up. Local dev uses DEV_AUTH_BYPASS=true on
 // the backend so loopback requests don't need a Bearer token.
 const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage } = useAiChat(stateRef);
+
+// docs/00-ai-global-guidelines.md §3.1: the drawer's send region shows a
+// "Sign in with your wallet" CTA when unauthenticated. The backend is the
+// real security gate (jwtAuth middleware); this is the UX hint.
+const loggedIn = computed(() => !!props.state.accountName);
 
 // W8: bumped on every reset so CostBadge zeros out its session running total.
 const resetCounter = ref(0);

@@ -71,7 +71,12 @@
             :allowProposal="actions[0]?.contract == 'eosio.msig' ? false : true"
         />
 
-        <ChatDrawer :open="aiDrawerOpen" :state="authState" @close="aiDrawerOpen = false" />
+        <ChatDrawer
+            :open="aiDrawerOpen"
+            :state="authState"
+            @close="aiDrawerOpen = false"
+            @show-login="setPageState({ showLogin: true })"
+        />
     </div>
 </template>
 

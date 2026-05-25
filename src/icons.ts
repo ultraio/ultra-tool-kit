@@ -52,6 +52,8 @@ library.add(
     solid.faAnchor,
     solid.faMicrochip,
     solid.faCoins,
+    solid.faComments,
+    solid.faRotateLeft,
     // brands
     brands.faUsb
 );
