@@ -85,7 +85,7 @@
                             </div>
                             <button
                                 class="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm"
-                                @click="emit('show-login')"
+                                @click="onSignInClick"
                                 data-testid="ai-chat-signin"
                             >
                                 Sign in
@@ -173,6 +173,15 @@ function onKeydown(e: KeyboardEvent) {
 function onQuickReply(text: string) {
     draft.value = text;
     onSend();
+}
+
+// Close the drawer before surfacing the login modal — the drawer's z-50
+// + full-screen backdrop would otherwise intercept clicks on the modal
+// (Modal.vue is z-10). After sign-in the user reopens the drawer
+// manually; the textarea will be active because `loggedIn` flipped true.
+function onSignInClick() {
+    emit('show-login');
+    emit('close');
 }
 
 // Auto-scroll on new messages.
