@@ -109,6 +109,7 @@ Per-turn target (hosted): **≤ 1.5 K input + ≤ 400 output**, ~$0.0008 on Haik
 | 8 | **Three-contract priority.** `eosio.token`, `eosio.nft.ft`, `eosio.msig` first-class. Others work via ABI fallback. | Per user instruction; covers 90% of toolkit traffic. |
 | 9 | **Branch:** `feature/ai-enhancement`. One PR per wave. PR title format: `[ai-NN] <imperative>`. | Matches bi-platform's "one PR = one feature" cadence. |
 | 10 | **Nothing outside the AI scope is changed.** Wallet code, Transaction.vue's existing paths, page logic — all frozen. | User instruction. |
+| 11 | **v1 identity model is anonymous-per-IP with monthly cost cap. Path 1 (wallet-native silent attestation) is the named v2 upgrade — see `docs/proposals/wallet-native-attestation.md`.** | Smallest defense that's still binding; net code reduction; closes T1 cheaply, bounds T2/T3 via global cap. |
 
 ---
 
@@ -133,7 +134,7 @@ Each wave is one branch commit / one PR off `feature/ai-enhancement`. Don't merg
 |---|---|---:|---|---|
 | W0 | Branch + skeleton + extractor refresh | 1d | Branch exists, `backend/catalog/{token,nft.ft,msig}.json` regenerated, smoke tests pass. No LLM. | §1, §5 (greps land here) |
 | W1 | Provider abstraction + harness (Haiku 4.5 + Ollama) | 2d | `harness.call(schema, prompt, tools?)` works against both providers. Budget caps enforced. Schema gate trips on bad output. | §4.3 gate 1, §4.7, §5 grep 1+2 |
-| **W1.5** | **Wallet auth + per-pubkey rate limit** | **2d** | **`POST /api/auth/{challenge,verify}` signs nonce with Ultra Wallet / Ledger / Anchor → JWT bound to pubkey hash. All chat routes 401 without it. Rate limit + budget caps (§3.3) enforced per `sub`. `DEV_AUTH_BYPASS` works locally only.** | **§3 in full, §4.6, §5 grep 5** |
+| **W1.5** | **Per-IP rate limit + monthly cost cap** | **2d** | **Anonymous backend (no JWT, no signature). `POST /api/ai-chat` accepts any caller; rate-limit middleware buckets on client IP across minute/hour/day/month tiers; global $50/month USD cap reads `logs/usage.jsonl` aggregate. `DEV_RATELIMIT_BYPASS=true` + loopback bypass for dev. Net code reduction from the original W1.5 attempt.** | **§3 in full, §4.6, §5 rules 5 + 10 (grep #5 lands here; grep #12 enforcing rule 10 lands in PR 2)** |
 | W2 | Catalog index + classify + retrieve | 1d | `classify(text)` returns `act | propose | ask | refuse | answer`. BM25 retrieval returns top-K=5 catalog hits. Pure functions, unit-tested. | §4.1 (injection prefixes), §1 |
 | W3 | Action composer for `eosio.token` end-to-end | 2d | Chat "transfer 100 UOS from a to b" → JSON proposal → `<Transaction>` modal opens with prefilled data. No RPC yet. | §4.3 gates 1–6, §4.5 |
 | W4 | RPC grounding tools (read-only) | 2d | `get_account`, `get_balance`, `get_abi`, `get_table_rows`, `get_action_schema` allowlisted. Per-turn tool budget enforced. Responses fenced as untrusted. AI catches "insufficient funds" in one turn. | §4.1, §4.2 full, §4.4 |
@@ -273,7 +274,7 @@ What gets dropped:
 
 - Postgres + Drizzle + pgvector (entire DB layer; `backend/src/db/**`, `backend/drizzle/**`)
 - `backend/src/pipeline/retrieve.ts` pgvector path (replaced by in-memory BM25)
-- `backend/src/middleware/auth.ts` (Phase 1 single-user; revisit if/when hosted)
+- `backend/src/auth/** + backend/src/middleware/auth.ts + backend/src/routes/auth.ts` (W1.5-redo drops all JWT/nonce/signature plumbing; PR 2 of this wave deletes the directory).
 - Anything embeddings-related (`EMBED_PROVIDER`, `nomic-embed-text`, etc.)
 - OpenAI provider (single-provider-cleanup; bring back later if needed)
 
@@ -281,7 +282,8 @@ What gets dropped:
 
 ## 9. Open items deferred past v1
 
-- Hosted deploy (Fly.io / Dokploy). v1 is local-first; the auth layer (W1.5) is built so the same code works hosted, but the deploy itself is post-v1.
+- Hosted deploy (Fly.io / Dokploy). v1 is local-first. When hosted-deploy lands, the per-IP rate limit (§3 of docs/00) MUST switch from connection-level remote address to a trusted-proxy header read (e.g., CF-Connecting-IP).
+- Wallet-native silent connect-time attestation (Path 1). Closes T2/T3 properly by binding requests to a wallet-issued attestation instead of just an IP. Requires Ultra Wallet team coordination. Full design at docs/proposals/wallet-native-attestation.md.
 - Cross-process rate limiting (Redis-backed). In v1 the token buckets are in-process + JSONL aggregate, fine for single-instance.
 - Bulk flows (`bulkFactoryCreation`, `uosMassTransfer`) — same chat, but emits N actions.
 - Factory metadata authoring assistant (the `schemaValidator` page hook).

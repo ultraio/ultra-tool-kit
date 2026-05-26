@@ -5,8 +5,12 @@
 # W1   landed greps #1 + #2 (provider isolation).
 # W1.5 lands greps #3 / #4 / #5 / #9 (frontend secret-storage discipline,
 #                                     127.0.0.1 bind, no committed
-#                                     DEV_AUTH_BYPASS=true, no `*` CORS).
+#                                     DEV_RATELIMIT_BYPASS=true, no `*` CORS).
 # W8   lands grep #11 (baseline-fixture protection).
+# W1.5-redo (this PR) repoints grep #5 (DEV_AUTH_BYPASS → DEV_RATELIMIT_BYPASS).
+#                     The companion grep blocking committed JWT_SECRET= lands in
+#                     the W1.5-redo code PR (PR 2), alongside the
+#                     backend/.env.example cleanup that removes the W1.5 residue.
 # Remaining greps land in their owning waves; rules listed below as TODO so
 # the wave that needs them can pick up where this leaves off.
 #
@@ -147,12 +151,12 @@ if (( ${#GREP4_HITS[@]} > 0 )); then
 fi
 
 # ----------------------------------------------------------------------------
-# Grep #5 (W1.5): `DEV_AUTH_BYPASS=true` in any tracked .env* file.
+# Grep #5 (W1.5-redo): `DEV_RATELIMIT_BYPASS=true` in any tracked .env* file.
 #
 # Guidelines §5 rule 5 + §3.4. Dev-only flag; committing `=true` to any
 # .env example is a production foot-gun.
 # ----------------------------------------------------------------------------
-GREP5_PATTERN='^[[:space:]]*DEV_AUTH_BYPASS=true'
+GREP5_PATTERN='^[[:space:]]*DEV_RATELIMIT_BYPASS=true'
 GREP5_HITS=()
 while IFS= read -r f; do
     case "$(basename "$f")" in
@@ -164,7 +168,7 @@ while IFS= read -r f; do
     fi
 done < "$TRACKED_FILE"
 if (( ${#GREP5_HITS[@]} > 0 )); then
-    fail "Grep #5: DEV_AUTH_BYPASS=true committed to a .env* file (loopback-only dev flag; §3.4)"
+    fail "Grep #5: DEV_RATELIMIT_BYPASS=true committed to a .env* file (loopback-only dev flag; §3.4)"
     for f in "${GREP5_HITS[@]}"; do
         grep -nE "$GREP5_PATTERN" "$f" | sed "s|^|  $f:|" >&2
     done

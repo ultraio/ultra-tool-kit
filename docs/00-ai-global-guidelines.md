@@ -37,9 +37,8 @@ If a feature needs an exception, **the doc changes first, in its own PR.** No si
  │             │  │                       │  │                │  │                  │
  │ user types ─┼─►│ Zod request schema    │  │                │  │                  │
  │             │  │   ↓                   │  │                │  │                  │
- │             │  │ JWT verify (pubkey)   │  │                │  │                  │
- │             │  │   ↓                   │  │                │  │                  │
- │             │  │ rate limit (pubkey)   │  │                │  │                  │
+ │             │  │ rate limit (per IP    │  │                │  │                  │
+ │             │  │   + monthly cap)      │  │                │  │                  │
  │             │  │   ↓                   │  │                │  │                  │
  │             │  │ classifier            │  │                │  │                  │
  │             │  │   ↓                   │  │                │  │                  │
@@ -60,66 +59,48 @@ Each `↓` is a non-bypassable validation step. A wave that introduces a new bou
 
 ---
 
-## 3. Identity, auth, and rate limits — keyed on **wallet pubkey**, not account
+## 3. Identity, rate limits, and cost caps — keyed on **client IP**
 
-**Decision (locked):** the unit of identity for the AI feature is the **active wallet public key**, not the account name. One person controls one wallet, signs with one key, may have many accounts. Limits, budgets, and audit logs aggregate to the key.
+### 3.1 No backend identity in v1
 
-### 3.1 Login is required
+The AI is **anonymous-callable**. `POST /api/ai-chat` accepts any caller — no JWT, no signature, no identity claim required or trusted. The FE drawer's "Sign in with wallet" CTA is **UX only**: it gates the chat panel behind wallet-connect because the AI needs `validatedAccounts` from the wallet to compose anything. The backend doesn't enforce or trust that gate.
 
-The AI feature is not accessible without an authenticated session. The toolkit can be used unauthenticated for read-only browsing, but `POST /api/ai-chat` returns `401 { kind: 'refuse', reason: 'auth-required' }` if no JWT is presented.
+The original W1.5 attempt built per-pubkey JWT auth (challenge → wallet `signMessage` → JWT, rate limits keyed on `sub = hash(pubkey)`). It was reverted: extra wallet popup at chat-open, dual signing modes across Ultra/Ledger/Anchor, meaningful code for a defense only as strong as the wallet's signing UX. The redo trades the JWT layer for a per-IP rate limit plus a monthly cost cap as the binding defense.
 
-This is enforced at the Hono router, not in the chat UI. The drawer's send button shows a "Sign in with your wallet to use AI" CTA when unauthenticated — but the backend doesn't trust that.
-
-### 3.2 Challenge / verify flow
-
-```
-POST /api/auth/challenge          → { nonce: <hex32>, expiresAt: <iso> }
-                                    (no body required; one-time nonce, 5-min ttl)
-
-[ wallet signs the nonce ]
-
-POST /api/auth/verify             ← { nonce, signature, pubkey, account, permission }
-                                  → { jwt: <bearer>, expiresAt }
-```
-
-Backend verifies the signature against the pubkey using `@wharfkit/antelope` (or the Ultra signer-lib equivalent already in the toolkit). On success, issues a JWT with claims:
-
-```jsonc
-{
-    "sub": "k1:<sha256(pubkey)>",      // stable identity, used for all aggregation
-    "pubkey": "EOS...|UTR...",         // for tool-call audit
-    "account": "duncan",               // for display only; never trusted past this header
-    "permission": "active",
-    "chainId": "...",
-    "iat": ..., "exp": ...             // 24h max
-}
-```
-
-**`sub` is the rate-limit key, the budget key, and the audit-log key.** Account changes (user adds a key on a new account) don't reset limits within the JWT's lifetime; key rotation does. That's the right semantic.
-
-### 3.3 Rate-limit tiers (all per-pubkey, all enforced at the Hono router)
+### 3.2 Rate-limit tiers (per IP)
 
 | Tier | Limit | Action on breach |
 |---|---|---|
-| Per-minute | 10 chat turns | `refuse { reason: 'rate-limit-minute' }` |
-| Per-hour | 60 chat turns | `refuse { reason: 'rate-limit-hour' }` |
-| Per-day | 500 chat turns | `refuse { reason: 'rate-limit-day' }` |
-| Per-day token budget | 50 K input + 12 K output tokens | `refuse { reason: 'budget-exceeded' }`, surface remaining quota in response |
-| Per-day USD cap | $0.10 / pubkey (sponsorship guard) | `refuse { reason: 'budget-exceeded' }` |
-| Global daily kill-switch | $50 across all pubkeys | `refuse { reason: 'sponsor-cap' }`, page operator |
+| Per-minute (per IP) | 10 chat turns | `refuse { reason: 'rate-limit-minute' }` |
+| Per-hour (per IP) | 60 chat turns | `refuse { reason: 'rate-limit-hour' }` |
+| Per-day (per IP) | 30 chat turns | `refuse { reason: 'rate-limit-day' }` |
+| Per-month (per IP) | 300 chat turns | `refuse { reason: 'rate-limit-month' }` |
+| Global monthly USD cap | $50 across all IPs | `refuse { reason: 'sponsor-cap' }`, page operator |
 
-Tiers 1–4 are in-process token buckets + JSONL counters. Tier 5 + 6 read the day's `logs/usage.jsonl` aggregate (cheap; file is small). On breach we **always reply HTTP 200 with `kind: refuse`** so the UI renders a normal bubble — never 429 (avoids client-side retry storms).
+Tiers 1–4 are in-process token buckets keyed on client IP. Tier 5 reads the month's `logs/usage.jsonl` aggregate (cheap; file is small). On breach we **always reply HTTP 200 with `kind: refuse`** so the UI renders a normal bubble — never 429 (avoids client-side retry storms).
 
-**IP is a secondary signal, not the key.** A user behind CGNAT shares IP with thousands; a determined attacker rotates IPs. We tag the IP in the log row but limits aggregate on `sub`.
+### 3.3 What this defends
 
-### 3.4 What changes per environment
+| Threat | v1 outcome |
+|---|---|
+| T1 — Single-IP drive-by (curl loop on one machine) | **Blocked** by per-IP rate limit. Burns one IP in minutes, hits `rate-limit-day`. Cost to sponsor: < $0.05. |
+| T2 — Distributed abuse (botnet, proxy pool, Tor) | **Bounded** by the global monthly cap. ~200 distinct IPs needed to drain $50 over a month. Attacker can DoS the feature for the rest of the month; cannot drain beyond cap. |
+| T3 — Cost-DoS of the AI feature | Same as T2 — global cap binds. Failure mode is "AI dies until 1st of next month". Operator gets a clear signal. |
+| T4 — Account spoofing (attacker submits `validatedAccounts: ["someone-else"]`) | **Absorbed** by the wallet refusing to sign anything the attacker's keys can't authorize (§4.5: the wallet is the signing gate, not the AI). Citation gate (§4.3 gate 5) prevents the AI from emitting identifiers not in the user's message or tool results. |
 
-| Env | Auth | Rate limits |
-|---|---|---|
-| Local dev (single user, 127.0.0.1) | `DEV_AUTH_BYPASS=true` injects a synthetic pubkey-id; full middleware otherwise unchanged | Tier 1–4 active; tier 5 disabled |
-| Hosted (any non-local origin) | JWT required; no bypass | All tiers active |
+### 3.4 What this does NOT defend
 
-`DEV_AUTH_BYPASS=true` in production is a CI failure (grep). Borrowed from bi-platform pattern.
+- **Distributed abuse beyond the $50/month cap.** A determined attacker can DoS the AI for an entire month at $50 cost. The proper closure is §3.6 (wallet-native attestation).
+- **Hosted-deploy IP spoofing via `X-Forwarded-For`.** v1 binds loopback only and reads the connection-level remote address. When hosted-deploy lands, this MUST switch to a trusted-proxy header (e.g., `CF-Connecting-IP` for Cloudflare). Trusting `X-Forwarded-For` naively allows trivial per-request IP spoofing.
+- **CGNAT shared-IP false positives.** Heavy carrier-NAT pools could brush the per-day cap (30/day). The refuse message names the cap explicitly so a real user understands what they're hitting.
+
+### 3.5 Local dev
+
+`DEV_RATELIMIT_BYPASS=true` + a loopback client IP (`127.0.0.1` / `::1`) skips all tiers. `DEV_RATELIMIT_BYPASS=true` in production is a CI grep failure (see §5 rule 5). The flag does nothing without a loopback IP — there's no way for a hosted client to opt itself out.
+
+### 3.6 Future direction: wallet-native attestation
+
+The proper closure for T2/T3 is **wallet-native silent connect-time attestation** — the wallet issues a short-lived signed attestation at `connect()` time (no extra user consent step) and the toolkit forwards it as `Authorization: Attestation <payload>` on chat requests. Backend verifies the attestation against the wallet vendor's published pubkey and rate-limits on the attested wallet identity instead of (or in addition to) IP. Shape is **additive**: if the header is absent, the request falls back to per-IP. Requires Ultra Wallet team coordination and is **not in scope for v1**. Full design at `docs/proposals/wallet-native-attestation.md`.
 
 ---
 
@@ -168,7 +149,6 @@ For `kind: 'propose'` (msig), gates 1–6 run on **every inner action**. One bad
 - The AI never lists accounts the user did not mention. "I see you also have accounts X, Y, Z" is forbidden — that's enumeration of session context past intent.
 - Tool responses are post-filtered: only the fields the LLM asked about are forwarded back to the LLM. (Field-level allowlist per tool.)
 - `logs/usage.jsonl` stores the SHA256 of the user message + first 80 chars (truncated). Full text only in dev with `LOG_FULL_BODIES=true`.
-- JWT and signatures never appear in any log line.
 
 ### 4.5 The wallet is the signing gate, not the AI
 
@@ -179,12 +159,13 @@ Corollary: there is no "auto-sign", no "trusted intent", no "signing scope" the 
 ### 4.6 Network posture
 
 - Local: backend binds `127.0.0.1` only. CORS allows `http://localhost:5172` only. `0.0.0.0` bind in non-test code is a CI failure (grep).
-- Hosted: CORS is an explicit allowlist (env var). No `*`. JWT required. TLS terminated upstream.
+- Hosted: CORS is an explicit allowlist (env var). No `*`. TLS terminated upstream.
+- Per-IP rate limit applies in both local and hosted; trusted-proxy header read is required for hosted (see §3.4).
 - LLM provider URLs: only `https://api.anthropic.com/*` for Anthropic; `http://localhost:11434/*` for Ollama. No arbitrary base-URL override in production.
 
 ### 4.7 Cost-DoS posture
 
-Cost is a security property under sponsorship. The doc's per-pubkey + global caps (§3.3) are the primary defense. Secondary:
+Cost is a security property under sponsorship. The doc's per-IP + global monthly caps (§3.2) are the primary defense. Secondary:
 
 - Output token cap enforced in the harness (`max_tokens`), not the prompt.
 - Tool-call budget per turn (§4.2) prevents runaway tool loops.
@@ -201,11 +182,13 @@ Block PRs that match any of:
 2. Raw `fetch(` against `api.anthropic.com|localhost:11434` outside `backend/src/llm/`.
 3. `localStorage`/`sessionStorage` writes containing the substrings `jwt`, `bearer`, `pubkey` in `src/` (we keep secrets in memory only; sessionId is the one allowed exception and is a UUID).
 4. `0.0.0.0` bind in `backend/src/**` outside `backend/test/`.
-5. `DEV_AUTH_BYPASS=true` in `.env*` files at repo root.
+5. `DEV_RATELIMIT_BYPASS=true` in `.env*` files at repo root.
 6. `dangerouslySetInnerHTML` / `v-html` in `src/components/ai/**` — chat content is text-only.
 7. `cast(.*as.*)` chained off LLM responses in TS — schema gate must come first.
 8. New tool name in `pipeline/tools/` without a corresponding row in `docs/00-ai-global-guidelines.md §4.2`.
 9. `*` CORS origin in `backend/src/**` outside test fixtures.
+10. `JWT_SECRET=` in any tracked `.env*` file at repo root (prevents re-introduction of the W1.5 JWT path).
+    (Rule 10 is enforced by grep #12 in `scripts/ai-ci-greps.sh`; the grep lands in the W1.5-redo code PR — PR 2 — together with the `backend/.env.example` cleanup that removes the existing `JWT_SECRET=` residue. The rule is design-locked here so PR 2 can't drop it.)
 
 CI greps are the dumbest, fastest way to enforce the rules; tests catch the rest.
 
@@ -229,9 +212,7 @@ Every chat turn writes one row to `logs/usage.jsonl`:
 ```jsonc
 {
     "ts": "2026-05-20T03:14:15Z",
-    "sub": "k1:abcdef...",
-    "pubkey_prefix": "EOS6m...",      // first 6 chars only
-    "account": "duncan",
+    "client_ip_hash": "sha256:...",   // sha256 of the connection-level remote address; plaintext IP never logged
     "endpoint_chainid": "...",
     "session_id_hash": "...",
     "turn_kind": "act|propose|ask|refuse|answer",
@@ -255,9 +236,9 @@ Append-only. Rotated daily. PII-minimal by construction.
 
 `docs/01-ai-enhancement-roadmap.md` is updated to:
 
-- Insert **W1.5 — Wallet auth + per-pubkey rate limit** between W1 and W2 (was deferred in §9; now in v1).
+- **W1.5 — Per-IP rate limit + monthly cost cap** sits between W1 and W2. Anonymous backend; no JWT.
 - Add a "Security check" row to every wave's acceptance criteria, citing the §s of this doc the wave satisfies.
-- Move "Hosted deploy" off §9 — it's still post-v1, but JWT auth is not.
+- Hosted deploy remains in §9 (post-v1). When it lands, the trusted-proxy header read (§3.4) must replace the connection-level IP source.
 - W4 (RPC tools) explicitly implements §4.2 allowlist + tool budget.
 - W6 (msig proposals) explicitly implements §4.3 gates 1–6 on every inner action.
 - W8 (polish) implements §7 telemetry + §6 regression baseline.
