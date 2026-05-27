@@ -54,6 +54,9 @@ library.add(
     solid.faCoins,
     solid.faComments,
     solid.faRotateLeft,
+    solid.faCircleQuestion,
+    solid.faClose,
+    solid.faTimes,
     // brands
     brands.faUsb
 );

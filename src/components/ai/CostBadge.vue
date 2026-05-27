@@ -1,6 +1,12 @@
 <template>
+    <!--
+        Operator-only sponsor-budget chip. Hidden from end users — `isDev` is
+        true under `vite dev` and false in production builds (`vite build`).
+        Surfaces today's spend so a developer can watch the §3.2 monthly cap
+        without polling /api/ai-usage by hand.
+    -->
     <div
-        v-if="visible"
+        v-if="visible && isDev"
         class="flex items-center gap-2 px-2 py-1 rounded bg-neutral-700 text-[10px] text-neutral-300"
         data-testid="ai-cost-badge"
         :title="title"
@@ -39,6 +45,9 @@ const props = defineProps<{
 const sessionCost = ref<number>(0);
 const todayCost = ref<number>(0);
 const visible = computed(() => sessionCost.value > 0 || todayCost.value > 0);
+// Hide from production users — sponsor-budget telemetry is operator-only.
+// Vite sets `import.meta.env.DEV` to true under `vite dev`, false in builds.
+const isDev = import.meta.env.DEV;
 
 const sessionCostFormatted = computed(() => sessionCost.value.toFixed(4));
 const todayCostFormatted = computed(() => todayCost.value.toFixed(4));
