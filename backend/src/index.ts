@@ -5,7 +5,15 @@
 // §3.1) — no JWT layer; per-IP rate limit + monthly cost cap (docs/00 §3.2)
 // are the binding defenses.
 
-import 'dotenv/config';
+// Load .env with override so a stale or empty shell-exported var doesn't
+// silently mask the file's value. Common foot-gun: a parent terminal /
+// editor exports `ANTHROPIC_API_KEY=` for sandboxing; dotenv's default
+// "preserve existing" behavior would keep the empty string and the provider
+// would throw `ANTHROPIC_API_KEY is not set` on every chat — surfacing only
+// as `kind: 'refuse', reason: 'retries-exhausted'` from the harness.
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
