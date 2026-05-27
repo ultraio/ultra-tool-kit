@@ -136,13 +136,13 @@ const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'show-login'): void }>();
 
 const stateRef = computed(() => props.state);
-// JWT acquisition is a follow-up. Local dev uses DEV_AUTH_BYPASS=true on
-// the backend so loopback requests don't need a Bearer token.
+// The "Sign in with wallet" CTA is pure UI gating per docs/00 §3.1 — it
+// ensures the AI has `validatedAccounts` from the wallet before the user
+// can chat (the AI needs them to compose anything). The backend is
+// anonymous (no JWT, no auth gate) and rate-limits on client IP — the
+// CTA does not affect backend access.
 const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage } = useAiChat(stateRef);
 
-// docs/00-ai-global-guidelines.md §3.1: the drawer's send region shows a
-// "Sign in with your wallet" CTA when unauthenticated. The backend is the
-// real security gate (jwtAuth middleware); this is the UX hint.
 const loggedIn = computed(() => !!props.state.accountName);
 
 // W8: bumped on every reset so CostBadge zeros out its session running total.

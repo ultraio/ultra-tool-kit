@@ -1,8 +1,10 @@
 // usage-log middleware contract tests (guidelines §7 + §4.4).
 //
+// W1.5-redo (docs/00 §3.1): anonymous backend — no JWT-sourced fields. The
+// row's identity slot is `client_ip_hash` = sha256(clientIpOf(c)).
+//
 // The row shape is an audit contract — extra fields or missing fields are a
-// CI failure. These tests pin every required key and the PII gates that
-// keep raw bearer tokens, nonces, and signatures out of the JSONL.
+// CI failure. These tests pin every required key and the PII gates.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
@@ -13,19 +15,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 
 import { usageLog, type UsageLogContext, type UsageRow } from '../../src/middleware/usage-log.js';
-import type { AuthContext } from '../../src/middleware/auth.js';
-import type { VerifiedClaims } from '../../src/auth/jwt.js';
+
+const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as const;
 
 // Every key the §7 row must carry, in sorted order. The middleware's
 // buildRow emits these in insertion order; tests sort for comparison.
 const REQUIRED_KEYS = [
-    'account',
+    'client_ip_hash',
     'cost_usd',
     'endpoint_chainid',
-    'pubkey_prefix',
     'provider_model',
     'session_id_hash',
-    'sub',
     'tokens_in',
     'tokens_out',
     'tool_calls',
@@ -40,14 +40,12 @@ const REQUIRED_KEYS = [
 // Mirror the ai-chat context union — usageLog reads `toolAudit` off c.var
 // (set by the W4 harness plumbing), so the test app must declare it too.
 type RouteContext = {
-    Variables: AuthContext['Variables'] &
-        UsageLogContext['Variables'] & {
-            toolAudit: Array<{ tool: string }>;
-        };
+    Variables: UsageLogContext['Variables'] & {
+        toolAudit: Array<{ tool: string }>;
+    };
 };
 
 type RouteOpts = {
-    auth?: VerifiedClaims | null; // null = don't set auth (simulate 401)
     toolAudit?: Array<{ tool: string }>;
     validateCoerced?: boolean;
     providerModel?: string;
@@ -60,28 +58,14 @@ function makeApp(logPath: string, opts: RouteOpts) {
     const app = new Hono<RouteContext>();
     app.use('/chat', usageLog({ logPath, now: () => new Date('2026-05-20T03:14:15.123Z') }));
     app.post('/chat', (c) => {
-        if (opts.auth !== null && opts.auth !== undefined) c.set('auth', opts.auth);
         if (opts.toolAudit) c.set('toolAudit', opts.toolAudit);
         if (opts.validateCoerced !== undefined) c.set('validateCoerced', opts.validateCoerced);
         if (opts.providerModel) c.set('providerModel', opts.providerModel);
         if (opts.lastUsage) c.set('lastUsage', opts.lastUsage);
-        const body = opts.reply ?? { kind: 'refuse', reason: 'auth-required' };
+        const body = opts.reply ?? { kind: 'refuse', reason: 'refused' };
         return c.json(body as object, (opts.status ?? 200) as 200);
     });
     return app;
-}
-
-function defaultClaims(overrides: Partial<VerifiedClaims> = {}): VerifiedClaims {
-    return {
-        sub: 'k1:abcdef0123',
-        pubkey: 'EOS6mAB1234567XYZ',
-        account: 'duncan',
-        permission: 'active',
-        chainId: 'chain-mainnet',
-        iat: 0,
-        exp: 0,
-        ...overrides,
-    };
 }
 
 function defaultBody(overrides: Record<string, unknown> = {}) {
@@ -114,8 +98,7 @@ afterEach(async () => {
 describe('usageLog middleware', () => {
     it('writes a row whose keyset matches §7 exactly — no extras, none missing', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
-            toolAudit: [{ tool: 'get_account' }],
+toolAudit: [{ tool: 'get_account' }],
             validateCoerced: false,
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1287, output: 312 },
@@ -134,7 +117,6 @@ describe('usageLog middleware', () => {
 
     it('redacts the Authorization bearer token + body nonce/signature from the row', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 10, output: 5 },
             reply: { kind: 'refuse', reason: 'refused' },
@@ -162,7 +144,6 @@ describe('usageLog middleware', () => {
     it('user_msg_prefix is capped at 80 chars; user_msg_sha hashes the full message', async () => {
         const long = 'A'.repeat(200);
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'ask', question: 'huh?' },
@@ -178,31 +159,32 @@ describe('usageLog middleware', () => {
         expect(row!.user_msg_sha).toBe(createHash('sha256').update(long).digest('hex'));
     });
 
-    it('pubkey_prefix is exactly 6 chars — never the full pubkey', async () => {
+    it('client_ip_hash is sha256(clientIp) — raw IP never appears in the row', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims({ pubkey: 'EOS6mAB1234567XYZ' }),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'refuse', reason: 'refused' },
         });
-        await app.request('/chat', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(defaultBody()),
-        });
+        await app.request(
+            '/chat',
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(defaultBody()),
+            },
+            { incoming: { socket: { remoteAddress: '192.0.2.42' } } }
+        );
         const [row] = await readRows(logPath);
-        expect(row!.pubkey_prefix).toBe('EOS6mA');
-        expect(row!.pubkey_prefix.length).toBe(6);
-        // Belt-and-suspenders: the long form must not appear anywhere.
-        expect(JSON.stringify(row)).not.toContain('EOS6mAB1234567XYZ');
+        expect(row!.client_ip_hash).toBe(createHash('sha256').update('192.0.2.42').digest('hex'));
+        // Belt-and-suspenders: the raw IP must not appear anywhere in the row.
+        expect(JSON.stringify(row)).not.toContain('192.0.2.42');
     });
 
     describe('validation_outcome lookup', () => {
         async function runWith(reply: unknown, coerced: boolean): Promise<UsageRow> {
             const tmp = join(tmpdir(), `usage-log-vo-${randomUUID()}.jsonl`);
             const app = makeApp(tmp, {
-                auth: defaultClaims(),
-                validateCoerced: coerced,
+        validateCoerced: coerced,
                 providerModel: 'anthropic:haiku-4-5',
                 lastUsage: { input: 1, output: 1 },
                 reply,
@@ -241,8 +223,7 @@ describe('usageLog middleware', () => {
 
     it('tool_calls is alphabetically sorted (deterministic)', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
-            toolAudit: [{ tool: 'get_balance' }, { tool: 'get_account' }, { tool: 'get_abi' }],
+toolAudit: [{ tool: 'get_balance' }, { tool: 'get_account' }, { tool: 'get_abi' }],
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'act', actions: [] },
@@ -258,7 +239,6 @@ describe('usageLog middleware', () => {
 
     it('cost_usd uses the frozen price table (anthropic:haiku-4-5)', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1000, output: 500 },
             reply: { kind: 'act', actions: [] },
@@ -275,7 +255,6 @@ describe('usageLog middleware', () => {
 
     it('cost_usd is 0 for an unknown model tag', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'made-up:model-9000',
             lastUsage: { input: 999, output: 999 },
             reply: { kind: 'act', actions: [] },
@@ -289,29 +268,33 @@ describe('usageLog middleware', () => {
         expect(row!.cost_usd).toBe(0);
     });
 
-    it('writes one row per turn even when the handler returned 401 (no auth set)', async () => {
+    it('writes one row per turn even when the handler short-circuits (no c.var set)', async () => {
         const app = new Hono<RouteContext>();
         app.use('/chat', usageLog({ logPath, now: () => new Date('2026-05-20T03:14:15.123Z') }));
-        // A handler that bails before any c.set — mimics the auth middleware's
-        // unauthenticated short-circuit.
-        app.post('/chat', (c) => c.json({ kind: 'refuse', reason: 'auth-required' }, 401));
-        const res = await app.request('/chat', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(defaultBody()),
-        });
-        expect(res.status).toBe(401);
+        // A handler that bails before any c.set — mimics a rate-limit refuse
+        // or an internal-error short-circuit. Anonymous backend (docs/00 §3.1)
+        // — no 401 path exists; refuses are HTTP 200 per guidelines §3.3.
+        app.post('/chat', (c) => c.json({ kind: 'refuse', reason: 'rate-limit-minute' }, 200));
+        const res = await app.request(
+            '/chat',
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(defaultBody()),
+            },
+            LOOPBACK_ENV
+        );
+        expect(res.status).toBe(200);
         const [row] = await readRows(logPath);
-        expect(row!.sub).toBe('');
-        expect(row!.account).toBe('');
-        expect(row!.pubkey_prefix).toBe('');
+        // client_ip_hash present (sha256 of the loopback IP), but no JWT-
+        // sourced fields exist on the row at all (W1.5-redo).
+        expect(row!.client_ip_hash).toBe(createHash('sha256').update('127.0.0.1').digest('hex'));
         expect(row!.turn_kind).toBe('refuse');
         expect(row!.validation_outcome).toBe('refused');
     });
 
     it('LOG_FULL_BODIES=true does NOT widen the JSONL row shape', async () => {
         const baseApp = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'refuse', reason: 'refused' },
@@ -328,8 +311,7 @@ describe('usageLog middleware', () => {
         process.env.LOG_FULL_BODIES = 'true';
         try {
             const app = makeApp(logPath, {
-                auth: defaultClaims(),
-                providerModel: 'anthropic:haiku-4-5',
+        providerModel: 'anthropic:haiku-4-5',
                 lastUsage: { input: 1, output: 1 },
                 reply: { kind: 'refuse', reason: 'refused' },
             });
@@ -352,7 +334,6 @@ describe('usageLog middleware', () => {
 
     it('is append-only — N requests produce N lines', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'refuse', reason: 'refused' },
@@ -373,7 +354,6 @@ describe('usageLog middleware', () => {
 
     it("unwraps the future { reply, usage } response wrapper for turn_kind", async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: {
@@ -390,14 +370,12 @@ describe('usageLog middleware', () => {
         expect(row!.turn_kind).toBe('act');
     });
 
-    it('endpoint_chainid prefers body.context.chainId, falls back to auth.chainId', async () => {
+    it('endpoint_chainid uses body.context.chainId (anonymous backend has no fallback)', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims({ chainId: 'auth-fallback-chain' }),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'refuse', reason: 'refused' },
         });
-        // Body provides context.chainId explicitly.
         await app.request('/chat', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -409,7 +387,6 @@ describe('usageLog middleware', () => {
 
     it('session_id_hash is sha256(sessionId) hex', async () => {
         const app = makeApp(logPath, {
-            auth: defaultClaims(),
             providerModel: 'anthropic:haiku-4-5',
             lastUsage: { input: 1, output: 1 },
             reply: { kind: 'refuse', reason: 'refused' },

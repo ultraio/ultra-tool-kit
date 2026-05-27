@@ -2,8 +2,8 @@
 //
 // Mirrors ai-chat.test.ts: real catalog + real eosio-types + real classify/
 // retrieve/validate, mocked ChatProvider. Mounts the full createApp() stack
-// so JWT auth + rate-limit middleware are in the path; loopback authenticates
-// via DEV_AUTH_BYPASS.
+// so the rate-limit middleware is in the path; loopback bypasses per-IP
+// buckets via DEV_RATELIMIT_BYPASS. Anonymous backend per docs/00 §3.1.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,10 +15,8 @@ import { _resetEosioTypesCache } from '../../src/pipeline/validate.js';
 const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as const;
 
 const baseCfg: AppConfig = {
-    jwtSecret: 'test-secret-w6',
     allowedOrigins: ['http://localhost:5172'],
-    nonceTtlMs: 5 * 60_000,
-    devAuthBypass: true,
+    devRatelimitBypass: true,
     llmProvider: 'ollama',
     allowedChainHosts: ['localhost', '127.0.0.1'],
 };
@@ -174,18 +172,15 @@ describe('POST /api/ai-chat — propose gate 5 (invented inner-action recipient)
 });
 
 describe('POST /api/ai-chat — propose gate 7.6 (proposer in requested)', () => {
-    it('downgrades to ask when the proposer (the DEV_AUTH_BYPASS account) is also listed as an approver', async () => {
-        // DEV_AUTH_BYPASS sets the JWT account to 'dev' (see
-        // backend/src/middleware/auth.ts DEV_BYPASS_SUB). The proposer is
-        // therefore dev@active. Test: model emits requested[] containing
-        // dev@active → gate 7.6 fires. To get past gate 7.4's citation
-        // check first, 'dev' must be a cited identifier; this test's
-        // knownAccounts is extended with 'dev' so that source is satisfied
-        // and 7.6 is the gate under test.
+    it('downgrades to ask when the proposer (selectedAccount) is also listed as an approver', async () => {
+        // W1.5-redo: the proposer is body.context.selectedAccount, NOT a JWT
+        // claim. baseRequest sets selectedAccount = 'duncan'; the model emits
+        // requested[] containing duncan@active → gate 7.6 fires. duncan is
+        // already in validatedAccounts so gate 7.4's citation check passes.
         const provider = mockProvider(() =>
             okProposeReply({
                 requested: [
-                    { actor: 'dev', permission: 'active' }, // proposer
+                    { actor: 'duncan', permission: 'active' }, // proposer
                     { actor: 'cfo', permission: 'active' },
                 ],
             })
@@ -197,13 +192,7 @@ describe('POST /api/ai-chat — propose gate 7.6 (proposer in requested)', () =>
             {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    ...baseRequest,
-                    context: {
-                        ...baseRequest.context,
-                        knownAccounts: [...baseRequest.context.knownAccounts, 'dev'],
-                    },
-                }),
+                body: JSON.stringify(baseRequest),
             },
             LOOPBACK_ENV
         );

@@ -4,6 +4,11 @@
 // gates). Implements roadmap §6 row W8 — one JSONL line per chat turn,
 // append-only, PII-minimal by construction.
 //
+// W1.5-redo update (docs/00 §3.1): the backend is anonymous. The JWT-sourced
+// telemetry fields (`sub`, `pubkey_prefix`, `account`) are gone; their slot
+// is taken by `client_ip_hash` = sha256(clientIpOf(c)). The rest of the §7
+// row shape is unchanged.
+//
 // The row schema is a contract: §7.1 lists this file in the
 // simplifier-exclusion list because future log consumers depend on the
 // exact named-field set. Extra fields → CI failure. Missing fields → CI
@@ -12,8 +17,7 @@
 //
 // This middleware is generic. It reads typed values off `c.var` set by the
 // route handler (provider model tag, last-call usage, validator-coerced
-// flag, tool audit, auth claims) — it does NOT import from
-// `routes/ai-chat.ts`. Phase 3 wires it into createApp.
+// flag, tool audit) — it does NOT import from `routes/ai-chat.ts`.
 
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
@@ -22,8 +26,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { MiddlewareHandler } from 'hono';
 
-import type { VerifiedClaims } from '../auth/jwt.js';
-import { logger } from './logging.js';
+import { clientIpOf, logger } from './logging.js';
 
 // Resolve <repo>/backend/logs/usage.jsonl from this file's location.
 // src/middleware/usage-log.ts → ../../logs/usage.jsonl
@@ -41,9 +44,13 @@ const PRICE_TABLE: Record<string, { inPerM: number; outPerM: number }> = {
     'ollama:llama3.1:8b': { inPerM: 0, outPerM: 0 },
 };
 
-// Sentinel when the route handler never set providerModel (e.g. 401 short-
-// circuit before the harness ran). Treated as unknown → cost 0.
+// Sentinel when the route handler never set providerModel (e.g. internal-
+// error short-circuit before the harness ran). Treated as unknown → cost 0.
 const UNKNOWN_MODEL = 'unknown:unknown';
+
+// Sentinel IP for requests where clientIpOf returns undefined (mostly a
+// test-fixture path; in production node-server always populates it).
+const UNKNOWN_IP = 'unknown';
 
 export type UsageLogContext = {
     Variables: {
@@ -64,9 +71,7 @@ export type UsageLogDeps = {
 // assert the keyset matches exactly. Don't widen this type.
 export type UsageRow = {
     ts: string;
-    sub: string;
-    pubkey_prefix: string;
-    account: string;
+    client_ip_hash: string;
     endpoint_chainid: string;
     session_id_hash: string;
     turn_kind: 'act' | 'propose' | 'ask' | 'refuse' | 'answer';
@@ -102,7 +107,7 @@ function pickTurnKind(inner: unknown): UsageRow['turn_kind'] {
         }
     }
     // Defensive fallback — an unparseable response body is treated as a
-    // refuse for telemetry purposes (matches the route's 401 / catch path).
+    // refuse for telemetry purposes.
     return 'refuse';
 }
 
@@ -139,7 +144,7 @@ export function computeCostUsd(modelTag: string, tokensIn: number, tokensOut: nu
 // which gives every row a stable key sequence in the on-disk file.
 function buildRow(input: {
     ts: string;
-    auth: VerifiedClaims | undefined;
+    clientIp: string;
     chainIdFromBody: string;
     sessionId: string;
     turnKind: UsageRow['turn_kind'];
@@ -152,14 +157,11 @@ function buildRow(input: {
     validationOutcome: UsageRow['validation_outcome'];
     userMessage: string;
 }): UsageRow {
-    const auth = input.auth;
     return {
         ts: input.ts,
-        sub: auth?.sub ?? '',
-        // PII gate (§4.4): never the full pubkey. Slice first 6 chars only.
-        pubkey_prefix: auth?.pubkey ? auth.pubkey.slice(0, 6) : '',
-        account: auth?.account ?? '',
-        endpoint_chainid: input.chainIdFromBody || auth?.chainId || '',
+        // PII gate (§4.4): client IP is hashed, never logged in the clear.
+        client_ip_hash: sha256Hex(input.clientIp),
+        endpoint_chainid: input.chainIdFromBody,
         session_id_hash: sha256Hex(input.sessionId),
         turn_kind: input.turnKind,
         provider_model: input.providerModel,
@@ -218,6 +220,11 @@ export function usageLog(deps: UsageLogDeps = {}): MiddlewareHandler<UsageLogCon
             // keep defaults
         }
 
+        // Capture the client IP at request entry — node-server's connInfo is
+        // available on `c` before next() runs. Sentinel string when missing
+        // (mostly a test-fixture path).
+        const clientIp = clientIpOf(c) ?? UNKNOWN_IP;
+
         try {
             await next();
         } finally {
@@ -234,23 +241,22 @@ export function usageLog(deps: UsageLogDeps = {}): MiddlewareHandler<UsageLogCon
                 // keep {}
             }
 
-            // The future response wrapper form is `{ reply, usage }`. Until
-            // that lands, the route returns the Reply directly. Detect both.
+            // The route returns `{ reply, usage }`; we unwrap for turn_kind.
             const inner =
                 response && typeof response === 'object' && 'reply' in response
                     ? (response as { reply: unknown }).reply
                     : response;
 
-            // `auth` and `toolAudit` are owned by AuthContext / the ai-chat
-            // route's context — this middleware deliberately doesn't import
-            // those types to stay decoupled. Read via the untyped var bag.
+            // `toolAudit` is owned by the ai-chat route's context — this
+            // middleware deliberately doesn't import that type to stay
+            // decoupled. Read via the untyped var bag.
             const vars = c.var as Record<string, unknown>;
-            const auth = vars.auth as VerifiedClaims | undefined;
             const toolAudit = (vars.toolAudit as ToolAuditLike[] | undefined) ?? [];
             const validateCoerced = (vars.validateCoerced as boolean | undefined) ?? false;
             // providerModel is set by the route handler after the harness
             // call so the middleware never touches the provider singleton.
-            // Falling back to UNKNOWN_MODEL ensures cost_usd=0 on 401 paths.
+            // Falling back to UNKNOWN_MODEL ensures cost_usd=0 on short-
+            // circuit paths.
             const providerModel = (vars.providerModel as string | undefined) ?? UNKNOWN_MODEL;
             const lastUsage =
                 (vars.lastUsage as { input: number; output: number } | undefined) ?? {
@@ -267,15 +273,12 @@ export function usageLog(deps: UsageLogDeps = {}): MiddlewareHandler<UsageLogCon
             // row is unchanged (user_msg_prefix stays 80-capped) — only an
             // extra DEBUG log line surfaces full text. The brief is explicit.
             if (process.env.LOG_FULL_BODIES === 'true') {
-                logger.debug(
-                    { userMessage, sub: auth?.sub },
-                    'usage-log: full body (LOG_FULL_BODIES dev gate)'
-                );
+                logger.debug({ userMessage }, 'usage-log: full body (LOG_FULL_BODIES dev gate)');
             }
 
             const row = buildRow({
                 ts: t0.toISOString(),
-                auth,
+                clientIp,
                 chainIdFromBody: bodyChainId,
                 sessionId,
                 turnKind,

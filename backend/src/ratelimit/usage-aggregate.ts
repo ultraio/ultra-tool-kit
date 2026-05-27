@@ -1,45 +1,46 @@
-// Read-only daily aggregate of logs/usage.jsonl for tier 5 (per-pubkey
-// budget) and tier 6 (global $50 cap) rate-limit checks.
+// Read-only monthly aggregate of logs/usage.jsonl for tier 5 (global $50/month
+// cap) rate-limit check. Single field returned (`costUsdGlobal`) — the
+// per-sub & token-bucket fields were dropped in W1.5-redo per docs/00 §3.
 //
 // W8 owns the write path (guidelines §7); this module ONLY reads. If the
 // file is missing — common during local dev and in CI — we treat the
-// aggregate as zero per W1.5 prompt ("if the file is missing, treat tier
-// 5/6 consumed = $0").
+// aggregate as zero per the W1.5-redo design ("file missing → consumed = $0").
 //
 // Wrapped at this boundary so middleware/ratelimit.ts can be unit-tested
-// via `vi.mock` without touching real fs.
+// via `vi.mock` without touching real fs. File may be a month of rows; v1
+// reads whole file as single-instance per roadmap §9. A future Redis-backed
+// aggregate is out of scope.
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export type DailyAggregate = {
-    tokensIn: number; // total input tokens billed to `sub` today (UTC)
-    tokensOut: number;
-    costUsdSub: number; // cumulative cost (USD) billed to `sub` today
-    costUsdGlobal: number; // cumulative cost (USD) across all subs today
+export type MonthlyAggregate = {
+    costUsdGlobal: number; // cumulative cost (USD) across all rows this UTC calendar month
 };
 
-const ZERO: DailyAggregate = { tokensIn: 0, tokensOut: 0, costUsdSub: 0, costUsdGlobal: 0 };
+const ZERO: MonthlyAggregate = { costUsdGlobal: 0 };
 
 export type ReadUsageOpts = {
-    sub: string;
     now?: Date;
     logPath?: string;
 };
-
-function utcDayPrefix(d: Date): string {
-    return d.toISOString().slice(0, 10); // YYYY-MM-DD
-}
 
 function defaultUsageLogPath(): string {
     return path.resolve(process.cwd(), 'logs/usage.jsonl');
 }
 
-// Each row matches guidelines §7. We read just the four fields we care about
-// (`ts`, `sub`, `tokens_in`, `tokens_out`, `cost_usd`); unknown rows / bad
-// JSON / malformed numbers are skipped — the log file is append-only and a
-// partial line during rotation is normal.
-export function readDailyAggregate(opts: ReadUsageOpts): DailyAggregate {
+// Predicate: ts parses to a Date whose UTCFullYear + UTCMonth match the
+// reference (`opts.now`). String-prefix comparison would mis-classify rows
+// whose ts straddles a month boundary in local time — parsed-Date comparison
+// is the load-bearing correctness check (a row at "2026-04-30T23:59:59Z"
+// must NOT count toward May's bucket).
+function sameUtcMonth(rowTs: string, ref: Date): boolean {
+    const d = new Date(rowTs);
+    if (Number.isNaN(d.getTime())) return false;
+    return d.getUTCFullYear() === ref.getUTCFullYear() && d.getUTCMonth() === ref.getUTCMonth();
+}
+
+export function readMonthlyAggregate(opts: ReadUsageOpts = {}): MonthlyAggregate {
     const logPath = opts.logPath ?? defaultUsageLogPath();
     if (!existsSync(logPath)) return ZERO;
 
@@ -50,10 +51,7 @@ export function readDailyAggregate(opts: ReadUsageOpts): DailyAggregate {
         return ZERO;
     }
 
-    const today = utcDayPrefix(opts.now ?? new Date());
-    let tokensIn = 0;
-    let tokensOut = 0;
-    let costUsdSub = 0;
+    const ref = opts.now ?? new Date();
     let costUsdGlobal = 0;
 
     for (const line of raw.split('\n')) {
@@ -65,17 +63,10 @@ export function readDailyAggregate(opts: ReadUsageOpts): DailyAggregate {
             continue;
         }
         const ts = row.ts;
-        if (typeof ts !== 'string' || !ts.startsWith(today)) continue;
-
+        if (typeof ts !== 'string' || !sameUtcMonth(ts, ref)) continue;
         const cost = typeof row.cost_usd === 'number' ? row.cost_usd : 0;
         costUsdGlobal += cost;
-
-        if (row.sub === opts.sub) {
-            tokensIn += typeof row.tokens_in === 'number' ? row.tokens_in : 0;
-            tokensOut += typeof row.tokens_out === 'number' ? row.tokens_out : 0;
-            costUsdSub += cost;
-        }
     }
 
-    return { tokensIn, tokensOut, costUsdSub, costUsdGlobal };
+    return { costUsdGlobal };
 }

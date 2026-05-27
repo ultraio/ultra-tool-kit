@@ -15,10 +15,8 @@ import { _resetEosioTypesCache } from '../../src/pipeline/validate.js';
 const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as const;
 
 const baseCfg: AppConfig = {
-    jwtSecret: 'test-secret-w5',
     allowedOrigins: ['http://localhost:5172'],
-    nonceTtlMs: 5 * 60_000,
-    devAuthBypass: true,
+    devRatelimitBypass: true,
     llmProvider: 'ollama',
     allowedChainHosts: ['localhost', '127.0.0.1'],
 };

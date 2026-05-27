@@ -81,7 +81,11 @@ export type PromptHistoryTurn = {
 
 export type PromptSessionContext = {
     selectedAccount?: string;
-    permission: string;
+    // Anonymous backend (docs/00 §3.1): no JWT permission attached. Kept
+    // optional so the prompt builder still renders the line (blank if absent)
+    // and so any future re-introduction (wallet-native attestation per
+    // docs/proposals/wallet-native-attestation.md) is a non-breaking change.
+    permission?: string;
     chainId: string;
     endpoint: string;
     validatedAccounts: string[];
@@ -132,7 +136,7 @@ export function buildUserMessage(opts: BuildUserMessageOpts): string {
     // safe action. Never leaks the JWT, signature, or pubkey.
     const ctxLines = [
         `selectedAccount: ${opts.context.selectedAccount ?? ''}`,
-        `permission: ${opts.context.permission}`,
+        `permission: ${opts.context.permission ?? ''}`,
         `chainId: ${opts.context.chainId}`,
         `endpoint: ${opts.context.endpoint}`,
         `validatedAccounts: ${JSON.stringify(opts.context.validatedAccounts)}`,

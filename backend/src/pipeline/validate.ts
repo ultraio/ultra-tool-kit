@@ -281,24 +281,16 @@ export type ValidateContext = {
     validatedAccounts: string[];
     knownAccounts: string[];
     selectedAccount?: string;
-    // JWT claim's permission — the only permission the active key holds at
-    // the active account this wave. W4 will replace with a real get_account
-    // lookup.
-    jwtPermission: string;
     // The user's most recent message (the turn the LLM was responding to).
     // Source for gate 5's invention check + gate 6's memo policy.
     userMessage: string;
-    // JWT claim's account name — gate 5 treats this as a known identifier
-    // even when it isn't echoed in the user message (the user signed in as
-    // it, so it isn't "invented" if the LLM proposes it).
-    jwtAccount: string;
     // W4: identifiers that appeared in <chain_read> responses THIS turn.
     // Gate 5 treats these as cited (rule 2's "tool response"). Optional —
-    // callers that don't pass it (W3 routes, isolated tests) get the W3
-    // behaviour unchanged. Populated by the route handler via
-    // extractIdentifiers() over each tool response payload. W5: the same
-    // Set may also carry numeric *_id values harvested by extractIdentifiers
-    // from object pairs like {token_id: 42} — see extractIdentifiers below.
+    // callers that don't pass it (isolated tests) get the W3 behaviour
+    // unchanged. Populated by the route handler via extractIdentifiers()
+    // over each tool response payload. W5: the same Set may also carry
+    // numeric *_id values harvested by extractIdentifiers from object pairs
+    // like {token_id: 42} — see extractIdentifiers below.
     toolReturnedIdentifiers?: Set<string>;
     // W5: optional override / test-only injection of the metadata-validator
     // table. Falls back to the empty module-level `METADATA_VALIDATORS` in
@@ -643,38 +635,36 @@ function validateInnerAction(
         }
     }
 
-    // ─── Gate 4: authorization actor + permission ────────────────────────
+    // ─── Gate 4: authorization actor ─────────────────────────────────────
+    // Anonymous backend (docs/00 §3.1): no JWT permission to compare. The
+    // actor must still appear in validatedAccounts — the wallet-attested
+    // list that the FE forwards in body.context. The wallet itself is the
+    // signing gate (docs/00 §4.5) — if the proposed permission doesn't fit
+    // the active key, the wallet refuses to sign.
     const auth = action.authorization[0];
     if (!auth) return { kind: 'ask', failedGate: 4, why: 'missing authorization' };
     if (!ctx.validatedAccounts.includes(auth.actor)) {
         return { kind: 'ask', failedGate: 4, why: `actor ${auth.actor} not in validatedAccounts` };
     }
-    if (auth.permission !== ctx.jwtPermission) {
-        return {
-            kind: 'ask',
-            failedGate: 4,
-            why: `permission ${auth.permission} ≠ JWT permission ${ctx.jwtPermission}`,
-        };
-    }
     // Sanity link to the catalog's declared auth signature: not a hard fail
     // (catalog auths can reference $-vars resolved per-action), just a log
-    // breadcrumb for W4's deeper permission check.
+    // breadcrumb.
     logCatalogAuth(rules.auths, auth);
 
     // ─── Gate 5: no invented identifiers ─────────────────────────────────
     // Every name-typed string value in `data` must trace to: the user's
-    // current message, `context.knownAccounts`, the JWT's `account` claim,
-    // `context.selectedAccount` (the account the user has surfaced in
-    // session_context — the system prompt explicitly lists session_context
-    // as a permitted source per rule 2), or `context.toolReturnedIdentifiers`
-    // (W4: identifiers that appeared in a <chain_read> tool response this
-    // turn — rule 2's "tool response" source).
+    // current message, `context.knownAccounts`, `context.selectedAccount`
+    // (the account the user has surfaced in session_context — the system
+    // prompt explicitly lists session_context as a permitted source per
+    // rule 2), or `context.toolReturnedIdentifiers` (W4: identifiers that
+    // appeared in a <chain_read> tool response this turn — rule 2's "tool
+    // response" source).
     //
     // `validatedAccounts` is deliberately NOT in this set. validatedAccounts
     // is the full wallet-attested list (often dozens of accounts across
     // testnet + mainnet); treating all of them as "mentioned" defeats gate
     // 5's purpose. Gate 4 is where validatedAccounts gates the actor.
-    const knownSet = new Set<string>([...ctx.knownAccounts, ctx.jwtAccount]);
+    const knownSet = new Set<string>(ctx.knownAccounts);
     if (ctx.selectedAccount) knownSet.add(ctx.selectedAccount);
     if (ctx.toolReturnedIdentifiers) {
         for (const id of ctx.toolReturnedIdentifiers) knownSet.add(id);
@@ -807,7 +797,11 @@ export function validateAct(
 //       allowed here — the user explicitly named approvers, unlike inner
 //       actors)
 //   7.5 every requested[i].permission regex
-//   7.6 proposer (ctx.jwtAccount+ctx.jwtPermission) NOT in requested[]
+//   7.6 proposer (ctx.selectedAccount, when set) NOT in requested[]
+//       (W1.5-redo: no JWT — selectedAccount is the active toolkit account,
+//        which IS the proposer in the propose flow. When selectedAccount is
+//        absent the check is skipped; the wallet's own refusal-to-sign is
+//        the backstop.)
 //   7.7 no duplicate approvers (case-sensitive actor::permission)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -884,7 +878,6 @@ export function validatePropose(
     const approverActorKnown = new Set<string>([
         ...ctx.knownAccounts,
         ...ctx.validatedAccounts,
-        ctx.jwtAccount,
     ]);
     if (ctx.selectedAccount) approverActorKnown.add(ctx.selectedAccount);
     if (ctx.toolReturnedIdentifiers) {
@@ -903,10 +896,17 @@ export function validatePropose(
         }
     }
 
-    // 7.6 proposer NOT in requested[]
-    for (const req of reply.requested) {
-        if (req.actor === ctx.jwtAccount && req.permission === ctx.jwtPermission) {
-            return askPropose(7, `proposer ${ctx.jwtAccount}@${ctx.jwtPermission} cannot be in requested`);
+    // 7.6 proposer NOT in requested[]. Anonymous backend (docs/00 §3.1):
+    // there's no JWT-attested proposer identity. selectedAccount — the
+    // active toolkit account — is the closest analog and matches the
+    // system prompt's instruction that the proposer is the active wallet
+    // account in <session_context>. When selectedAccount is absent (rare),
+    // we skip 7.6; the wallet's own refusal-to-sign remains the backstop.
+    if (ctx.selectedAccount) {
+        for (const req of reply.requested) {
+            if (req.actor === ctx.selectedAccount) {
+                return askPropose(7, `proposer ${ctx.selectedAccount} cannot be in requested`);
+            }
         }
     }
 

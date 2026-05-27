@@ -10,8 +10,7 @@
 //   - Other kinds (ask/refuse/answer) render as bubbles via MessageBubble.
 //
 // sessionId persists in `sessionStorage` so reopening the drawer in the same
-// tab continues the session. Per scripts/ai-ci-greps.sh grep #3, the value
-// is a UUID — none of {jwt, bearer, pubkey} appear in the key.
+// tab continues the session.
 //
 // W8: the only addition to the public surface is `lastUsage` — a Ref to the
 // most recent per-turn usage sidecar from the backend (null when none seen
@@ -57,15 +56,7 @@ function loadOrCreateSessionId(): string {
     return fresh;
 }
 
-export interface UseAiChatOpts {
-    // Source of an in-memory JWT for the backend's Authorization header.
-    // W3 has no frontend acquisition flow yet (the wallet challenge/verify
-    // wiring lands in a follow-up); local dev relies on the backend's
-    // DEV_AUTH_BYPASS=true.
-    getJwt?: () => string | undefined;
-}
-
-export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}) {
+export function useAiChat(authState?: Ref<I.AuthState>) {
     async function sendMessage(text: string): Promise<void> {
         inlineError.value = null;
         const trimmed = text.trim();
@@ -94,9 +85,7 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
         // Capped at 50 per the backend's Zod limit; deduped via Set in case
         // the wallet returns the same name twice.
         const { validatedAccounts: walletValidated } = useWalletAccounts();
-        const walletAccountNames = Array.from(
-            new Set(walletValidated.value.map((a) => a.accountName))
-        );
+        const walletAccountNames = [...new Set(walletValidated.value.map((a) => a.accountName))];
         const fallback = selectedAccount ? [selectedAccount] : [];
         const accountList = (walletAccountNames.length > 0 ? walletAccountNames : fallback).slice(0, 50);
         const req: AiChatRequest = {
@@ -119,7 +108,6 @@ export function useAiChat(authState?: Ref<I.AuthState>, opts: UseAiChatOpts = {}
                 onWarming: () => {
                     warming.value = true;
                 },
-                jwt: opts.getJwt?.(),
             });
             const reply = response.reply;
             lastReply.value = reply;

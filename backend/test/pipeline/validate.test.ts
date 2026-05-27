@@ -34,8 +34,6 @@ const baseCtx: ValidateContext = {
     validatedAccounts: ['duncan', 'bob'],
     knownAccounts: [],
     selectedAccount: 'duncan',
-    jwtPermission: 'active',
-    jwtAccount: 'duncan',
     userMessage: 'transfer 100 UOS from duncan to bob',
 };
 
@@ -150,8 +148,8 @@ describe('validateAct — gate 3 (field shape)', () => {
     });
 });
 
-describe('validateAct — gate 4 (authorization actor + permission)', () => {
-    it('passes when actor is in validatedAccounts and permission matches the JWT', () => {
+describe('validateAct — gate 4 (authorization actor)', () => {
+    it('passes when actor is in validatedAccounts', () => {
         const outcome = validateAct(transferReply(), catalog, eosioTypes, baseCtx);
         expect(outcome.kind).toBe('ok');
     });
@@ -165,13 +163,16 @@ describe('validateAct — gate 4 (authorization actor + permission)', () => {
         if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(4);
     });
 
-    it('downgrades when permission disagrees with the JWT claim', () => {
+    // W1.5-redo: gate 4 no longer compares against a JWT permission claim
+    // (anonymous backend, docs/00 §3.1). The wallet is the signing gate;
+    // a permission the active key can't fulfil is rejected by the wallet,
+    // not by gate 4.
+    it('does NOT downgrade on a non-default permission — the wallet is the signing gate', () => {
         const reply = transferReply({
             authorization: [{ actor: 'duncan', permission: 'owner' }],
         });
         const outcome = validateAct(reply, catalog, eosioTypes, baseCtx);
-        expect(outcome.kind).toBe('ask');
-        if (outcome.kind === 'ask') expect(outcome.failedGate).toBe(4);
+        expect(outcome.kind).toBe('ok');
     });
 });
 

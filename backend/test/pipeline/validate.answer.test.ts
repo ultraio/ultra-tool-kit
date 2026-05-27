@@ -40,9 +40,7 @@ const baseCtx: ValidateContext = {
     validatedAccounts: ['duncan'],
     knownAccounts: [],
     selectedAccount: 'duncan',
-    jwtPermission: 'active',
     userMessage: 'what does eosio.nft.ft::transfer do?',
-    jwtAccount: 'duncan',
 };
 
 function ans(text: string): AnswerReply {

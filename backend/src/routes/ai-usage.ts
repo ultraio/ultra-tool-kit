@@ -1,24 +1,22 @@
-// GET /api/ai-usage — today's per-sub usage aggregate (W8).
+// GET /api/ai-usage — today's GLOBAL usage aggregate (W1.5-redo).
+//
+// Public per docs/00 §3.1 (anonymous backend); sponsor-budget telemetry,
+// useful debugging for "is the monthly cap close?". No per-sub filtering
+// (no JWT in v1).
 //
 // Reads backend/logs/usage.jsonl on every call (single-instance v1 per
-// roadmap §9; no caching), filters by the requester's JWT `sub` claim AND
-// rows whose `ts` falls on today's UTC date, and returns a four-field
-// aggregate. The response shape is locked — any future field additions
-// land in a doc PR + a new endpoint, never a silent widening here.
+// roadmap §9; no caching) and returns a four-field aggregate over rows
+// whose `ts` falls on today's UTC date.
 //
 // "Today" = UTC date boundary. `ts` rows are emitted by usage-log.ts via
 // `new Date().toISOString()`, so a leading-10 prefix match on
 // `YYYY-MM-DD` is the simple, timezone-stable check this endpoint uses.
-//
-// Auth: mounted under jwtAuth in createApp (Phase 3 wiring). This file
-// only exports the factory.
 
 import { Hono } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { AuthContext } from '../middleware/auth.js';
 import { logger } from '../middleware/logging.js';
 
 export type AiUsageDeps = {
@@ -40,12 +38,10 @@ const ZERO_AGGREGATE = Object.freeze({
     turnsToday: 0,
 });
 
-export function createAiUsageRouter(deps: AiUsageDeps = {}): Hono<AuthContext> {
-    const app = new Hono<AuthContext>();
+export function createAiUsageRouter(deps: AiUsageDeps = {}): Hono {
+    const app = new Hono();
 
     app.get('/', async (c) => {
-        const auth = c.get('auth');
-        const sub = auth.sub;
         const now = (deps.now ?? (() => new Date()))();
         // 'YYYY-MM-DD' UTC. usage-log writes `ts: t0.toISOString()` so this
         // prefix match is timezone-stable across writer + reader.
@@ -88,9 +84,6 @@ export function createAiUsageRouter(deps: AiUsageDeps = {}): Hono<AuthContext> {
             }
             if (!row || typeof row !== 'object') continue;
             const r = row as Record<string, unknown>;
-            // Filter strictly by `sub` — the JWT-claim rate-limit key per
-            // guidelines §3.2-§3.3. Never match by pubkey or account.
-            if (r.sub !== sub) continue;
             if (typeof r.ts !== 'string' || !r.ts.startsWith(todayPrefix)) continue;
             tokensInToday += Number(r.tokens_in) || 0;
             tokensOutToday += Number(r.tokens_out) || 0;

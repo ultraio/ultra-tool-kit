@@ -1,21 +1,17 @@
-// Hono app entry — wires auth router, middleware stack, and the real
-// /api/ai-chat handler (W3).
+// Hono app entry — wires the middleware stack and the /api/ai-chat handler.
 //
-// Network posture (guidelines §4.6): binds 127.0.0.1 only (BIND_HOST env
-// override is documented but defaults loopback); CORS allowlist parsed from
-// ALLOWED_ORIGINS — never `*`. JWT_SECRET is required in non-dev; refusing
-// to start without it is the hard failure mode the doc demands.
+// Network posture (docs/00 §4.6): binds 127.0.0.1 only; CORS allowlist
+// parsed from ALLOWED_ORIGINS — never `*`. Backend is anonymous (docs/00
+// §3.1) — no JWT layer; per-IP rate limit + monthly cost cap (docs/00 §3.2)
+// are the binding defenses.
 
 import 'dotenv/config';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 
-import { createAuthRouter } from './routes/auth.js';
 import { createAiChatRouter } from './routes/ai-chat.js';
 import { createAiUsageRouter } from './routes/ai-usage.js';
-import { NonceStore } from './auth/nonce-store.js';
-import { type AuthContext, jwtAuth } from './middleware/auth.js';
 import { createRateLimitStore, rateLimit } from './middleware/ratelimit.js';
 import { logger, requestLogger } from './middleware/logging.js';
 import { isKnownModelTag, usageLog } from './middleware/usage-log.js';
@@ -27,10 +23,8 @@ import { OllamaProvider } from './llm/ollama.js';
 import { buildAllowlistFromEnv } from './pipeline/tools/host-allowlist.js';
 
 export type AppConfig = {
-    jwtSecret: string;
     allowedOrigins: string[];
-    nonceTtlMs: number;
-    devAuthBypass: boolean;
+    devRatelimitBypass: boolean;
     llmProvider: 'anthropic' | 'ollama';
     // W4: host allowlist used by every tool that hits the chain RPC. Baseline
     // (`*.ultra.io`, `localhost`, `127.0.0.1`) is folded in by
@@ -39,17 +33,6 @@ export type AppConfig = {
 };
 
 function readConfig(): AppConfig {
-    const isProd = process.env.NODE_ENV === 'production';
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-        if (isProd) {
-            throw new Error('JWT_SECRET is required in non-dev environments (guidelines §3.2).');
-        }
-        // Dev fallback: random per-process secret. Forces a fresh login each
-        // restart in local dev, which is the correct UX for a missing secret.
-        logger.warn('JWT_SECRET not set; using a per-process random fallback (dev only).');
-    }
-
     const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5172')
         .split(',')
         .map((s) => s.trim())
@@ -59,8 +42,7 @@ function readConfig(): AppConfig {
         throw new Error('ALLOWED_ORIGINS must not contain `*` (guidelines §4.6).');
     }
 
-    const nonceTtlSec = Number(process.env.NONCE_TTL_SECONDS ?? 300);
-    const devAuthBypass = process.env.DEV_AUTH_BYPASS === 'true';
+    const devRatelimitBypass = process.env.DEV_RATELIMIT_BYPASS === 'true';
     const rawProvider = (process.env.LLM_PROVIDER ?? 'ollama').toLowerCase();
     if (rawProvider !== 'anthropic' && rawProvider !== 'ollama') {
         throw new Error(
@@ -71,10 +53,8 @@ function readConfig(): AppConfig {
     const allowedChainHosts = [...buildAllowlistFromEnv(process.env)];
 
     return {
-        jwtSecret: jwtSecret ?? crypto.randomUUID(),
         allowedOrigins,
-        nonceTtlMs: nonceTtlSec * 1000,
-        devAuthBypass,
+        devRatelimitBypass,
         llmProvider: rawProvider,
         allowedChainHosts,
     };
@@ -89,18 +69,14 @@ export type CreateAppDeps = {
 };
 
 export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
-    const app = new Hono<AuthContext>();
+    const app = new Hono();
 
     app.use('*', requestLogger);
     app.use('*', cors({ origin: cfg.allowedOrigins, allowMethods: ['GET', 'POST', 'OPTIONS'] }));
 
-    const nonceStore = new NonceStore(cfg.nonceTtlMs);
     const rateLimitStore = createRateLimitStore();
 
-    app.route('/api/auth', createAuthRouter({ nonceStore, jwtSecret: cfg.jwtSecret }));
-
-    // /api/ai-chat behind the same auth + rate-limit stack the W1.5
-    // placeholder used. Catalog + eosio-types loaded ONCE at boot per
+    // /api/ai-chat — catalog + eosio-types loaded ONCE at boot per
     // backend/CLAUDE.md ("no LLM in the fact path"; deterministic data
     // sourced from disk, never re-fetched per request).
     const catalog = await loadCatalog();
@@ -108,7 +84,7 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
     const provider = deps.provider ?? buildProvider(cfg.llmProvider);
 
     // G6: model-tag → price-table parity check. Silent cost_usd = 0 would
-    // mean the per-day USD cap (§3.3 tier 5) becomes a no-op for this model.
+    // mean the per-month USD cap (§3.3 tier 5) becomes a no-op for this model.
     // Warning-only — boot still succeeds; operator updates PRICE_TABLE via
     // doc PR if the model rolled.
     const tag = provider.modelTag();
@@ -119,22 +95,21 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
         );
     }
 
-    app.use('/api/ai-chat', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
-    app.use('/api/ai-chat', rateLimit(rateLimitStore));
-    // W8: §7 telemetry row per turn. MUST sit between rate-limit and the
-    // chat router — it reads c.var.auth (set by jwtAuth) and wraps the
-    // handler with try/finally so the row is written after c.var.toolAudit
-    // / providerModel / lastUsage / validateCoerced are populated.
+    app.use('/api/ai-chat', rateLimit(rateLimitStore, { devBypass: cfg.devRatelimitBypass }));
+    // W8: §7 telemetry row per turn. Sits between rate-limit and the chat
+    // router — it wraps the handler with try/finally so the row is written
+    // after c.var.toolAudit / providerModel / lastUsage / validateCoerced
+    // are populated.
     app.use('/api/ai-chat', usageLog());
     app.route(
         '/api/ai-chat',
         createAiChatRouter({ provider, catalog, eosioTypes, allowedChainHosts: cfg.allowedChainHosts })
     );
 
-    // W8: GET /api/ai-usage — read-only aggregate. Behind the SAME jwtAuth
-    // gate as ai-chat (per-sub filtering depends on it) but NOT behind the
-    // rate-limit middleware — this is a cheap log read, not an LLM call.
-    app.use('/api/ai-usage', jwtAuth({ jwtSecret: cfg.jwtSecret, devBypass: cfg.devAuthBypass }));
+    // ai-usage is a cheap read of logs/usage.jsonl; not gated by the per-IP
+    // chat rate-limit (which is sized for LLM calls). v1 accepts that
+    // ai-usage can be polled freely from a single IP; spec §4 takes the
+    // same stance ('useful debugging endpoint').
     app.route('/api/ai-usage', createAiUsageRouter());
 
     return app;

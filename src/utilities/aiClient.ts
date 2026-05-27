@@ -4,11 +4,9 @@
 // throws AiClientError on transport / HTTP failures (typed refuse bodies on
 // non-2xx are surfaced as Reply, not exceptions).
 //
-// JWT is passed in by the caller as `Authorization: Bearer <jwt>` when
-// supplied. In local dev with DEV_AUTH_BYPASS=true the backend accepts
-// loopback requests without a bearer; in hosted environments a 401 will
-// surface as an AiClientError with status 401 — the caller decides how to
-// prompt for re-auth.
+// The backend is anonymous (docs/00 §3.1) — no `Authorization` header.
+// Per-IP rate-limit refuses surface as `kind: 'refuse'` in the 200-body
+// Reply, never as a non-200 status; transport errors throw `AiClientError`.
 
 import type { Action } from '../interfaces';
 
@@ -57,7 +55,7 @@ export interface AiChatResponse {
     usage?: AiUsageSidecar;
 }
 
-// W8: daily aggregate from GET /api/ai-usage. Same JWT auth as /api/ai-chat.
+// W8: daily aggregate from GET /api/ai-usage.
 export interface AiUsageToday {
     tokensInToday: number;
     tokensOutToday: number;
@@ -91,7 +89,6 @@ export function getBaseUrl(): string {
 export interface PostOptions {
     onWarming?: () => void;
     signal?: AbortSignal;
-    jwt?: string;
 }
 
 async function readErrorBody(res: Response): Promise<string> {
@@ -130,23 +127,13 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
     const timeoutId = setTimeout(() => controller.abort(new Error('timeout')), REQUEST_TIMEOUT_MS);
     const warmingId = opts.onWarming ? setTimeout(opts.onWarming, WARMING_HINT_MS) : null;
 
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (opts.jwt) headers.authorization = `Bearer ${opts.jwt}`;
-
     try {
         const res = await fetch(`${getBaseUrl()}/api/ai-chat`, {
             method: 'POST',
-            headers,
+            headers: { 'content-type': 'application/json' },
             body: JSON.stringify(req),
             signal: controller.signal,
         });
-        // The backend returns HTTP 200 for every authed outcome (including
-        // refuse) per guidelines §3.3. 401 from the auth gate is the one
-        // documented non-200; surface it as a typed refuse so the caller
-        // can prompt re-auth without exception-catching.
-        if (res.status === 401) {
-            return { reply: { kind: 'refuse', reason: 'auth-required' } };
-        }
         if (!res.ok) {
             if (res.headers.get('content-type')?.includes('application/json')) {
                 try {
@@ -186,26 +173,18 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
     }
 }
 
-// W8: GET /api/ai-usage — daily aggregate for the active sub. JWT-protected
-// (same auth as /api/ai-chat). Returns zeros on 401 so the cost chip can
-// quietly display nothing rather than surfacing an error.
+// W8: GET /api/ai-usage — daily aggregate.
+// Returns today's GLOBAL usage aggregate (docs/00 §7). Public per docs/00 §3.1;
+// the chip can fetch on every drawer-open without auth concerns.
 export interface GetAiUsageOptions {
-    jwt?: string;
     signal?: AbortSignal;
 }
 
 export async function getAiUsage(opts: GetAiUsageOptions = {}): Promise<AiUsageToday> {
-    const headers: Record<string, string> = {};
-    if (opts.jwt) headers.authorization = `Bearer ${opts.jwt}`;
     const res = await fetch(`${getBaseUrl()}/api/ai-usage`, {
         method: 'GET',
-        headers,
         signal: opts.signal,
     });
-    if (res.status === 401) {
-        // Not authed yet — return zeros (the cost chip shows nothing rather than erroring).
-        return { tokensInToday: 0, tokensOutToday: 0, costUsdToday: 0, turnsToday: 0 };
-    }
     if (!res.ok) throw new AiClientError(`Usage endpoint returned ${res.status}`, res.status);
     const body = (await res.json()) as AiUsageToday;
     // Validate the shape so a malformed response doesn't break the chip.

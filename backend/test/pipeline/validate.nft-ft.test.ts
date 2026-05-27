@@ -57,8 +57,6 @@ function baseCtx(overrides: Partial<ValidateContext> = {}): ValidateContext {
         validatedAccounts: ['duncan'],
         knownAccounts: [],
         selectedAccount: 'duncan',
-        jwtPermission: 'active',
-        jwtAccount: 'duncan',
         userMessage: '',
         ...overrides,
     };

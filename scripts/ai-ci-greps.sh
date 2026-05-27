@@ -8,9 +8,8 @@
 #                                     DEV_RATELIMIT_BYPASS=true, no `*` CORS).
 # W8   lands grep #11 (baseline-fixture protection).
 # W1.5-redo (this PR) repoints grep #5 (DEV_AUTH_BYPASS → DEV_RATELIMIT_BYPASS).
-#                     The companion grep blocking committed JWT_SECRET= lands in
-#                     the W1.5-redo code PR (PR 2), alongside the
-#                     backend/.env.example cleanup that removes the W1.5 residue.
+#                     The JWT_SECRET grep (#12) landed in PR 2 alongside the
+#                     backend/.env.example cleanup that removed the W1.5 residue.
 # Remaining greps land in their owning waves; rules listed below as TODO so
 # the wave that needs them can pick up where this leaves off.
 #
@@ -359,6 +358,33 @@ if git rev-parse --verify --quiet "$GREP11_BASE_REF" >/dev/null 2>&1; then
             done
         fi
     fi
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #12 (W1.5-redo): no `JWT_SECRET=` line in any tracked .env* file at
+# repo root.
+#
+# docs §5 rule 10. The W1.5 JWT path was removed in W1.5-redo; this grep
+# prevents accidental re-introduction. Pattern intentionally catches the
+# bare declaration `JWT_SECRET=` (including empty value) — the env var
+# should not exist at all after the redo.
+# ----------------------------------------------------------------------------
+GREP12_PATTERN='^[[:space:]]*JWT_SECRET='
+GREP12_HITS=()
+while IFS= read -r f; do
+    case "$(basename "$f")" in
+        .env|.env.*|*.env|*.env.*) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP12_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP12_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP12_HITS[@]} > 0 )); then
+    fail "Grep #12: JWT_SECRET= in a committed .env* file (W1.5 JWT path is removed; do not re-introduce; docs §5 rule 10)"
+    for f in "${GREP12_HITS[@]}"; do
+        grep -nE "$GREP12_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
 fi
 
 # ----------------------------------------------------------------------------

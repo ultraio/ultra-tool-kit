@@ -34,8 +34,6 @@ const props = defineProps<{
     open: boolean;
     /** Bumped from the parent whenever the session is reset. */
     resetCounter?: number;
-    /** JWT for the GET call (matches the chat send-path pattern). */
-    getJwt?: () => string | undefined;
 }>();
 
 const sessionCost = ref<number>(0);
@@ -74,7 +72,7 @@ watch(
 // Refetch today's aggregate when the drawer opens.
 async function refresh() {
     try {
-        const usage = await getAiUsage({ jwt: props.getJwt?.() });
+        const usage = await getAiUsage();
         todayCost.value = usage.costUsdToday;
     } catch {
         /* swallow — chip stays at last known value */

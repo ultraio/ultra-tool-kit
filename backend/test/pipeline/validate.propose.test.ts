@@ -47,8 +47,6 @@ const baseCtx: ValidateContext = {
     validatedAccounts: ['duncan', 'bob'],
     knownAccounts: ['ceo', 'cfo'],
     selectedAccount: 'duncan',
-    jwtPermission: 'active',
-    jwtAccount: 'duncan',
     userMessage: HAPPY_USER_MSG,
 };
 
@@ -309,7 +307,7 @@ describe('validatePropose — gate 7.5 (approver permission regex)', () => {
 });
 
 describe('validatePropose — gate 7.6 (proposer NOT in requested)', () => {
-    it('downgrades when the jwtAccount appears as an approver', () => {
+    it('downgrades when selectedAccount (the proposer) appears as an approver', () => {
         const reply = happyProposal({
             requested: [
                 { actor: 'duncan', permission: 'active' }, // duncan IS the proposer
@@ -323,15 +321,31 @@ describe('validatePropose — gate 7.6 (proposer NOT in requested)', () => {
         }
     });
 
-    it('proposer with a DIFFERENT permission as approver still rejected (actor match alone is insufficient — actor::permission must differ)', () => {
-        // jwtAccount=duncan, jwtPermission=active. Requested has duncan@owner.
-        // 7.6 checks the (actor, permission) tuple exactly: this should NOT
-        // trip 7.6 (different permission), and the citation/regex gates pass.
-        // Asserts the rule is per actor::permission, not per actor alone.
+    // W1.5-redo: anonymous backend, no JWT permission. 7.6 now rejects the
+    // proposer (selectedAccount) as an approver under ANY permission — a
+    // more conservative shape than the prior actor::permission tuple check.
+    // The wallet's own refusal-to-sign with the wrong key is the backstop.
+    it('downgrades when proposer appears as an approver under a different permission', () => {
         const reply = happyProposal({
             requested: [{ actor: 'duncan', permission: 'owner' }],
         });
         const outcome = validatePropose(reply, catalog, eosioTypes, baseCtx);
+        expect(outcome.kind).toBe('ask');
+        if (outcome.kind === 'ask') {
+            expect(outcome.failedGate).toBe(7);
+        }
+    });
+
+    it('skips 7.6 when selectedAccount is absent (no proposer identity to compare)', () => {
+        // Edge case: no selectedAccount in context. Without an identity, we
+        // can't say which approver IS the proposer — the wallet's
+        // refusal-to-sign is the only backstop. 7.6 short-circuits and the
+        // proposal goes through the rest of gate 7.
+        const ctxNoSelected: ValidateContext = { ...baseCtx, selectedAccount: undefined };
+        const reply = happyProposal({
+            requested: [{ actor: 'duncan', permission: 'active' }],
+        });
+        const outcome = validatePropose(reply, catalog, eosioTypes, ctxNoSelected);
         expect(outcome.kind).toBe('ok');
     });
 });

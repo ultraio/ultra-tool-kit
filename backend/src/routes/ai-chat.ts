@@ -2,15 +2,17 @@
 //
 // Flow per docs/00-ai-global-guidelines.md §2 (trust boundary diagram):
 //   1. Zod parse the request body (gate before any LLM touch).
-//   2. JWT claims are already attached by jwtAuth middleware (W1.5).
+//   2. Anonymous backend per docs/00 §3.1 — no JWT, no auth context.
+//      `validatedAccounts` from the request body is the only identity-like
+//      signal; gate 4 enforces the actor check against it.
 //   3. Classifier short-circuits refuse / ask / answer / propose.
 //   4. For act: retrieve top-5 catalog hits, build the fenced user message,
 //      call the harness, run the §4.3 gate stack, return the validated
 //      action (or downgrade to ask).
 //
-// Always HTTP 200 once the request is authed — failures become
-// `{ kind: 'refuse', reason: '...' }`. Guidelines §3.3 closing.
-// Internal errors are pino-logged and never re-raised to the response.
+// Always HTTP 200 — failures become `{ kind: 'refuse', reason: '...' }`.
+// Guidelines §3.3 closing. Internal errors are pino-logged and never
+// re-raised to the response.
 
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -32,7 +34,6 @@ import {
     type ValidateContext,
 } from '../pipeline/validate.js';
 import type { ChatProvider } from '../llm/provider.js';
-import type { AuthContext } from '../middleware/auth.js';
 import { logger } from '../middleware/logging.js';
 import { computeCostUsd } from '../middleware/usage-log.js';
 
@@ -136,16 +137,16 @@ function setWithEviction<V>(map: Map<string, V>, sessionId: string, value: V): v
     map.set(sessionId, value);
 }
 
-// Variables added on top of the AuthContext for the ai-chat router. `toolAudit`
-// is W4 plumbing — W8's telemetry middleware reads it off `c.var`.
+// Variables read by W4 + W8 middleware off `c.var`. `toolAudit` is W4
+// plumbing — W8's telemetry middleware reads it off `c.var`.
 // `validateCoerced` is W8 plumbing — set on every happy path (act/propose/
 // answer) so the usage-log middleware can stamp `validation_outcome: 'coerced'`
 // when the validator silently repaired the LLM's shape (§7).
 // `providerModel` + `lastUsage` are W8 plumbing — set after the harness call
 // so the usage-log middleware can compute cost_usd from the SAME model tag +
 // cumulative token figures the response wrapper's sidecar exposes.
-type AiChatContext = AuthContext & {
-    Variables: AuthContext['Variables'] & {
+type AiChatContext = {
+    Variables: {
         toolAudit: ToolAuditEntry[];
         validateCoerced: boolean;
         providerModel: string;
@@ -174,8 +175,6 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             return c.json({ reply: { kind: 'refuse', reason: 'bad-request' } } as ResponseEnvelope, 200);
         }
         const body: ChatRequestBody = parsed.data;
-
-        const auth = c.get('auth');
 
         // ─── Classifier short-circuits ───────────────────────────────────
         const lastTurn = body.messages[body.messages.length - 1];
@@ -239,8 +238,10 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 catalogEntries: entries,
                 context: {
                     selectedAccount: body.context.selectedAccount,
-                    permission: auth.permission,
-                    chainId: body.context.chainId || auth.chainId,
+                    // Anonymous backend (docs/00 §3.1) — no JWT permission to
+                    // forward. prompts.ts accepts undefined.
+                    permission: undefined,
+                    chainId: body.context.chainId,
                     endpoint: body.context.endpoint,
                     validatedAccounts: body.context.validatedAccounts,
                     knownAccounts: body.context.knownAccounts,
@@ -351,8 +352,6 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 validatedAccounts: body.context.validatedAccounts,
                 knownAccounts: body.context.knownAccounts,
                 selectedAccount: body.context.selectedAccount,
-                jwtPermission: auth.permission,
-                jwtAccount: auth.account,
                 userMessage,
                 toolReturnedIdentifiers: out.toolReturnedIdentifiers,
             };

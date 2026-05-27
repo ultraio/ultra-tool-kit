@@ -2,8 +2,9 @@
 //
 // Mirrors ai-chat.test.ts / ai-chat.propose.test.ts: real catalog + real
 // eosio-types + real classify/retrieve/validateAnswer, mocked ChatProvider.
-// Mounts the full createApp() stack so JWT auth + rate-limit middleware
-// are in the path; loopback authenticates via DEV_AUTH_BYPASS.
+// Mounts the full createApp() stack so the rate-limit middleware is in
+// the path; loopback bypasses the per-IP buckets via DEV_RATELIMIT_BYPASS.
+// Anonymous backend per docs/00 §3.1 — no Authorization header needed.
 //
 // Cases per W7 prompt:
 //   1. Happy: provider returns a grounded answer mentioning a real
@@ -31,10 +32,8 @@ import { _resetEosioTypesCache } from '../../src/pipeline/validate.js';
 const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as const;
 
 const baseCfg: AppConfig = {
-    jwtSecret: 'test-secret-w7',
     allowedOrigins: ['http://localhost:5172'],
-    nonceTtlMs: 5 * 60_000,
-    devAuthBypass: true,
+    devRatelimitBypass: true,
     llmProvider: 'ollama', // ignored — we inject a mock provider
     allowedChainHosts: ['localhost', '127.0.0.1'],
 };

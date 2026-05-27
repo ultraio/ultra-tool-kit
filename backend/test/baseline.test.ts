@@ -11,8 +11,9 @@
 //      hardcoded responses are crafted to satisfy validate.ts's gate stack
 //      (gates 1–6 for act, gates 1–7 for propose, gates A1–A3 for answer).
 //   3. POSTs the fixture's `request` to /api/ai-chat via the in-process
-//      Hono app (LOOPBACK env so DEV_AUTH_BYPASS authenticates; mirrors
-//      the existing route tests).
+//      Hono app (LOOPBACK env so DEV_RATELIMIT_BYPASS short-circuits the
+//      per-IP rate limit; mirrors the existing route tests). Anonymous
+//      backend per docs/00 §3.1 — no Authorization header needed.
 //   4. Asserts ONLY the (contract, action) pair (plus proposalName +
 //      requested.length for propose, plus "contains" substring for
 //      answer). NEVER asserts rationale prose — that's the §6 carve-out.
@@ -42,10 +43,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(__dirname, 'fixtures', 'baseline');
 
 const baseCfg: AppConfig = {
-    jwtSecret: 'test-secret-w8-baseline',
     allowedOrigins: ['http://localhost:5172'],
-    nonceTtlMs: 5 * 60_000,
-    devAuthBypass: true,
+    devRatelimitBypass: true,
     llmProvider: 'ollama', // ignored — we inject a mock provider per fixture
     allowedChainHosts: ['localhost', '127.0.0.1'],
 };
@@ -86,8 +85,7 @@ type Fixture = FixtureAct | FixturePropose | FixtureAnswer;
 // what the model SHOULD have emitted for that fixture's user message; the
 // shape must pass the relevant validate.ts gate stack (gate 5 in particular
 // requires every name-typed identifier to trace to the user message,
-// validatedAccounts/knownAccounts, jwtAccount ('dev' under DEV_AUTH_BYPASS),
-// or selectedAccount).
+// knownAccounts, or selectedAccount — anonymous backend per docs/00 §3.1).
 // ──────────────────────────────────────────────────────────────────────────
 
 const MOCK_RESPONSES: Record<string, ChatResponse> = {

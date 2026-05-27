@@ -9,8 +9,8 @@
 //
 // Real catalog, real eosio-types, real classify/retrieve/validate/harness;
 // mock ChatProvider and mock globalThis.fetch (the get_balance spec reaches
-// for ctx.fetchImpl ?? globalThis.fetch). DEV_AUTH_BYPASS on loopback is the
-// same pattern as ai-chat.test.ts.
+// for ctx.fetchImpl ?? globalThis.fetch). DEV_RATELIMIT_BYPASS on loopback
+// short-circuits the per-IP rate limiter, same pattern as ai-chat.test.ts.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,10 +22,8 @@ import { _resetEosioTypesCache } from '../../src/pipeline/validate.js';
 const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as const;
 
 const baseCfg: AppConfig = {
-    jwtSecret: 'test-secret-w4',
     allowedOrigins: ['http://localhost:5172'],
-    nonceTtlMs: 5 * 60_000,
-    devAuthBypass: true,
+    devRatelimitBypass: true,
     llmProvider: 'ollama', // ignored — we inject a mock provider
     allowedChainHosts: ['localhost', '127.0.0.1'],
 };
