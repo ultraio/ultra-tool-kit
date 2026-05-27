@@ -131,6 +131,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
 import CostBadge from './CostBadge.vue';
+import MessageBubble from './MessageBubble.vue';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'show-login'): void }>();
