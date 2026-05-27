@@ -253,6 +253,23 @@ toolAudit: [{ tool: 'get_balance' }, { tool: 'get_account' }, { tool: 'get_abi' 
         expect(row!.cost_usd).toBeCloseTo(0.0035, 9);
     });
 
+    it('cost_usd uses the frozen price table (anthropic:claude-haiku-4-5-20251001 — date-stamped tag matching ANTHROPIC_CHAT_MODEL default)', async () => {
+        const app = makeApp(logPath, {
+            providerModel: 'anthropic:claude-haiku-4-5-20251001',
+            lastUsage: { input: 1000, output: 500 },
+            reply: { kind: 'act', actions: [] },
+        });
+        await app.request('/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(defaultBody()),
+        });
+        const [row] = await readRows(logPath);
+        // (1000/1e6)*1 + (500/1e6)*5 = 0.001 + 0.0025 = 0.0035
+        expect(row!.cost_usd).toBeCloseTo(0.0035, 9);
+        expect(row!.cost_usd).not.toBe(0);
+    });
+
     it('cost_usd is 0 for an unknown model tag', async () => {
         const app = makeApp(logPath, {
             providerModel: 'made-up:model-9000',

@@ -40,6 +40,7 @@ export const DEFAULT_LOG_PATH = join(HERE, '..', '..', 'logs', 'usage.jsonl');
 const PRICE_TABLE: Record<string, { inPerM: number; outPerM: number }> = {
     'anthropic:haiku-4-5': { inPerM: 1.0, outPerM: 5.0 },
     'anthropic:claude-haiku-4-5': { inPerM: 1.0, outPerM: 5.0 },
+    'anthropic:claude-haiku-4-5-20251001': { inPerM: 1.0, outPerM: 5.0 },
     'ollama:qwen3:14b': { inPerM: 0, outPerM: 0 },
     'ollama:llama3.1:8b': { inPerM: 0, outPerM: 0 },
 };
