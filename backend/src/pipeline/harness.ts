@@ -161,9 +161,42 @@ export function estimateTokens(text: string): number {
 
 // Strip the JSON Schema $schema header — Anthropic's Tool.InputSchema and
 // Ollama's `format` both reject the draft URL at the root.
+//
+// Two Anthropic constraints shape this function:
+//   1. `type: 'object'` is REQUIRED at the root of input_schema.
+//   2. `anyOf`/`oneOf`/`allOf` are FORBIDDEN at the root.
+//
+// The Reply schema is a discriminated union → `{ oneOf: [...] }` at root,
+// and the harness's tool-extended schema adds a second variant via
+// `z.union([...])` → `{ anyOf: [...] }` at root. Both trip rule 2. The fix
+// is to wrap the caller's schema in a single-property object so the union
+// is nested under `response`; the model emits `{ response: { ... } }` and
+// the harness unwraps before returning. Ollama's `format` field tolerates
+// this shape too.
+const WRAPPED_RESPONSE_KEY = 'response';
+
+function wrapForProvider<T extends ZodTypeAny>(schema: T): ZodTypeAny {
+    return z.object({ [WRAPPED_RESPONSE_KEY]: schema });
+}
+
 function buildToolSchema(schema: ZodTypeAny): object {
     const { $schema: _, ...rest } = z.toJSONSchema(schema) as Record<string, unknown>;
+    if (rest.type === undefined) rest.type = 'object';
     return rest;
+}
+
+// Unwrap the `{ response: ... }` envelope from the model's payload before the
+// caller-facing Zod parse. Tolerates legacy (already-unwrapped) shapes too —
+// some Ollama models drop the wrapper despite the schema.
+function unwrapResponseEnvelope(raw: unknown): unknown {
+    if (
+        raw &&
+        typeof raw === 'object' &&
+        WRAPPED_RESPONSE_KEY in (raw as Record<string, unknown>)
+    ) {
+        return (raw as Record<string, unknown>)[WRAPPED_RESPONSE_KEY];
+    }
+    return raw;
 }
 
 function formatZodIssues(error: z.ZodError): string {
@@ -223,7 +256,9 @@ export async function call<T extends ZodTypeAny>(
 
     const toolsEnabled = !!opts.tools && opts.tools.length > 0;
     const finalSchema = toolsEnabled ? extendSchemaWithToolUse(opts.schema) : opts.schema;
-    const toolSchema = buildToolSchema(finalSchema);
+    // Wrap for Anthropic compatibility (top-level union forbidden). The model
+    // emits `{ response: ... }`; the harness unwraps before Zod-parsing.
+    const toolSchema = buildToolSchema(wrapForProvider(finalSchema));
 
     // §4.7 gate 2: wall-clock. AbortController aborts the in-flight provider
     // call; a flag mirrors the state so post-await branches can distinguish
@@ -313,7 +348,8 @@ export async function call<T extends ZodTypeAny>(
             cumulativeUsage.input += res.usage.input;
             cumulativeUsage.output += res.usage.output;
 
-            const parsed = finalSchema.safeParse(res.json);
+            const unwrapped = unwrapResponseEnvelope(res.json);
+            const parsed = finalSchema.safeParse(unwrapped);
             if (!parsed.success) {
                 // §4.3 gate 1: one nudge, then downgrade. Don't double-spend
                 // the schema retry across transient retries; this branch only
