@@ -58,6 +58,19 @@ interface ConnectAttestation {
         iat: number;               // unix seconds, issued-at
         exp: number;               // unix seconds, suggest 24h
         nonce: string;             // 32-byte random, hex-encoded
+
+        // NEW — optional. The full set of accounts the wallet currently
+        // holds keys for. Lets a backend reason about the user's real
+        // account set (e.g. sum a UOS balance for feature-gating) without
+        // trusting an FE-supplied list, which would be spoofable. Each
+        // entry names the account plus the permissions the wallet has the
+        // signing key for. Omit when the wallet doesn't enumerate
+        // additional accounts; backends MUST handle absence by falling
+        // back to the primary `account` field.
+        signableAccounts?: Array<{
+            account: string;
+            permissions: string[];
+        }>;
     };
     signature: string;             // SIG_K1_... over canonical hash of payload
 }
@@ -68,9 +81,12 @@ interface ConnectAttestation {
 When the user approves the `connect()` permission prompt:
 
 1. Build the `payload` object with current account/pubkey/permission/chainId, requesting dApp's origin (from `window.location.origin` or the post-message source), fresh nonce, and `exp = iat + 86400`.
-2. Compute the canonical hash of `payload` — JSON-stringified with sorted keys, UTF-8 encoded, SHA-256 hashed.
-3. Sign the hash with the active permission's key. **No popup** — this signing is part of fulfilling the `connect()` consent the user just gave.
-4. Return `{ payload, signature }` as `ConnectResult.attestation`.
+2. Enumerate the wallet's known signable accounts (the same set the wallet already exposes via `ConnectResult.accounts`) and attach them as `payload.signableAccounts`. This is information the wallet already has — no new storage or scans required.
+3. Compute the canonical hash of `payload` — JSON-stringified with sorted keys, UTF-8 encoded, SHA-256 hashed.
+4. Sign the hash with the active permission's key. **No popup** — this signing is part of fulfilling the `connect()` consent the user just gave.
+5. Return `{ payload, signature }` as `ConnectResult.attestation`.
+
+**Reuse existing primitives.** The signing path here MUST be the wallet's existing key-management + signing code — the same primitive used by `signTransaction`. Do NOT introduce a parallel crypto path, a new key-storage location, or a new signing service. This is a single new field on an existing response, signed by the existing signer. The wallet's identity / key-management surface is unchanged.
 
 ### 2.3 User-consent model — why this is acceptable without an extra popup
 
@@ -168,7 +184,15 @@ if (result.attestation) {
 // else — backend handles anonymously
 ```
 
-No breaking changes. dApps that don't know about `attestation` continue to work unchanged. dApps that do can opt in.
+**Backward compatibility — both directions are guaranteed:**
+
+| Scenario | Behavior |
+|---|---|
+| dApp doesn't know about `attestation`, wallet ships it | dApp reads its existing fields (`accounts`, `selectedAccount`, `blockchainid`), ignores the new field. Zero impact. |
+| dApp uses `attestation`, wallet hasn't shipped it yet | `result.attestation` is `undefined`. dApp branches on the falsy check (`if (result.attestation) ...`) and falls back to whatever non-attested auth path it has (anonymous, per-IP rate limit, SSO, etc.). |
+| Both updated | The dApp gets the new identity primitive; rate-limits / sponsorship can key on `pubkey` instead of IP. |
+
+This is non-negotiable. The field is **strictly additive**. No existing field changes shape, no existing return value gets renamed, no consumer's compile breaks. A wallet release with the new field can be deployed independently of any dApp update, and vice versa.
 
 ---
 
@@ -195,6 +219,12 @@ The wallet must use a trustworthy source for the `origin` field — NOT a value 
 ### 5.5 Cross-tab / cross-origin isolation
 
 Standard wallet origin-isolation rules apply. Attestation is issued to the origin that initiated `connect()`. The wallet must not leak it to other origins.
+
+### 5.6 Trusting `signableAccounts`
+
+Backends that gate features on account balance / status (e.g., the toolkit's UOS-balance gate in §9) MUST source the account list from `payload.signableAccounts` AFTER verifying the signature — never from `ConnectResult.accounts` directly (which is unsigned) and never from an FE-supplied list in the request body (trivially spoofable). The wallet's signature over the full payload is what makes the account list trustworthy: an attacker cannot forge a payload listing accounts they don't control without the wallet's signing key.
+
+A backend that omits this discipline is effectively un-gated: an attacker calls the AI endpoint with their own attestation but the FE claims `accounts: ['rich.account']` in the request body, and the balance check passes for a balance the attacker doesn't own.
 
 ---
 
@@ -236,14 +266,31 @@ When this proposal ships in `@ultraos/wallet-sdk`:
 1. Bump the SDK version in `ultra-tool-kit/package.json`.
 2. `src/wallets/ultra.ts` — surface `attestation` from `ConnectResult` to the toolkit's auth state.
 3. `src/utilities/aiClient.ts` — attach `Authorization: Attestation <base64url>` header when an attestation is present.
-4. `ultra-tool-kit/backend/src/middleware/attestation.ts` — new optional middleware. If header present, verify and attach `c.var.identity`. If absent, pass through.
+4. `ultra-tool-kit/backend/src/middleware/attestation.ts` — new optional middleware. If header present, verify and attach `c.var.identity` (which includes `pubkey`, `account`, and the verified `signableAccounts` list from §2.1). If absent, pass through.
 5. `ultra-tool-kit/backend/src/middleware/ratelimit.ts` — when `c.var.identity` is present, rate-limit-key becomes `pubkey:${pubkey}` instead of `ip:${ip}`. Per-key tiers can be looser than per-IP (e.g., 30/day → 200/day per pubkey, since pubkey ownership is real Sybil resistance).
-6. Anchor / Ledger users continue to hit the IP path — no behavior change for them.
+6. `ultra-tool-kit/backend/src/middleware/balance-gate.ts` — new middleware running after `attestation`, before `ratelimit`. When `c.var.identity` is present: read UOS balance for each account in `payload.signableAccounts` via the W4 `get_balance` tool, sum into a single `totalUos` figure, refuse with `kind: 'refuse', reason: 'insufficient-uos'` if below the configured threshold (suggest **1 UOS total** to start; tune from usage data). When `c.var.identity` is absent (anonymous request) the gate is a no-op — per-IP rate limit is the only defense for unattested users. Balance reads are cached in-process per-account for 5 minutes to avoid hammering the chain RPC on every chat turn.
+7. Anchor / Ledger users continue to hit the IP path — no balance gate, no per-pubkey rate limit. Behavior unchanged for them.
 
-Total work for the toolkit side: ~½ wave.
+**Why the balance gate.** Per-pubkey rate limit (step 5) closes Sybil for users with one identity. The balance gate closes a different angle — a determined attacker could mint many fresh accounts cheaply on Ultra; requiring a non-zero UOS balance makes each Sybil pubkey carry a small economic cost. Combined with the §3.2 monthly sponsor cap, this bounds attack cost realistically.
+
+**Why sum across `signableAccounts` instead of just `account`.** Matches the toolkit's existing UX: a user can sign from any account in their wallet (the existing `validatedAccounts` flow). Their perceived "Ultra balance" is the sum across all those accounts. Gating on only the active account would feel arbitrary — a user with 0 UOS active but 100 UOS in another account would be refused despite the wallet being willing to sign from either.
+
+Total work for the toolkit side: ~1 wave (W9). Roughly: ½ wave for the attestation + ratelimit-rekey integration, ½ wave for the balance gate + tests.
 
 ---
 
 ## 10. Status
 
 This document captures the design. No code in any repo yet implements it. Owner: Ultra Wallet team to evaluate; `ultra-tool-kit` author tracks adoption and is ready to integrate the day the SDK ships.
+
+---
+
+## 11. Implementation process (wallet repo)
+
+The Ultra Wallet extension implementation (Phase 1 per the adoption order in §3) follows these process rules:
+
+1. **All commits live on the feature branch `task/wallet-attestation`.** Every iteration — implementation, tests, UI copy, refactors during review — lands as a commit on that branch. Do NOT push directly to the wallet's main branch.
+2. **Test before opening a PR.** The branch only becomes a PR once the implementation passes the wallet repo's local test suite (Karma/Jasmine), a manual smoke (load unpacked extension, exercise `connect()` from a stub dApp, verify the `attestation` field round-trips), and the §2.3 / §5.4 security checks (origin-spoof rejection, signature verifies externally against the named pubkey).
+3. **Reuse, don't rebuild.** The signing path uses the wallet's existing key-management + transaction-signing primitives. Do NOT introduce new crypto code, new key-storage, parallel signing services, or "AI-specific" identity machinery. The attestation is a new field on an existing response, signed by the existing signer.
+4. **Strictly additive changes.** No existing field on `ConnectResult` changes shape. No existing message type / API gains required fields. No callers of `connect()` need to update to keep working. Backward compatibility per §4 is non-negotiable.
+5. **PR title:** `[wallet-attestation] silent connect-time identity attestation`. PR description links to this canonical RFC (github.com/ultraio/ultra-tool-kit path) and names the decisions made for the §6 open questions.
