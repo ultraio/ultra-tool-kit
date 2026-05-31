@@ -125,6 +125,11 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
     // attestation → balance-gate → ratelimit → usageLog → router.
     // attestation is opportunistic (never 401s); balance-gate is a no-op
     // unless attestation set c.var.identity.
+    if (!cfg.attestationChainId) {
+        logger.warn(
+            'attestation: ATTESTATION_CHAIN_ID is unset — attestations are accepted for ANY chainId (origin + exp + signature still bind). Set it to enforce chain-binding per docs/proposals/wallet-native-attestation.md §5.'
+        );
+    }
     app.use(
         '/api/ai-chat',
         attestation({

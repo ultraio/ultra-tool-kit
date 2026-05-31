@@ -42,7 +42,7 @@ import { createHash } from 'node:crypto';
 import type { MiddlewareHandler } from 'hono';
 
 import { clientIpOf } from './logging.js';
-import type { AttestedIdentity } from './attestation.js';
+import type { IdentityVariables } from './attestation.js';
 import { readMonthlyAggregate } from '../ratelimit/usage-aggregate.js';
 
 // Exported so tests can assert against the same constants the middleware uses.
@@ -153,7 +153,7 @@ const MONTH_MS = 30 * DAY_MS; // Approximate; the calendar-month boundary is
                               // the token bucket. 30d is the bucket refill
                               // window — close enough for a per-IP soft cap.
 
-export function rateLimit(store: RateLimitStore, deps: RatelimitDeps = {}): MiddlewareHandler {
+export function rateLimit(store: RateLimitStore, deps: RatelimitDeps = {}): MiddlewareHandler<IdentityVariables> {
     const readUsage = deps.readUsage ?? readMonthlyAggregate;
     const clock = deps.now ?? (() => Date.now());
     const devBypass = deps.devBypass ?? false;
@@ -172,7 +172,7 @@ export function rateLimit(store: RateLimitStore, deps: RatelimitDeps = {}): Midd
         // W9 keying: an attested caller (identity set by the attestation
         // middleware) gets a hashed-pubkey key + the looser PUBKEY_LIMITS;
         // everyone else stays on the raw-IP key + IP_LIMITS (unchanged).
-        const identity = (c.var as { identity?: AttestedIdentity }).identity;
+        const identity = c.get('identity');
         const now = clock();
         let key: string;
         let limits: Limits;
