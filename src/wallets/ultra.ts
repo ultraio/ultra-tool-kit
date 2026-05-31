@@ -7,7 +7,9 @@ import type {
     AvailableAuth,
     BlockchainTransaction,
     WalletEventType,
+    ConnectAttestation,
 } from '@ultraos/wallet-sdk';
+import { setAttestation, useWalletAccounts } from './wallet-accounts';
 
 /**
  * Subset of the Ultra extension's window-injected API that this module
@@ -42,6 +44,15 @@ export function getSDK(): UltraWalletSDK | null {
     if (!isAvailable()) return null;
     if (!sdk) {
         sdk = new UltraWalletSDK({ provider: 'extension' });
+        // W9: capture a reissued attestation from `accountChanged` (RFC §6.5 /
+        // §11). Passive, additive listener — it does NOT touch the existing
+        // account/selection handling (App.vue keeps its own accountChanged
+        // listener for the accounts list). The wallet includes a fresh,
+        // origin-bound `attestation` on the event payload when it reissues;
+        // we overwrite the stored one so the next AI request uses it.
+        sdk.on('accountChanged', (data: { attestation?: ConnectAttestation }) => {
+            if (data?.attestation) setAttestation(data.attestation);
+        });
     }
     return sdk;
 }
@@ -198,7 +209,7 @@ export function extractAccountInfo(result: ConnectResult): {
         const activePermission = result.selectedAccount.permissions.find((p) => p.name === 'active');
         return {
             accountName: result.selectedAccount.accountName,
-            permission: activePermission ? 'active' : (result.selectedAccount.permissions[0]?.name ?? 'active'),
+            permission: activePermission ? 'active' : result.selectedAccount.permissions[0]?.name ?? 'active',
         };
     }
     // Legacy fallback
@@ -214,6 +225,16 @@ export function extractAccountInfo(result: ConnectResult): {
  */
 export function extractChainId(result: ConnectResult): string | undefined {
     return result.network?.chainId;
+}
+
+/**
+ * W9: the wallet's current connect-time attestation (RFC §2.1), or undefined
+ * when the wallet didn't issue one. Reads the shared wallet-accounts store —
+ * consumers should prefer `useWalletAccounts().attestation` directly; this
+ * getter is for non-reactive call sites.
+ */
+export function getAttestation(): ConnectAttestation | undefined {
+    return useWalletAccounts().attestation.value;
 }
 
 /**
@@ -238,9 +259,7 @@ export async function resolveSelectedAccount(connectResult: ConnectResult): Prom
             const activePermission = live.data.permissions.find((p) => p.name === 'active');
             return {
                 accountName: live.data.accountName,
-                permission: activePermission
-                    ? 'active'
-                    : (live.data.permissions[0]?.name ?? 'active'),
+                permission: activePermission ? 'active' : live.data.permissions[0]?.name ?? 'active',
             };
         }
     } catch {

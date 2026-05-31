@@ -23,6 +23,8 @@ import { createAiUsageRouter } from './routes/ai-usage.js';
 import { createRateLimitStore, rateLimit } from './middleware/ratelimit.js';
 import { logger, requestLogger } from './middleware/logging.js';
 import { isKnownModelTag, usageLog } from './middleware/usage-log.js';
+import { attestation } from './middleware/attestation.js';
+import { balanceGate } from './middleware/balance-gate.js';
 import { loadCatalog } from './pipeline/catalog.js';
 import { loadEosioTypes } from './pipeline/validate.js';
 import type { ChatProvider } from './llm/provider.js';
@@ -38,6 +40,9 @@ export type AppConfig = {
     // (`*.ultra.io`, `localhost`, `127.0.0.1`) is folded in by
     // buildAllowlistFromEnv — any extras are appended from ALLOWED_CHAIN_HOSTS.
     allowedChainHosts: string[];
+    // W9 (docs/00 §3.7). Attested callers only.
+    balanceThresholdUos?: number;   // min summed UOS across signableAccounts; createApp defaults to 1.0
+    attestationChainId?: string;    // when set, attestations must match this chainId
 };
 
 function readConfig(): AppConfig {
@@ -60,11 +65,20 @@ function readConfig(): AppConfig {
 
     const allowedChainHosts = [...buildAllowlistFromEnv(process.env)];
 
+    const rawThreshold = process.env.BALANCE_THRESHOLD_UOS;
+    const balanceThresholdUos =
+        rawThreshold && rawThreshold.trim() !== '' && Number.isFinite(Number(rawThreshold))
+            ? Number(rawThreshold)
+            : 1.0;
+    const attestationChainId = process.env.ATTESTATION_CHAIN_ID?.trim() || undefined;
+
     return {
         allowedOrigins,
         devRatelimitBypass,
         llmProvider: rawProvider,
         allowedChainHosts,
+        balanceThresholdUos,
+        attestationChainId,
     };
 }
 
@@ -74,6 +88,9 @@ function buildProvider(which: 'anthropic' | 'ollama'): ChatProvider {
 
 export type CreateAppDeps = {
     provider?: ChatProvider; // tests inject a mock
+    usageLogPath?: string; // tests point the JSONL at a temp file
+    readUosBalance?: (account: string, endpoint: string) => Promise<number>; // tests stub the balance gate
+    attestationNow?: () => number; // tests control the attestation clock (unix seconds)
 };
 
 export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
@@ -103,12 +120,35 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
         );
     }
 
+    // W9 (docs/00 §3.7): wallet-native attestation chain on /api/ai-chat,
+    // mounted BEFORE rate-limit so the final order is
+    // attestation → balance-gate → ratelimit → usageLog → router.
+    // attestation is opportunistic (never 401s); balance-gate is a no-op
+    // unless attestation set c.var.identity.
+    app.use(
+        '/api/ai-chat',
+        attestation({
+            allowedOrigins: cfg.allowedOrigins,
+            expectedChainId: cfg.attestationChainId,
+            now: deps.attestationNow,
+        })
+    );
+    app.use(
+        '/api/ai-chat',
+        balanceGate({
+            thresholdUos: cfg.balanceThresholdUos ?? 1.0,
+            catalog,
+            allowlist: cfg.allowedChainHosts,
+            readUosBalance: deps.readUosBalance,
+        })
+    );
+
     app.use('/api/ai-chat', rateLimit(rateLimitStore, { devBypass: cfg.devRatelimitBypass }));
     // W8: §7 telemetry row per turn. Sits between rate-limit and the chat
     // router — it wraps the handler with try/finally so the row is written
     // after c.var.toolAudit / providerModel / lastUsage / validateCoerced
     // are populated.
-    app.use('/api/ai-chat', usageLog());
+    app.use('/api/ai-chat', usageLog({ logPath: deps.usageLogPath }));
     app.route(
         '/api/ai-chat',
         createAiChatRouter({ provider, catalog, eosioTypes, allowedChainHosts: cfg.allowedChainHosts })

@@ -22,6 +22,7 @@ const LOOPBACK_ENV = { incoming: { socket: { remoteAddress: '127.0.0.1' } } } as
 // buildRow emits these in insertion order; tests sort for comparison.
 const REQUIRED_KEYS = [
     'client_ip_hash',
+    'identity_pubkey_hash',
     'cost_usd',
     'endpoint_chainid',
     'provider_model',
@@ -42,6 +43,7 @@ const REQUIRED_KEYS = [
 type RouteContext = {
     Variables: UsageLogContext['Variables'] & {
         toolAudit: Array<{ tool: string }>;
+        identity?: { pubkey: string };
     };
 };
 
@@ -50,6 +52,7 @@ type RouteOpts = {
     validateCoerced?: boolean;
     providerModel?: string;
     lastUsage?: { input: number; output: number };
+    identity?: { pubkey: string };
     reply?: unknown; // body to return from the route
     status?: number;
 };
@@ -62,6 +65,7 @@ function makeApp(logPath: string, opts: RouteOpts) {
         if (opts.validateCoerced !== undefined) c.set('validateCoerced', opts.validateCoerced);
         if (opts.providerModel) c.set('providerModel', opts.providerModel);
         if (opts.lastUsage) c.set('lastUsage', opts.lastUsage);
+        if (opts.identity) c.set('identity', opts.identity);
         const body = opts.reply ?? { kind: 'refuse', reason: 'refused' };
         return c.json(body as object, (opts.status ?? 200) as 200);
     });
@@ -415,5 +419,37 @@ toolAudit: [{ tool: 'get_balance' }, { tool: 'get_account' }, { tool: 'get_abi' 
         });
         const [row] = await readRows(logPath);
         expect(row!.session_id_hash).toBe(createHash('sha256').update('sess-42').digest('hex'));
+    });
+
+    it('identity_pubkey_hash is sha256(identity.pubkey) when identity is present', async () => {
+        const pubkey = 'EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV';
+        const app = makeApp(logPath, {
+            providerModel: 'anthropic:haiku-4-5',
+            lastUsage: { input: 1, output: 1 },
+            identity: { pubkey },
+            reply: { kind: 'act', actions: [] },
+        });
+        await app.request('/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(defaultBody()),
+        });
+        const [row] = await readRows(logPath);
+        expect(row!.identity_pubkey_hash).toBe(createHash('sha256').update(pubkey).digest('hex'));
+    });
+
+    it('identity_pubkey_hash is null on the per-IP path (no identity)', async () => {
+        const app = makeApp(logPath, {
+            providerModel: 'anthropic:haiku-4-5',
+            lastUsage: { input: 1, output: 1 },
+            reply: { kind: 'refuse', reason: 'refused' },
+        });
+        await app.request('/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(defaultBody()),
+        });
+        const [row] = await readRows(logPath);
+        expect(row!.identity_pubkey_hash).toBeNull();
     });
 });

@@ -22,13 +22,7 @@ import { ref, type Ref } from 'vue';
 import { emitter } from '../eventBus';
 import * as I from '../interfaces';
 import { useWalletAccounts } from '../wallets/wallet-accounts';
-import {
-    postAiChat,
-    AiClientError,
-    type Reply,
-    type AiChatRequest,
-    type AiUsageSidecar,
-} from '../utilities/aiClient';
+import { postAiChat, AiClientError, type Reply, type AiChatRequest, type AiUsageSidecar } from '../utilities/aiClient';
 
 export const MAX_MESSAGE_CHARS = 1000;
 export const MAX_SESSION_MESSAGES = 30;
@@ -84,7 +78,7 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
         // doesn't have to type every account name verbatim in every turn.
         // Capped at 50 per the backend's Zod limit; deduped via Set in case
         // the wallet returns the same name twice.
-        const { validatedAccounts: walletValidated } = useWalletAccounts();
+        const { validatedAccounts: walletValidated, attestation } = useWalletAccounts();
         const walletAccountNames = [...new Set(walletValidated.value.map((a) => a.accountName))];
         const fallback = selectedAccount ? [selectedAccount] : [];
         const accountList = (walletAccountNames.length > 0 ? walletAccountNames : fallback).slice(0, 50);
@@ -108,6 +102,7 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
                 onWarming: () => {
                     warming.value = true;
                 },
+                attestation: attestation.value,
             });
             const reply = response.reply;
             lastReply.value = reply;

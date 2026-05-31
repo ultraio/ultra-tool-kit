@@ -4,11 +4,15 @@
 // throws AiClientError on transport / HTTP failures (typed refuse bodies on
 // non-2xx are surfaced as Reply, not exceptions).
 //
-// The backend is anonymous (docs/00 §3.1) — no `Authorization` header.
-// Per-IP rate-limit refuses surface as `kind: 'refuse'` in the 200-body
-// Reply, never as a non-200 status; transport errors throw `AiClientError`.
+// Identity is opportunistic (docs/00 §3.7): when the wallet provides a
+// connect-time attestation we forward it as `Authorization: Attestation
+// <base64url(JSON)>`; when absent we send no header and the backend uses the
+// per-IP path. Rate-limit / balance-gate refuses surface as `kind: 'refuse'`
+// in the 200-body Reply, never as a non-200 status; transport errors throw
+// `AiClientError`.
 
 import type { Action } from '../interfaces';
+import type { ConnectAttestation } from '@ultraos/wallet-sdk';
 
 export interface AiChatContext {
     validatedAccounts: string[];
@@ -81,14 +85,25 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const WARMING_HINT_MS = 10_000;
 
 export function getBaseUrl(): string {
-    const fromEnv = (import.meta as { env?: Record<string, string | undefined> }).env
-        ?.VITE_AI_BACKEND_URL;
+    const fromEnv = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_AI_BACKEND_URL;
     return fromEnv?.trim() || DEFAULT_BASE_URL;
+}
+
+// base64url(JSON) for the Authorization: Attestation header. Browser-native
+// (TextEncoder + btoa) — no Buffer dependency. Backend decodes with
+// Buffer.from(value, 'base64url'), which accepts the unpadded -/_ alphabet.
+function base64UrlEncode(input: string): string {
+    const bytes = new TextEncoder().encode(input);
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export interface PostOptions {
     onWarming?: () => void;
     signal?: AbortSignal;
+    // W9: when present, forwarded as `Authorization: Attestation <base64url(JSON)>`.
+    attestation?: ConnectAttestation;
 }
 
 async function readErrorBody(res: Response): Promise<string> {
@@ -128,9 +143,13 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
     const warmingId = opts.onWarming ? setTimeout(opts.onWarming, WARMING_HINT_MS) : null;
 
     try {
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (opts.attestation) {
+            headers['Authorization'] = `Attestation ${base64UrlEncode(JSON.stringify(opts.attestation))}`;
+        }
         const res = await fetch(`${getBaseUrl()}/api/ai-chat`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers,
             body: JSON.stringify(req),
             signal: controller.signal,
         });
@@ -155,17 +174,9 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
         if (isAbortError(err)) {
             const reason = controller.signal.reason;
             const isTimeout = reason instanceof Error && reason.message === 'timeout';
-            throw new AiClientError(
-                isTimeout ? 'Request timed out after 60s' : 'Request aborted',
-                undefined,
-                reason
-            );
+            throw new AiClientError(isTimeout ? 'Request timed out after 60s' : 'Request aborted', undefined, reason);
         }
-        throw new AiClientError(
-            `Couldn't reach the AI backend. Is it running on ${getBaseUrl()}?`,
-            undefined,
-            err
-        );
+        throw new AiClientError(`Couldn't reach the AI backend. Is it running on ${getBaseUrl()}?`, undefined, err);
     } finally {
         clearTimeout(timeoutId);
         if (warmingId) clearTimeout(warmingId);

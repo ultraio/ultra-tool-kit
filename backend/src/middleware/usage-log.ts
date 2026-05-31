@@ -73,6 +73,7 @@ export type UsageLogDeps = {
 export type UsageRow = {
     ts: string;
     client_ip_hash: string;
+    identity_pubkey_hash: string | null;
     endpoint_chainid: string;
     session_id_hash: string;
     turn_kind: 'act' | 'propose' | 'ask' | 'refuse' | 'answer';
@@ -146,6 +147,7 @@ export function computeCostUsd(modelTag: string, tokensIn: number, tokensOut: nu
 function buildRow(input: {
     ts: string;
     clientIp: string;
+    identityPubkey?: string;
     chainIdFromBody: string;
     sessionId: string;
     turnKind: UsageRow['turn_kind'];
@@ -162,6 +164,8 @@ function buildRow(input: {
         ts: input.ts,
         // PII gate (§4.4): client IP is hashed, never logged in the clear.
         client_ip_hash: sha256Hex(input.clientIp),
+        // W9 §3.7: sha256 of the attested pubkey; null on the per-IP path. Stored as hex like client_ip_hash.
+        identity_pubkey_hash: input.identityPubkey ? sha256Hex(input.identityPubkey) : null,
         endpoint_chainid: input.chainIdFromBody,
         session_id_hash: sha256Hex(input.sessionId),
         turn_kind: input.turnKind,
@@ -252,6 +256,9 @@ export function usageLog(deps: UsageLogDeps = {}): MiddlewareHandler<UsageLogCon
             // middleware deliberately doesn't import that type to stay
             // decoupled. Read via the untyped var bag.
             const vars = c.var as Record<string, unknown>;
+            // W9 §3.7: read the attested identity loosely (set by the
+            // attestation middleware) — stay decoupled, like toolAudit.
+            const identity = vars.identity as { pubkey?: string } | undefined;
             const toolAudit = (vars.toolAudit as ToolAuditLike[] | undefined) ?? [];
             const validateCoerced = (vars.validateCoerced as boolean | undefined) ?? false;
             // providerModel is set by the route handler after the harness
@@ -280,6 +287,7 @@ export function usageLog(deps: UsageLogDeps = {}): MiddlewareHandler<UsageLogCon
             const row = buildRow({
                 ts: t0.toISOString(),
                 clientIp,
+                identityPubkey: identity?.pubkey,
                 chainIdFromBody: bodyChainId,
                 sessionId,
                 turnKind,
