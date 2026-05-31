@@ -110,6 +110,7 @@ Per-turn target (hosted): **≤ 1.5 K input + ≤ 400 output**, ~$0.0008 on Haik
 | 9 | **Branch:** `feature/ai-enhancement`. One PR per wave. PR title format: `[ai-NN] <imperative>`. | Matches bi-platform's "one PR = one feature" cadence. |
 | 10 | **Nothing outside the AI scope is changed.** Wallet code, Transaction.vue's existing paths, page logic — all frozen. | User instruction. |
 | 11 | **v1 identity model is anonymous-per-IP with monthly cost cap. Path 1 (wallet-native silent attestation) is the named v2 upgrade — see `docs/proposals/wallet-native-attestation.md`.** | Smallest defense that's still binding; net code reduction; closes T1 cheaply, bounds T2/T3 via global cap. |
+| 12 | **Wallet-native attestation is the v2 identity primitive** (RFC: `docs/proposals/wallet-native-attestation.md`); per-IP from §3.2 of `docs/00-ai-global-guidelines.md` is the v1 fallback for unattested users. | Adopts the Path-1 upgrade named in decision 11. Header-only, strictly additive: no request-body change, response shape unchanged, Anchor/Ledger users unaffected. Lands in W9. |
 
 ---
 
@@ -142,6 +143,7 @@ Each wave is one branch commit / one PR off `feature/ai-enhancement`. Don't merg
 | W6 | `eosio.msig` proposal composer | 2d | "propose: transfer 100 UOS from corp@active, require ceo + cfo" → multi-action `proposex` built; **every inner action passes §4.3 gates 1–6 individually**; handed to `Transaction.vue`'s `isMakingProposal` path. | §4.3 full, §4.5 |
 | W7 | Q&A mode (knowledge answers) | 1d | "What does `eosio.nft.ft::setfact.uri` do?" returns a grounded explanation citing catalog entries. Refuses non-Ultra questions politely. | §1 maxim 2 (no invented refs), §4.1 |
 | W8 | Telemetry + regression baseline + polish | 2d | `logs/usage.jsonl` written per §7. Baseline fixtures green (§6). Prompt caching headers on, sliding-window summary, cost badge live, Playwright suite green. | §6 full, §7 full |
+| W9 | Wallet-native attestation + balance-gated AI | 1d | Toolkit adopts `@ultraos/wallet-sdk@0.4.0` attestation as the v2 identity primitive. The FE forwards `Authorization: Attestation` when the wallet provides it; the backend verifies it, attaches `c.var.identity`, gates AI access on the summed UOS balance across `signableAccounts`, and re-keys the rate limit from `ip:` to `pubkey:` with looser tiers. Unattested (Anchor/Ledger) requests hit the per-IP path unchanged. Matches RFC §9. | §3.7, §5 grep 13, §7 |
 
 **Total: ~18 working days, one person.** W1.5 adds 2 days but is non-negotiable for sponsored AI.
 

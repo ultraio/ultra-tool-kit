@@ -10,6 +10,10 @@
 # W1.5-redo (this PR) repoints grep #5 (DEV_AUTH_BYPASS → DEV_RATELIMIT_BYPASS).
 #                     The JWT_SECRET grep (#12) landed in PR 2 alongside the
 #                     backend/.env.example cleanup that removed the W1.5 residue.
+# W9   lands grep #13 (block JWT/auth-middleware re-introduction in backend
+#                      code — c.var.auth / jwtAuth / JWT_SECRET / nonce-store /
+#                      verify-signature; the wallet-native attestation path uses
+#                      c.var.identity, not c.var.auth).
 # Remaining greps land in their owning waves; rules listed below as TODO so
 # the wave that needs them can pick up where this leaves off.
 #
@@ -384,6 +388,46 @@ if (( ${#GREP12_HITS[@]} > 0 )); then
     fail "Grep #12: JWT_SECRET= in a committed .env* file (W1.5 JWT path is removed; do not re-introduce; docs §5 rule 10)"
     for f in "${GREP12_HITS[@]}"; do
         grep -nE "$GREP12_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #13 (W9): JWT / auth-middleware re-introduction in backend/src/**.
+#
+# docs §5 rule 11. The W1.5 JWT path was reverted (§3.1) and replaced by the
+# per-IP rate limit (W1.5-redo) + W9 wallet-native attestation (§3.7). This
+# grep is defensive against another W1.5-style detour: it blocks the JWT-era
+# tokens `c.var.auth`, a `jwtAuth` import, a code-level `JWT_SECRET` read, a
+# `nonce-store` module, and a `verify-signature` module.
+#
+# It guards CODE (backend/src/**, .ts/.tsx/.js/.mjs/.cjs); grep #12 guards
+# `.env*` files. backend/test/ is out of scope — fixtures legitimately mention
+# the words. The W9 attestation middleware is NOT JWT: it sets `c.var.identity`
+# (not `c.var.auth`), reads no `JWT_SECRET`, and verifies an EOSIO signature via
+# `@wharfkit/antelope` — none of the banned tokens appear, so it stays green.
+# `nonce-store` / `verify-signature` are matched as hyphenated module tokens, so
+# the attestation payload's `nonce` field and the `verifyDigest` call do NOT
+# trip the grep.
+# ----------------------------------------------------------------------------
+GREP13_PATTERN='c\.var\.auth([^A-Za-z0-9_]|$)|c\.(get|set)\([[:space:]]*['\''"]auth['\''"]|(^|[^A-Za-z0-9_])jwtAuth([^A-Za-z0-9_]|$)|JWT_SECRET|nonce-store|verify-signature'
+GREP13_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP13_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP13_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP13_HITS[@]} > 0 )); then
+    fail "Grep #13: JWT/auth-middleware token re-introduced in backend/src/** (W1.5 JWT path is gone; use W9 attestation's c.var.identity; docs §5 rule 11)"
+    for f in "${GREP13_HITS[@]}"; do
+        grep -nE "$GREP13_PATTERN" "$f" | sed "s|^|  $f:|" >&2
     done
 fi
 

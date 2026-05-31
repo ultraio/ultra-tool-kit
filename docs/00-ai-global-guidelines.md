@@ -102,6 +102,28 @@ Tiers 1–4 are in-process token buckets keyed on client IP. Tier 5 reads the mo
 
 The proper closure for T2/T3 is **wallet-native silent connect-time attestation** — the wallet issues a short-lived signed attestation at `connect()` time (no extra user consent step) and the toolkit forwards it as `Authorization: Attestation <payload>` on chat requests. Backend verifies the attestation against the wallet vendor's published pubkey and rate-limits on the attested wallet identity instead of (or in addition to) IP. Shape is **additive**: if the header is absent, the request falls back to per-IP. Requires Ultra Wallet team coordination and is **not in scope for v1**. Full design at `docs/proposals/wallet-native-attestation.md`.
 
+### 3.7 Wallet-native attestation (W9) — dual-path identity
+
+W9 adopts the §3.6 proposal as a live, **opportunistic** identity primitive. Identity rides in one header; the request body and the response shape are unchanged. Every request takes exactly one of two paths.
+
+**Path A — attested.** When `Authorization: Attestation <base64url(JSON)>` is present AND verifies (signature, `origin`, `chainId`, `exp`/`iat`, `v === 1` — per `docs/proposals/wallet-native-attestation.md` §2.4), the backend attaches `c.var.identity` and:
+
+- **Rate-limit key** becomes `pubkey:<sha256(identity.pubkey)>` instead of `ip:<addr>`. Per-pubkey tiers are looser than per-IP because pubkey ownership is real Sybil resistance:
+
+  | Tier | Per-pubkey limit |
+  |---|---|
+  | Per-minute | 30 |
+  | Per-hour | 200 |
+  | Per-day | 200 |
+  | Per-month (per pubkey) | 2000 |
+
+  The global monthly USD sponsor cap (§3.2 tier 5) still binds across all keys.
+- **UOS balance gate** applies when `identity.signableAccounts` is present: the backend sums the UOS balance across every attested account (sourced from the signed `signableAccounts`, never an FE-supplied list — RFC §5.6) and refuses with `{ kind: 'refuse', reason: 'insufficient-uos' }` (HTTP 200 per §3.2) when the total is below `BALANCE_THRESHOLD_UOS` (default `1.0`). Balance reads reuse the W4 `get_balance` tool and are cached in-process per account for 5 minutes.
+
+**Path B — unattested.** When the header is absent OR fails verification, the request falls back to the per-IP path from §3.2 **exactly** — same tiers, same buckets, same loopback dev bypass. Verification never returns 401; it is opportunistic (RFC §3). Anchor / Ledger users (no attestation) see no behavior change.
+
+The two paths are mutually exclusive per request: an attested request is keyed on pubkey and never touches an IP bucket; an unattested request is keyed on IP and never touches a pubkey bucket. Order of operations: identity is verified first, then the balance gate, then the rate limit.
+
 ---
 
 ## 4. Security baseline
@@ -189,6 +211,8 @@ Block PRs that match any of:
 9. `*` CORS origin in `backend/src/**` outside test fixtures.
 10. `JWT_SECRET=` in any tracked `.env*` file at repo root (prevents re-introduction of the W1.5 JWT path).
     (Rule 10 is enforced by grep #12 in `scripts/ai-ci-greps.sh`; the grep lands in the W1.5-redo code PR — PR 2 — together with the `backend/.env.example` cleanup that removes the existing `JWT_SECRET=` residue. The rule is design-locked here so PR 2 can't drop it.)
+11. JWT / auth-middleware re-introduction in backend code: any of `c.var.auth`, a `jwtAuth` import, a code-level `JWT_SECRET` env read, a `nonce-store` module, or a `verify-signature` module under `backend/src/**` (outside `backend/test/`). The W1.5 JWT path was reverted (§3.1) and replaced by the per-IP rate limit plus W9 wallet-native attestation (§3.7); this rule is defensive against another W1.5-style detour.
+    (Rule 11 is enforced by grep #13 in `scripts/ai-ci-greps.sh`. It guards *code*; grep #12 (rule 10) guards `.env*` files. The W9 attestation middleware is **not** JWT — it sets `c.var.identity` (not `c.var.auth`), reads no `JWT_SECRET`, and verifies an EOSIO signature via `@wharfkit/antelope` — so it trips none of the banned tokens.)
 
 CI greps are the dumbest, fastest way to enforce the rules; tests catch the rest.
 
@@ -213,6 +237,7 @@ Every chat turn writes one row to `logs/usage.jsonl`:
 {
     "ts": "2026-05-20T03:14:15Z",
     "client_ip_hash": "sha256:...",   // sha256 of the connection-level remote address; plaintext IP never logged
+    "identity_pubkey_hash": "sha256:...", // W9 §3.7: sha256 of the attested pubkey; null on the per-IP (unattested) path. client_ip_hash and this field both ship.
     "endpoint_chainid": "...",
     "session_id_hash": "...",
     "turn_kind": "act|propose|ask|refuse|answer",

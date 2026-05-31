@@ -281,7 +281,7 @@ Total work for the toolkit side: ~1 wave (W9). Roughly: ½ wave for the attestat
 
 ## 10. Status
 
-This document captures the design. No code in any repo yet implements it. Owner: Ultra Wallet team to evaluate; `ultra-tool-kit` author tracks adoption and is ready to integrate the day the SDK ships.
+Implemented in `@ultraos/wallet-sdk@0.4.0` (Phase 1 browser-extension attestation production + Phase 2 SDK pass-through, both complete on the wallet monorepo), and adopted in `ultra-tool-kit` W9 (`feature/ai-enhancement` branch). The toolkit-side integration — FE attestation forwarding, backend `attestation` + `balance-gate` middleware, and the `ip:` → `pubkey:` rate-limit re-key — lands per §9. Owner: Ultra Wallet team (SDK + extension); `ultra-tool-kit` author (toolkit adoption).
 
 ---
 
