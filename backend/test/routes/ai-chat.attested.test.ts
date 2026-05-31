@@ -37,8 +37,22 @@ type Payload = {
     signableAccounts?: Array<{ account: string; permissions: string[] }>;
 };
 
+// Recursive canonical form — byte-for-byte match with the wallet signer (sorts
+// keys at every nesting level, keeps signableAccounts[].permissions). The lossy
+// array-replacer form previously here masked the canonical-serialization bug.
+function canonicalize(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+            out[k] = canonicalize((value as Record<string, unknown>)[k]);
+        }
+        return out;
+    }
+    return value;
+}
 function canonical(payload: Payload): string {
-    return JSON.stringify(payload, Object.keys(payload).sort());
+    return JSON.stringify(canonicalize(payload));
 }
 function sign(payload: Payload, priv: PrivateKey = PRIV): string {
     const hash = Checksum256.hash(Bytes.from(canonical(payload), 'utf8'));
