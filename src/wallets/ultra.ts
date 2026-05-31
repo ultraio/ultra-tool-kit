@@ -265,19 +265,29 @@ function attestationExpired(att: ConnectAttestation | undefined): boolean {
     return att.payload.exp <= Math.floor(Date.now() / 1000) + skewSec;
 }
 
+// De-dupes concurrent ensureAttestation() callers (e.g. a rapid drawer
+// reopen) so the wallet is prompted for an attestation at most once at a time.
+let inFlightAttestation: Promise<ConnectAttestation | undefined> | null = null;
+
 export async function ensureAttestation(): Promise<ConnectAttestation | undefined> {
     const { attestation } = useWalletAccounts();
     if (!attestationExpired(attestation.value)) return attestation.value;
     if (!isAvailable()) return undefined;
-    try {
-        const res = await connect(false, { requireAttestation: true });
-        if (res?.status === 'success' && res.data?.attestation) {
-            setAttestation(res.data.attestation);
+    if (inFlightAttestation) return inFlightAttestation;
+    inFlightAttestation = (async () => {
+        try {
+            const res = await connect(false, { requireAttestation: true });
+            if (res?.status === 'success' && res.data?.attestation) {
+                setAttestation(res.data.attestation);
+            }
+        } catch {
+            // Opportunistic — stay on the anonymous path on any failure.
+        } finally {
+            inFlightAttestation = null;
         }
-    } catch {
-        // Opportunistic — stay on the anonymous path on any failure.
-    }
-    return useWalletAccounts().attestation.value;
+        return attestation.value;
+    })();
+    return inFlightAttestation;
 }
 
 /**
