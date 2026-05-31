@@ -243,6 +243,16 @@ export function getAttestation(): ConnectAttestation | undefined {
     return useWalletAccounts().attestation.value;
 }
 
+function attestationExpired(att: ConnectAttestation | undefined): boolean {
+    if (!att) return true;
+    const skewSec = 60;
+    return att.payload.exp <= Math.floor(Date.now() / 1000) + skewSec;
+}
+
+// De-dupes concurrent ensureAttestation() callers (e.g. a rapid drawer
+// reopen) so the wallet is prompted for an attestation at most once at a time.
+let inFlightAttestation: Promise<ConnectAttestation | undefined> | null = null;
+
 /**
  * W9: ensure a fresh connect-time attestation is cached for the AI feature
  * (RFC §2.1 / §5.2).
@@ -259,16 +269,6 @@ export function getAttestation(): ConnectAttestation | undefined {
  * back to the anonymous per-IP path (RFC §3 — opportunistic). Returns the cached
  * attestation if one is now present, else undefined.
  */
-function attestationExpired(att: ConnectAttestation | undefined): boolean {
-    if (!att) return true;
-    const skewSec = 60;
-    return att.payload.exp <= Math.floor(Date.now() / 1000) + skewSec;
-}
-
-// De-dupes concurrent ensureAttestation() callers (e.g. a rapid drawer
-// reopen) so the wallet is prompted for an attestation at most once at a time.
-let inFlightAttestation: Promise<ConnectAttestation | undefined> | null = null;
-
 export async function ensureAttestation(): Promise<ConnectAttestation | undefined> {
     const { attestation } = useWalletAccounts();
     if (!attestationExpired(attestation.value)) return attestation.value;
