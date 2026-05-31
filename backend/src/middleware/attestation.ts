@@ -5,13 +5,12 @@
 // OR any verification failure it logs a debug line and calls next() — it NEVER
 // 401s. Downstream rate-limit + balance-gate branch on whether identity is set.
 //
-// Canonical hashing MUST match the wallet's signer
-// (web-app libs/extension AttestationService.canonicalSerialize):
-//   JSON.stringify(payload, Object.keys(payload).sort())
-// The array-replacer sorts AND filters top-level keys (applied recursively as a
-// key allowlist), so nested signableAccounts entries serialize as the wallet
-// signed them. We hash the RAW decoded payload (the literal signed bytes), not
-// the Zod-reparsed object, to reproduce the wallet's digest exactly.
+// Canonical hashing MUST match the wallet's signer byte-for-byte
+// (web-app libs/extension AttestationService.canonicalSerialize): a RECURSIVE
+// key-sort that sorts object keys at every nesting level, keeps ALL keys, and
+// preserves array order — so nested signableAccounts[].permissions are part of
+// the signed bytes. We hash the RAW decoded payload (the literal signed bytes),
+// not the Zod-reparsed object, to reproduce the wallet's digest exactly.
 //
 // Verify via @wharfkit/antelope (already a dep), matching RFC §2.4:
 //   Signature.from(sig).verifyDigest(Checksum256.hash(Bytes.from(json,'utf8')), PublicKey.from(pubkey))
@@ -76,8 +75,28 @@ export type AttestationDeps = {
     clockSkewSec?: number; // default CLOCK_SKEW_SEC
 };
 
-function canonicalSerialize(payload: Record<string, unknown>): string {
-    return JSON.stringify(payload, Object.keys(payload).sort());
+// Recursive canonical form — sorts object keys at EVERY nesting level, keeps ALL
+// keys, preserves array element order. MUST be byte-for-byte identical to the
+// wallet signer (web-app libs/extension AttestationService.canonicalSerialize) so
+// the digest agrees. The previous array-replacer form
+// (JSON.stringify(payload, keys.sort())) was an allowlist applied to every nested
+// object, which DROPPED signableAccounts[].permissions from the hashed bytes and
+// broke verification of every real (permissions-bearing) attestation. Exported for
+// the cross-implementation parity test.
+function canonicalize(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+            out[key] = canonicalize((value as Record<string, unknown>)[key]);
+        }
+        return out;
+    }
+    return value;
+}
+
+export function canonicalSerialize(payload: Record<string, unknown>): string {
+    return JSON.stringify(canonicalize(payload));
 }
 
 type VerifyResult = { ok: true; identity: AttestedIdentity } | { ok: false; reason: string };
@@ -113,14 +132,12 @@ export function verifyAttestation(
     // RFC §5.6: source the account list from the SIGNED signableAccounts, never
     // an FE-supplied list. Absent → fall back to the primary account.
     //
-    // SIGNATURE COVERAGE: the canonical serialization (sorted top-level keys as
-    // an array-replacer) covers each entry's `account` (a top-level key name) but
-    // NOT its `permissions` (no matching top-level key, so the replacer filters
-    // it out of the hashed bytes — same on the wallet's signer). So
-    // `signableAccounts[i].account` is signature-bound and trustworthy; the
-    // per-entry `permissions` is NOT. The balance gate gates only on `account`.
-    // Do NOT make an authorization decision on `signableAccounts[i].permissions`
-    // without a coordinated wallet/RFC canonical-form bump.
+    // SIGNATURE COVERAGE: the recursive canonical form covers each entry's
+    // `account` AND `permissions` (the wallet's S1 full-structure signing). Both
+    // are trustworthy. The balance gate still gates only on `account` (summing UOS
+    // per account needs no permission scope); per the Phase-3 spec we treat
+    // `permissions` as advisory until a downstream consumer needs to authorize on
+    // it, even though it is now signature-bound.
     const signableAccounts: SignableAccount[] =
         p.signableAccounts && p.signableAccounts.length > 0
             ? p.signableAccounts
