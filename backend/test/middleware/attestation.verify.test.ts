@@ -10,9 +10,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
-import { Bytes, Checksum256, PrivateKey, Signature } from '@wharfkit/antelope';
+import { Bytes, PrivateKey, Signature } from '@wharfkit/antelope';
 
 import { attestation, type IdentityVariables } from '../../src/middleware/attestation.js';
+import type { AttestationPayload as Payload } from '../../src/middleware/attestation.js';
 
 const PRIV = PrivateKey.generate('K1');
 const PUB = PRIV.toPublic().toString();
@@ -20,19 +21,6 @@ const PUB = PRIV.toPublic().toString();
 const PRIV2 = PrivateKey.generate('K1');
 
 const NOW = 1_700_000_000;
-
-type Payload = {
-    v: 1;
-    pubkey: string;
-    account: string;
-    permission: string;
-    origin: string;
-    chainId: string;
-    iat: number;
-    exp: number;
-    nonce: string;
-    signableAccounts?: Array<{ account: string; permissions: string[] }>;
-};
 
 // Recursive canonical form — byte-for-byte match with the wallet signer (sorts
 // keys at every nesting level, keeps signableAccounts[].permissions). The lossy
@@ -52,8 +40,10 @@ function canonical(payload: Payload): string {
     return JSON.stringify(canonicalize(payload));
 }
 function sign(payload: Payload, priv: PrivateKey = PRIV): string {
-    const hash = Checksum256.hash(Bytes.from(canonical(payload), 'utf8'));
-    return priv.signDigest(hash).toString();
+    // The wallet's literal signer call (KeyService.sign = PrivateKey.signMessage).
+    // signMessage(x) === signDigest(Checksum256.hash(x)); using it keeps every
+    // fixture signed exactly the way the real wallet signs.
+    return priv.signMessage(Bytes.from(canonical(payload), 'utf8')).toString();
 }
 function makeAttestation(payload: Payload, priv: PrivateKey = PRIV) {
     return { payload, signature: sign(payload, priv) };

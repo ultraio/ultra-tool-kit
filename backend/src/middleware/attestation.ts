@@ -58,6 +58,10 @@ const PayloadSchema = z.object({
     signableAccounts: z.array(SignableAccountSchema).optional(),
 });
 
+// Exported for tests so fixture payloads track the schema (no drift). Type only —
+// tests still independently reproduce the wallet's canonical serialization.
+export type AttestationPayload = z.infer<typeof PayloadSchema>;
+
 const AttestationSchema = z.object({
     payload: PayloadSchema,
     signature: z.string().min(1),
@@ -110,6 +114,7 @@ export function verifyAttestation(
     const parsed = AttestationSchema.safeParse(rawAttestation);
     if (!parsed.success) return { ok: false, reason: 'schema' };
     const p = parsed.data.payload;
+    // Safe: the safeParse above succeeded, so rawAttestation is an object with a payload.
     const rawPayload = (rawAttestation as { payload: Record<string, unknown> }).payload;
 
     if (!opts.allowedOrigins.includes(p.origin)) return { ok: false, reason: 'origin-mismatch' };
