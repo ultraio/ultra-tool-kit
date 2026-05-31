@@ -22,11 +22,7 @@
                             <span>AI Assistant</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <CostBadge
-                                :last-usage="lastUsage"
-                                :open="props.open"
-                                :reset-counter="resetCounter"
-                            />
+                            <CostBadge :last-usage="lastUsage" :open="props.open" :reset-counter="resetCounter" />
                             <button
                                 class="p-1.5 text-neutral-400 hover:text-neutral-100"
                                 title="Reset session"
@@ -80,9 +76,7 @@
                             class="flex flex-col items-center gap-2 py-2 text-center"
                             data-testid="ai-chat-signin-cta"
                         >
-                            <div class="text-xs text-neutral-400">
-                                Sign in with your wallet to use AI.
-                            </div>
+                            <div class="text-xs text-neutral-400">Sign in with your wallet to use AI.</div>
                             <button
                                 class="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm"
                                 @click="onSignInClick"
@@ -92,11 +86,7 @@
                             </button>
                         </div>
                         <template v-else>
-                            <div
-                                v-if="inlineError"
-                                class="mb-2 text-xs text-red-400"
-                                data-testid="ai-inline-error"
-                            >
+                            <div v-if="inlineError" class="mb-2 text-xs text-red-400" data-testid="ai-inline-error">
                                 {{ inlineError }}
                             </div>
                             <div class="flex gap-2 items-end">
@@ -117,7 +107,9 @@
                                     <Icon icon="fa-paper-plane" />
                                 </button>
                             </div>
-                            <div class="text-[10px] text-neutral-500 mt-1">Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}</div>
+                            <div class="text-[10px] text-neutral-500 mt-1">
+                                Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}
+                            </div>
                         </template>
                     </footer>
                 </aside>
@@ -132,6 +124,7 @@ import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
 import CostBadge from './CostBadge.vue';
 import MessageBubble from './MessageBubble.vue';
+import { ensureAttestation } from '../../wallets/ultra';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'show-login'): void }>();
@@ -192,6 +185,21 @@ watch(
         await nextTick();
         if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight;
     }
+);
+
+// W9: when the drawer opens for a logged-in Ultra-extension session and no
+// attestation is cached yet, acquire one on demand so the FIRST chat request is
+// already attested (per-pubkey rate-limit + balance gate). Opportunistic and
+// fail-soft — ultra-web/anchor/ledger sessions skip this and use the per-IP path;
+// ultra-web's connect-time attestation, if any, already arrives via populate.
+watch(
+    () => props.open,
+    (open) => {
+        if (open && loggedIn.value && props.state.type === 'ultra') {
+            void ensureAttestation();
+        }
+    },
+    { immediate: true }
 );
 </script>
 

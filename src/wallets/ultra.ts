@@ -64,10 +64,16 @@ export function getSDK(): UltraWalletSDK | null {
  * re-register internally (it observed every workaround had the same
  * dance), so this wrapper is now a thin forward.
  */
-export async function connect(onlyIfTrusted = false): Promise<UltraResponse<ConnectResult>> {
+export async function connect(
+    onlyIfTrusted = false,
+    opts: { requireAttestation?: boolean } = {}
+): Promise<UltraResponse<ConnectResult>> {
     const wallet = getSDK();
     if (!wallet) throw new Error('Ultra Wallet extension is not installed');
-    return wallet.connect({ onlyIfTrusted });
+    // W9: requireAttestation (SDK 0.5.0) asks the wallet to issue a connect-time
+    // attestation. Older wallets ignore the flag; existing callers pass nothing
+    // and behave exactly as before (RFC §4 — strictly additive).
+    return wallet.connect({ onlyIfTrusted, requireAttestation: opts.requireAttestation });
 }
 
 /**
@@ -234,6 +240,43 @@ export function extractChainId(result: ConnectResult): string | undefined {
  * getter is for non-reactive call sites.
  */
 export function getAttestation(): ConnectAttestation | undefined {
+    return useWalletAccounts().attestation.value;
+}
+
+/**
+ * W9: ensure a fresh connect-time attestation is cached for the AI feature
+ * (RFC §2.1 / §5.2).
+ *
+ * No-op when a cached attestation is still valid (not past `exp`, minus a small
+ * skew). When absent OR expired, and the Ultra extension is available, calls
+ * `connect({ requireAttestation: true })` — the wallet prompts once for
+ * attestation consent via the existing connect dialog (no separate signature
+ * popup), then issues silently on subsequent connects — and surfaces the result
+ * into the shared store via `setAttestation`. Touches ONLY the attestation ref
+ * (not accounts/selection, so a local multi-signer override is preserved).
+ *
+ * Fail-soft: any failure leaves the attestation unset so the AI request falls
+ * back to the anonymous per-IP path (RFC §3 — opportunistic). Returns the cached
+ * attestation if one is now present, else undefined.
+ */
+function attestationExpired(att: ConnectAttestation | undefined): boolean {
+    if (!att) return true;
+    const skewSec = 60;
+    return att.payload.exp <= Math.floor(Date.now() / 1000) + skewSec;
+}
+
+export async function ensureAttestation(): Promise<ConnectAttestation | undefined> {
+    const { attestation } = useWalletAccounts();
+    if (!attestationExpired(attestation.value)) return attestation.value;
+    if (!isAvailable()) return undefined;
+    try {
+        const res = await connect(false, { requireAttestation: true });
+        if (res?.status === 'success' && res.data?.attestation) {
+            setAttestation(res.data.attestation);
+        }
+    } catch {
+        // Opportunistic — stay on the anonymous path on any failure.
+    }
     return useWalletAccounts().attestation.value;
 }
 
