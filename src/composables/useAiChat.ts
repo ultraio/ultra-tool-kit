@@ -108,16 +108,20 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
             lastReply.value = reply;
             lastUsage.value = response.usage ?? null;
             messages.value.push({ role: 'assistant', content: reply });
-            if (reply.kind === 'act' || reply.kind === 'propose') {
-                // Hand off through the existing event-bus channel App.vue
-                // already listens on. <Transaction> opens prefilled; the
-                // user reviews and the wallet signs (§4.5). W6: propose
-                // emits inner actions through the SAME channel — the user
-                // clicks "Create Proposal" inside the modal and copies
-                // proposalName + requested approvers from the bubble's
-                // ProposalCard (Transaction.vue is frozen per decision 10 —
-                // no programmatic pre-fill of proposalName / signatures).
+            if (reply.kind === 'propose') {
+                // propose (msig) always uses the <Transaction> modal — the user
+                // enters the proposalName + approvers there (decision 10: no
+                // programmatic pre-fill). Hand off via the existing bus channel.
                 emitter.emit('updateAppActions', reply.actions);
+            } else if (reply.kind === 'act') {
+                // Ultra ext/web sign one-click from the chat card (no modal) —
+                // ProposalCard drives Ultra.signTransaction directly. Anchor /
+                // Ledger keep the modal flow, so emit to the bus for them and
+                // App.vue opens <Transaction> as before.
+                const walletType = ctx?.type;
+                if (walletType !== 'ultra' && walletType !== 'ultra-web') {
+                    emitter.emit('updateAppActions', reply.actions);
+                }
             }
         } catch (err) {
             const msg = err instanceof AiClientError ? err.message : "Couldn't reach the AI backend.";
