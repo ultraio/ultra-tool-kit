@@ -126,9 +126,19 @@ const refuseHeading = computed(() => {
         case 'rate-limit-minute':
         case 'rate-limit-hour':
         case 'rate-limit-day':
+        case 'rate-limit-month':
         case 'budget-exceeded':
         case 'sponsor-cap':
             return "You've hit the AI usage limit.";
+        case 'insufficient-uos':
+            return 'Your connected account doesn’t hold enough UOS to use the AI.';
+        case 'retries-exhausted':
+        case 'wall-clock':
+            return "The model couldn't produce a valid reply in time — try again or rephrase.";
+        case 'input-too-large':
+            return 'That message is too long — please shorten it.';
+        case 'tool-budget':
+            return 'That needed too many chain lookups — try a simpler request.';
         case 'auth-required':
             return 'Sign in with your wallet to use the AI.';
         case 'transport-error':
@@ -140,7 +150,7 @@ const refuseHeading = computed(() => {
         case 'malformed-answer':
             return "That answer didn't validate.";
         default:
-            return "I couldn't build a confident proposal.";
+            return "I couldn't complete that request — try rephrasing.";
     }
 });
 

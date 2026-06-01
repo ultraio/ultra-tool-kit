@@ -10,16 +10,25 @@ export type OllamaConfig = {
     baseUrl: string;
     chatModel: string;
     keepAlive: string;
+    think: boolean;
 };
 
 export function ollamaConfigFromEnv(): OllamaConfig {
     return {
-        baseUrl: process.env.OLLAMA_URL ?? 'http://localhost:11434',
+        // Accept either OLLAMA_BASE_URL (documented in .env.example) or the
+        // legacy OLLAMA_URL; both default to local Ollama.
+        baseUrl: process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? 'http://localhost:11434',
         chatModel: process.env.OLLAMA_CHAT_MODEL ?? 'qwen3:14b',
         // Per-request override of Ollama's default 5-min unload; keeps the model
         // resident across chat + classifier turns so the user never pays
         // first-load latency mid-conversation.
         keepAlive: process.env.OLLAMA_KEEP_ALIVE ?? '30m',
+        // Reasoning ("thinking") models (qwen3, deepseek-r1, …) spend the
+        // harness's 15s budget on hidden reasoning under forced-JSON output for
+        // zero benefit here — the reply is schema-constrained JSON, not prose,
+        // and a warm qwen3:14b drops from ~12s to ~2s with thinking off. Default
+        // OFF; set OLLAMA_THINK=true to re-enable. Non-thinking models ignore it.
+        think: process.env.OLLAMA_THINK === 'true',
     };
 }
 
@@ -49,6 +58,7 @@ export class OllamaProvider implements ChatProvider {
             const res = await this.client.chat({
                 model: this.config.chatModel,
                 format,
+                think: this.config.think,
                 messages: [
                     { role: 'system', content: req.system },
                     { role: 'user', content: req.user },

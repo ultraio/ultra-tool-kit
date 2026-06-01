@@ -41,13 +41,15 @@
                         </div>
                     </header>
 
-                    <!-- Warming hint -->
+                    <!-- Thinking / warming hint -->
                     <div
                         v-if="warming"
                         class="px-4 py-2 text-xs text-amber-300 bg-amber-900/20 border-b border-amber-800/40"
                         data-testid="ai-warming"
                     >
-                        Still working — local models can take a few seconds per turn.
+                        <span class="inline-block animate-pulse">●</span>
+                        The model is thinking — a local model can take up to a minute on the first or a complex
+                        turn. Hang tight, your message will still go through.
                     </div>
 
                     <!-- Messages -->

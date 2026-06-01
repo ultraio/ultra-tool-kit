@@ -79,10 +79,14 @@ export class AiClientError extends Error {
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:8787';
-const REQUEST_TIMEOUT_MS = 60_000;
+// Must outlast the backend's per-turn wall-clock budget (hosted ~15s, local
+// Ollama ~60s — see backend ai-chat.ts / LLM_MAX_WALL_MS) plus network overhead,
+// so a slow local "thinking" turn completes instead of the client aborting it.
+const REQUEST_TIMEOUT_MS = 90_000;
 // Local Ollama turns commonly run 3–8 s with the retry pass; 5 s caused the
-// hint to fire on every turn. 10 s catches genuine slowness without nagging.
-const WARMING_HINT_MS = 10_000;
+// hint to fire on every turn. 8 s surfaces the "thinking" state on genuinely
+// slow (cold-load / reasoning) turns without nagging on fast ones.
+const WARMING_HINT_MS = 8_000;
 
 export function getBaseUrl(): string {
     const fromEnv = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_AI_BACKEND_URL;

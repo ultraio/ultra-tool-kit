@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     DEFAULT_ALLOWLIST,
+    BASE_ALLOWLIST,
     buildAllowlistFromEnv,
     isAllowedEndpoint,
 } from '../../../src/pipeline/tools/host-allowlist.js';
@@ -98,19 +99,22 @@ describe('isAllowedEndpoint — reject cases', () => {
 });
 
 describe('buildAllowlistFromEnv', () => {
-    it('returns DEFAULT_ALLOWLIST when ALLOWED_CHAIN_HOSTS is unset', () => {
+    it('returns the baked-in baseline (§4.2 set + Ultra public RPC hosts) when ALLOWED_CHAIN_HOSTS is unset', () => {
         const out = buildAllowlistFromEnv({});
-        expect(out).toEqual(DEFAULT_ALLOWLIST);
+        expect(out).toEqual(BASE_ALLOWLIST);
+        // sanity: the canonical mainnet/testnet hosts are in the baseline
+        expect(out).toContain('ultra.eosusa.io');
+        expect(out).toContain('test.ultra.eosusa.io');
     });
 
-    it('appends comma-separated entries (trimmed)', () => {
+    it('appends comma-separated entries (trimmed) onto the baseline', () => {
         const out = buildAllowlistFromEnv({
-            ALLOWED_CHAIN_HOSTS: 'ultra.eosusa.io, test.ultra.eosusa.io',
+            ALLOWED_CHAIN_HOSTS: 'rpc.example.com, another.example.org',
         });
         expect(out).toEqual([
-            ...DEFAULT_ALLOWLIST,
-            'ultra.eosusa.io',
-            'test.ultra.eosusa.io',
+            ...BASE_ALLOWLIST,
+            'rpc.example.com',
+            'another.example.org',
         ]);
     });
 });

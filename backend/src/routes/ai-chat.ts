@@ -265,6 +265,19 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             };
             const tools = Object.values(TOOL_REGISTRY);
 
+            // Local Ollama has no cost-DoS exposure (free, loopback-only) and is
+            // far slower than hosted Haiku — give it a generous wall-clock budget
+            // so cold-load / reasoning turns finish instead of tripping
+            // `wall-clock` → `retries-exhausted`. Hosted providers keep the §4.7
+            // 15s posture. Override either with LLM_MAX_WALL_MS (milliseconds).
+            const envWallMs = Number(process.env.LLM_MAX_WALL_MS);
+            const maxWallMs =
+                Number.isFinite(envWallMs) && envWallMs > 0
+                    ? envWallMs
+                    : deps.provider.modelTag().startsWith('ollama')
+                      ? 60_000
+                      : undefined;
+
             const out = await harnessCall({
                 provider: deps.provider,
                 schema: ReplySchema,
@@ -273,6 +286,7 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 tools,
                 toolCtx,
                 toolBudget: { perTurn: 3, perSession: 6, sessionUsed },
+                ...(maxWallMs ? { budget: { maxWallMs } } : {}),
             });
 
             // Update the per-session counter from the audit the harness built.
