@@ -24,16 +24,23 @@
 
         <!-- Ultra ext/web: one-click sign. Anchor/Ledger: modal breadcrumb. -->
         <template v-if="canDirectSign">
-            <a
-                v-if="signTxHash"
-                :href="txLink"
-                target="_blank"
-                rel="noreferrer noopener"
-                class="flex items-center gap-1 text-green-400"
-                data-testid="ai-sign-success"
-            >
-                ✓ Submitted · <span class="font-mono underline">{{ shortHash }}</span>
-            </a>
+            <template v-if="signTxHash">
+                <!-- Link to the explorer when one exists for this chain; else
+                     plain text (local/custom endpoints have no explorer URL). -->
+                <a
+                    v-if="txLink"
+                    :href="txLink"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    class="flex items-center gap-1 text-green-400"
+                    data-testid="ai-sign-success"
+                >
+                    ✓ Submitted · <span class="font-mono underline">{{ shortHash }}</span>
+                </a>
+                <div v-else class="flex items-center gap-1 text-green-400" data-testid="ai-sign-success">
+                    ✓ Submitted · <span class="font-mono">{{ shortHash }}</span>
+                </div>
+            </template>
             <template v-else>
                 <button
                     class="self-start px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 disabled:text-neutral-400 text-white"
@@ -151,13 +158,18 @@ const firstAction = computed(() => {
 const { signing, txHash: signTxHash, error: signError, sign } = useActionSigner();
 
 const canDirectSign = computed(
-    () => props.reply?.kind === 'act' && (props.state?.type === 'ultra' || props.state?.type === 'ultra-web')
+    () =>
+        props.reply?.kind === 'act' &&
+        !!props.state?.accountName &&
+        (props.state?.type === 'ultra' || props.state?.type === 'ultra-web')
 );
 
-const txLink = computed(() =>
+// Explorer URL for the signed tx, or null when this chain has no known explorer
+// (local / custom endpoints) — the template then shows plain text, not a dead link.
+const txLink = computed<string | null>(() =>
     signTxHash.value && props.state?.endpoint
-        ? getTransactionLink(getEnvironmentName(props.state.endpoint), signTxHash.value) ?? '#'
-        : '#'
+        ? getTransactionLink(getEnvironmentName(props.state.endpoint), signTxHash.value) ?? null
+        : null
 );
 
 const shortHash = computed(() =>
