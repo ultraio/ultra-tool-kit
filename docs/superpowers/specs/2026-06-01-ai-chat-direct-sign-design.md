@@ -120,39 +120,32 @@ AI returns act
 
 ## Testing
 
-**Tooling decision (confirmed):** the frontend has **no unit-test runner** — no
-`vitest`, no `@vue/test-utils`; only **Playwright** e2e in `tests/` (`test:e2e`).
-We will **not** add a new test runner (avoid tooling scope creep). Coverage is via
-a Playwright e2e test, following the existing patterns:
-- `tests/ai-chat-smoke.spec.ts` mocks `/api/ai-chat` with `page.route(...)`.
-- `tests/e2e/wallet-sign-transaction.e2e.spec.ts` mocks the Ultra wallet
-  (`addInitScript` / injected `window` wallet) and asserts a sign flow.
+**Tooling decision (confirmed with the user):** the frontend has **no unit-test
+runner** — no `vitest`, no `@vue/test-utils`; only a heavy, real-extension
+Playwright e2e in `tests/` that can't run in this environment. We will **NOT** add
+a new test runner or write new automated tests (honors decision-10 minimalism).
 
-**New e2e** `tests/e2e/ai-chat-sign.e2e.spec.ts` (mirror those patterns):
-1. Mock `/api/ai-chat` to return an `act` reply (`eosio.token::transfer`,
-   `from`/`to`/`quantity` populated) and `/api/ai-usage`.
-2. Set up the mock Ultra wallet (reuse the wallet-sign-transaction harness) with a
-   stubbed `signTransaction` returning `{ status:'success', data:{ transactionHash } }`.
-3. Log in, open the chat, send a message, and assert:
-   - the act card renders the action data and a **Sign & submit** button
-     (add `data-testid="ai-chat-sign"`),
-   - clicking it invokes the wallet's `signTransaction` (assert via the stub),
-   - the success state renders the tx hash + explorer link,
-   - the `<Transaction>` modal did **not** open for the `ultra` path.
-4. Add an error variant: stub returns `{ status:'error', message }` → card shows
-   the error and the button re-enables.
+Verification per the user's choice:
+- **Typecheck** every change with `npx vue-tsc --noEmit` (must be clean).
+- **Prettier** changed files only (`npx prettier --write <files>`), per the project
+  memo (husky pre-commit is inactive; don't reformat unrelated drift).
+- **Manual verification** by the user with their Ultra wallet: send a transfer,
+  click **Sign & submit** on the chat card, confirm the wallet prompt appears and
+  the success state (tx hash + explorer link) renders; confirm the Transaction
+  modal no longer auto-opens for the `ultra` path; confirm Anchor/Ledger still open
+  the modal; confirm `propose` still opens the modal.
 
-**`useActionSigner` logic** is small and mirrors `Transaction.vue`'s `confirm()`
-result-mapping exactly; with no unit runner it is covered by the e2e above plus
-manual verification. Keep its dispatch + mapping obvious and minimal so it needs no
-isolated unit harness. Add a `data-testid` to the Sign button and success/error
-nodes to keep the e2e robust.
+To keep the logic trustworthy without a unit harness: keep `useActionSigner`'s
+dispatch + result-mapping **minimal and an exact mirror** of `Transaction.vue`'s
+`confirm()`. Add `data-testid`s (`ai-chat-sign`, `ai-sign-success`,
+`ai-sign-error`) to the Sign button and success/error nodes — cheap, and they make
+manual verification and any future e2e robust.
 
 ## Files touched (all within decision-10 scope)
 - NEW `src/components/ai/useActionSigner.ts`
 - MOD `src/components/ai/ProposalCard.vue`
 - MOD `src/components/ai/MessageBubble.vue`
 - MOD `src/composables/useAiChat.ts`
-- Tests under the chosen FE test harness.
+- No new test files — typecheck (`vue-tsc`) + manual verification (see Testing).
 
 Untouched (frozen): `src/components/Transaction.vue`, `src/wallets/**`, page logic.
