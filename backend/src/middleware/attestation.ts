@@ -139,8 +139,8 @@ export function verifyAttestation(
     //
     // SIGNATURE COVERAGE: the recursive canonical form covers each entry's
     // `account` AND `permissions` (the wallet's S1 full-structure signing). Both
-    // are trustworthy. The balance gate still gates only on `account` (summing UOS
-    // per account needs no permission scope); per the Phase-3 spec we treat
+    // are trustworthy. The balance gate reads only the active `account` (one UOS
+    // read; no permission scope needed); per the Phase-3 spec we treat
     // `permissions` as advisory until a downstream consumer needs to authorize on
     // it, even though it is now signature-bound.
     const signableAccounts: SignableAccount[] =

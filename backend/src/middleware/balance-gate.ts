@@ -1,10 +1,15 @@
 // UOS balance gate (W9). docs/00 §3.7 + RFC §9.
 //
-// Runs after attestation, before ratelimit. When c.var.identity is set, sums
-// the UOS balance across every attested account (sourced from the SIGNED
-// signableAccounts — RFC §5.6) and refuses below BALANCE_THRESHOLD_UOS. When no
-// identity is present (unattested / per-IP path) it is a no-op. Per-account
-// reads reuse the W4 get_balance tool and are cached in-process for 5 minutes.
+// Runs after attestation, before ratelimit. When c.var.identity is set, reads
+// UOS for the VERIFIED active account (identity.account — RFC §5.6; never an
+// FE-supplied value) with ONE get_currency_balance call and refuses below
+// BALANCE_THRESHOLD_UOS. Admin/governance keys often enumerate 75-100+
+// signableAccounts; summing all of them fires 75+ sequential reads per turn,
+// the public RPC throttles the burst, reads fail, the gate counts 0, and
+// legitimate funded accounts are falsely refused — so we gate on the single
+// active account only. When no identity is present (unattested / per-IP path)
+// it is a no-op. thresholdUos <= 0 disables the gate entirely with no RPC read.
+// Per-(endpoint, account) reads are cached in-process for 5 minutes.
 
 import type { Context, MiddlewareHandler } from 'hono';
 
@@ -79,38 +84,45 @@ export function balanceGate(deps: BalanceGateDeps): MiddlewareHandler<IdentityVa
             await next();
             return;
         }
+
+        // threshold <= 0 disables the gate — skip RPC read entirely.
+        if (deps.thresholdUos <= 0) {
+            c.set('totalUos', 0);
+            await next();
+            return;
+        }
+
         const endpoint = await endpointFromBody(c);
 
-        let total = 0;
-        for (const { account } of identity.signableAccounts) {
-            const key = `${endpoint}|${account}`;
-            const cached = cache.get(key);
-            if (cached && now() - cached.atMs < ttl) {
-                total += cached.uos;
-                continue;
-            }
+        // Gate on the verified active account only (identity.account — RFC §5.6).
+        // One read regardless of how many signableAccounts the attestation lists.
+        const { account } = identity;
+        const key = `${endpoint}|${account}`;
+        const cached = cache.get(key);
+
+        let uos: number;
+        if (cached && now() - cached.atMs < ttl) {
+            uos = cached.uos;
+        } else {
             try {
-                const uos = await reader(account, endpoint);
+                uos = await reader(account, endpoint);
                 cache.set(key, { uos, atMs: now() });
-                total += uos;
             } catch (err) {
-                // Transient read failure: treat this account as 0 and do NOT
-                // cache (so the next turn retries). Secondary defenses
-                // (per-pubkey rate limit + sponsor cap) still bind. An empty /
-                // undeterminable endpoint also lands here (get_balance throws on
-                // a bad URL) — fail CLOSED for the gate rather than skip it; a
-                // real attested session always carries context.endpoint.
+                // Transient read failure: treat as 0 and do NOT cache (so the
+                // next turn retries). An empty / undeterminable endpoint also
+                // lands here (get_balance throws on a bad URL) — fail CLOSED.
+                uos = 0;
                 logger.debug(
                     { account, err: err instanceof Error ? err.message : String(err) },
-                    'balance-gate: UOS read failed; counting this account as 0'
+                    'balance-gate: UOS read failed; counting active account as 0'
                 );
             }
         }
 
-        if (total < deps.thresholdUos) {
+        if (uos < deps.thresholdUos) {
             return c.json({ kind: 'refuse', reason: 'insufficient-uos' }, 200);
         }
-        c.set('totalUos', total);
+        c.set('totalUos', uos);
         await next();
     };
 }

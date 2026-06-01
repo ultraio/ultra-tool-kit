@@ -1,8 +1,16 @@
 // UOS balance gate tests (W9, docs/00 §3.7 + RFC §9).
 //
-// Gate sums UOS across the attested signableAccounts via an injected reader,
-// refuses below threshold, and is a no-op when no identity is present. Per-
-// (endpoint, account) reads are cached for cacheTtlMs.
+// Gate reads UOS for the ACTIVE account only (identity.account — the verified
+// primary from the signed attestation, RFC §5.6). Admin/governance keys often
+// enumerate 75-100+ signableAccounts; summing all of them fires 75+ sequential
+// RPC reads per turn and gets throttled. One read for the active account is
+// correct and practical.
+//
+// thresholdUos <= 0 disables the gate entirely — no RPC read is made, the
+// request passes with totalUos = 0. Anonymous callers (no identity) are still
+// a no-op (reader never called).
+//
+// Per-(endpoint, account) reads are cached for cacheTtlMs.
 
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
@@ -46,17 +54,23 @@ function identity(accounts: string[]): AttestedIdentity {
 }
 
 describe('balanceGate middleware', () => {
-    it('1. sufficient balance → passes through with totalUos set', async () => {
+    it('1. attested + active account >= threshold → passes, totalUos set, reader called exactly ONCE', async () => {
+        // Use 3 signableAccounts to prove only the active account is read (one call
+        // despite multiple signableAccounts).
+        const reader = vi.fn(async (_account: string, _endpoint: string) => 5);
         const app = makeApp(
-            { thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: async () => 5 },
-            identity(['a'])
+            { thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: reader },
+            identity(['active', 'b', 'c'])
         );
         const res = await req(app);
         expect(res.status).toBe(200);
         expect(await res.json()).toEqual({ ok: true, totalUos: 5 });
+        expect(reader.mock.calls.length).toBe(1);
+        expect(reader.mock.calls[0]![0]).toBe('active');                 // active account only, not a sibling signableAccount
+        expect(reader.mock.calls[0]![1]).toBe('http://localhost:8888');  // endpoint from request body
     });
 
-    it('2. insufficient balance → refuse insufficient-uos', async () => {
+    it('2. attested + active account < threshold → refuse insufficient-uos', async () => {
         const app = makeApp(
             { thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: async () => 0.1 },
             identity(['a'])
@@ -66,7 +80,19 @@ describe('balanceGate middleware', () => {
         expect(await res.json()).toEqual({ kind: 'refuse', reason: 'insufficient-uos' });
     });
 
-    it('3. no identity → no-op, reader not called', async () => {
+    it('3. thresholdUos = 0 disables gate → passes, reader never called', async () => {
+        const reader = vi.fn(async () => 99);
+        const app = makeApp(
+            { thresholdUos: 0, catalog: CATALOG, allowlist: [], readUosBalance: reader },
+            identity(['active', 'b', 'c'])
+        );
+        const res = await req(app);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true, totalUos: 0 });
+        expect(reader).not.toHaveBeenCalled();
+    });
+
+    it('4. no identity → no-op, reader not called', async () => {
         const reader = vi.fn(async () => 5);
         const app = makeApp({ thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: reader });
         const res = await req(app);
@@ -75,19 +101,7 @@ describe('balanceGate middleware', () => {
         expect(reader).not.toHaveBeenCalled();
     });
 
-    it('4. multiple accounts are summed', async () => {
-        const app = makeApp(
-            { thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: async () => 0.6 },
-            identity(['a', 'b'])
-        );
-        const res = await req(app);
-        expect(res.status).toBe(200);
-        const body = (await res.json()) as { ok: boolean; totalUos: number };
-        expect(body.ok).toBe(true);
-        expect(body.totalUos).toBeCloseTo(1.2, 9);
-    });
-
-    it('5. 5-min cache hit → reader called once across two requests', async () => {
+    it('5. cache hit within TTL → reader called once across two requests', async () => {
         const reader = vi.fn(async () => 5);
         let t = 1_000_000;
         const app = makeApp(
@@ -101,7 +115,22 @@ describe('balanceGate middleware', () => {
         expect(reader.mock.calls.length).toBe(1);
     });
 
-    it('6. cache expiry → reader called twice after TTL elapses', async () => {
+    it('6. reader throws → refuse insufficient-uos, failure not cached (retries next turn)', async () => {
+        const reader = vi.fn(async () => {
+            throw new Error('RPC timeout');
+        });
+        const app = makeApp(
+            { thresholdUos: 1, catalog: CATALOG, allowlist: [], readUosBalance: reader, now: () => 1_000_000, cacheTtlMs: 60_000 },
+            identity(['a'])
+        );
+        const r1 = await req(app);
+        expect(await r1.json()).toEqual({ kind: 'refuse', reason: 'insufficient-uos' });
+        const r2 = await req(app);
+        expect(await r2.json()).toEqual({ kind: 'refuse', reason: 'insufficient-uos' });
+        expect(reader.mock.calls.length).toBe(2); // failure was NOT cached → re-read on the second turn
+    });
+
+    it('7. cache expiry → reader called twice after TTL elapses', async () => {
         const reader = vi.fn(async () => 5);
         let t = 1_000_000;
         const app = makeApp(
