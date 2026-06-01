@@ -118,7 +118,7 @@ W9 adopts the §3.6 proposal as a live, **opportunistic** identity primitive. Id
   | Per-month (per pubkey) | 2000 |
 
   The global monthly USD sponsor cap (§3.2 tier 5) still binds across all keys.
-- **UOS balance gate** applies when `identity.signableAccounts` is present: the backend sums the UOS balance across every attested account (sourced from the signed `signableAccounts`, never an FE-supplied list — RFC §5.6) and refuses with `{ kind: 'refuse', reason: 'insufficient-uos' }` (HTTP 200 per §3.2) when the total is below `BALANCE_THRESHOLD_UOS` (default `1.0`). Balance reads reuse the W4 `get_balance` tool and are cached in-process per account for 5 minutes.
+- **UOS balance gate** gates on the active account only (`payload.account`) — a single `get_currency_balance` RPC read, never a sum across `signableAccounts` (admin/governance keys can sign for 100+ accounts; summing fires 100+ sequential reads per turn, the public node throttles the burst, and the gate falsely counts 0 — RFC §9). Sourced from the verified payload, never an FE-supplied list — RFC §5.6. Refuses with `{ kind: 'refuse', reason: 'insufficient-uos' }` (HTTP 200 per §3.2) when below `BALANCE_THRESHOLD_UOS` (default `1.0`). `BALANCE_THRESHOLD_UOS=0` disables the gate entirely (no RPC read; every attested caller passes). Balance read is cached in-process per (endpoint, active-account) pair for 5 minutes.
 
 **Path B — unattested.** When the header is absent OR fails verification, the request falls back to the per-IP path from §3.2 **exactly** — same tiers, same buckets, same loopback dev bypass. Verification never returns 401; it is opportunistic (RFC §3). Anchor / Ledger users (no attestation) see no behavior change.
 
