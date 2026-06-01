@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { type CatalogIndex, _resetCatalogCache, loadCatalog } from '../../src/pipeline/catalog.js';
-import { type CatalogDoc, buildBm25Index, buildDoc, retrieve, tokenize } from '../../src/pipeline/retrieve.js';
+import { type CatalogDoc, buildBm25Index, buildDoc, buildRetrievalQuery, retrieve, tokenize } from '../../src/pipeline/retrieve.js';
 
 // Wraps a synthetic doc set in the minimal CatalogIndex shape retrieve()
 // needs (actions/byKey/contracts go unread by retrieve, so they stay empty).
@@ -77,6 +77,37 @@ describe('retrieve — stable tie-break', () => {
             'alpha.contract::b',
             'zeta.contract::b',
         ]);
+    });
+});
+
+describe('buildRetrievalQuery — history-aware retrieval query', () => {
+    it('single user message: returns that message verbatim', () => {
+        const messages = [{ role: 'user' as const, content: 'transfer 100 UOS' }];
+        expect(buildRetrievalQuery(messages, 7)).toBe('transfer 100 UOS');
+    });
+
+    it('multi-turn: joins USER turns only (assistant excluded), joined by \\n', () => {
+        const messages = [
+            { role: 'user' as const, content: 'transfer 100 UOS from acc1 to acc2' },
+            { role: 'assistant' as const, content: "give full names" },
+            { role: 'user' as const, content: 'from ultra.prop1 to lw1ej2hm3qp4' },
+        ];
+        expect(buildRetrievalQuery(messages, 7)).toBe(
+            'transfer 100 UOS from acc1 to acc2\nfrom ultra.prop1 to lw1ej2hm3qp4'
+        );
+    });
+
+    it('respects maxUserTurns: only returns the last N user turns', () => {
+        const messages = [
+            { role: 'user' as const, content: 'turn 1' },
+            { role: 'assistant' as const, content: 'reply 1' },
+            { role: 'user' as const, content: 'turn 2' },
+            { role: 'assistant' as const, content: 'reply 2' },
+            { role: 'user' as const, content: 'turn 3' },
+            { role: 'assistant' as const, content: 'reply 3' },
+            { role: 'user' as const, content: 'turn 4' },
+        ];
+        expect(buildRetrievalQuery(messages, 2)).toBe('turn 3\nturn 4');
     });
 });
 

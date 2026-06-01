@@ -19,7 +19,7 @@ import { z } from 'zod';
 
 import { classify } from '../pipeline/classify.js';
 import type { CatalogIndex } from '../pipeline/catalog.js';
-import { retrieve } from '../pipeline/retrieve.js';
+import { buildRetrievalQuery, retrieve } from '../pipeline/retrieve.js';
 import { call as harnessCall } from '../pipeline/harness.js';
 import { buildUserMessage, SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from '../pipeline/prompts.js';
 import { summarisePriorHistory } from '../pipeline/summary.js';
@@ -190,7 +190,19 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
                 200
             );
         }
-        if (intent.kind === 'ask') {
+        // A bare `ask` from the paranoid classifier means the latest message had
+        // no standalone action/question signal. On a COLD START (no prior user turn)
+        // that's genuinely unclear → cheap canned clarifier, no LLM cost. But on a
+        // CONTINUATION (the user is answering a previous clarifying question, e.g.
+        // "from ultra.prop1 to lw1ej2hm3qp4" after "transfer 100 UOS …"), the
+        // conversation carries the intent — fall through to the harness so the LLM
+        // grounds the follow-up against the windowed history. refuse (injection /
+        // out-of-scope) already short-circuited above, so it still binds every turn.
+        // A continuation = the user has spoken before (they're answering a prior
+        // clarifying question). Count USER turns, not total messages, so an
+        // assistant-prefixed history with a single user turn is still a cold start.
+        const isContinuation = body.messages.filter((m) => m.role === 'user').length > 1;
+        if (intent.kind === 'ask' && !isContinuation) {
             return c.json(
                 {
                     reply: {
@@ -214,7 +226,8 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
         // when it can't ground. W7: validateAnswer refuses (not asks) on
         // gate failure; act/propose still downgrade to ask.
         try {
-            const hits = retrieve(userMessage, deps.catalog, RETRIEVE_TOP_K);
+            const retrievalQuery = buildRetrievalQuery(body.messages, HISTORY_WINDOW + 1);
+            const hits = retrieve(retrievalQuery, deps.catalog, RETRIEVE_TOP_K);
             const entries = hits
                 .map((h) => deps.catalog.byKey.get(`${h.contract}::${h.action}`))
                 .filter((e): e is NonNullable<typeof e> => e !== undefined);
@@ -362,6 +375,13 @@ export function createAiChatRouter(deps: AiChatDeps): Hono<AiChatContext> {
             // validatePropose consume the same shape. Gate 5's "tool response"
             // citation source (§4.3 gate 5) is the union of identifiers
             // extracted from every OK tool payload this turn.
+            // NOTE: citation (gate 5/6) keys off the LATEST user turn only
+            // (userMessage), never the full conversation. A continuation that
+            // supplies identifiers in this turn (e.g. "from X to Y") cites fine; a
+            // bare confirmation ("yes") whose identifiers were given only in an
+            // earlier turn will fail gate 5 and re-ask. Intentional — the citation
+            // gate is not broadened to trust multi-turn history (CLAUDE.md rule 3/8;
+            // the wallet is the real confirmation gate, rule 7).
             const ctx: ValidateContext = {
                 validatedAccounts: body.context.validatedAccounts,
                 knownAccounts: body.context.knownAccounts,

@@ -104,6 +104,20 @@ function scoreDoc(queryTerms: string[], doc: CatalogDoc, index: Bm25Index): numb
     return score;
 }
 
+// Build a retrieval query from the recent USER turns so a multi-turn
+// clarification ("from X to Y" answering "transfer 100 UOS …") still surfaces
+// the action introduced earlier in the conversation. Assistant turns are
+// excluded — retrieval must key off what the human asked, never off model
+// output (which could otherwise steer retrieval toward an un-grounded action).
+// Reduces to the single latest message on a cold-start turn (no behavior change).
+export function buildRetrievalQuery(
+    messages: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>,
+    maxUserTurns: number
+): string {
+    const userTurns = messages.filter((m) => m.role === 'user').map((m) => m.content);
+    return userTurns.slice(-maxUserTurns).join('\n');
+}
+
 export function retrieve(text: string, index: CatalogIndex, k = 5): RetrieveHit[] {
     const queryTerms = Array.from(new Set(tokenize(text)));
     if (queryTerms.length === 0) return [];
