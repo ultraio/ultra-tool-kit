@@ -222,6 +222,14 @@ const refuseHeading = computed(() => {
         case 'malformed-answer':
             return "That answer didn't validate.";
         default:
+            // Humanize model-emitted reasons not in the curated set above
+            // (e.g. "actor-mismatch" -> "Actor mismatch") so the model's
+            // specific reason still reaches the user. Falls back to a generic
+            // line for empty/garbage reasons.
+            if (reason && /^[a-z0-9-]+$/.test(reason)) {
+                const spaced = reason.replace(/-/g, ' ');
+                return spaced.charAt(0).toUpperCase() + spaced.slice(1) + '.';
+            }
             return "I couldn't complete that request — try rephrasing.";
     }
 });
