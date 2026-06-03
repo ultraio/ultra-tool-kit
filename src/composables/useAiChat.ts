@@ -109,10 +109,13 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
             lastUsage.value = response.usage ?? null;
             messages.value.push({ role: 'assistant', content: reply });
             if (reply.kind === 'propose') {
-                // propose (msig) always uses the <Transaction> modal — the user
-                // enters the proposalName + approvers there (decision 10: no
-                // programmatic pre-fill). Hand off via the existing bus channel.
-                emitter.emit('updateAppActions', reply.actions);
+                // Ultra ext/web build + sign the proposal in-card (ProposalCard
+                // drives useProposalSigner → eosio.msig::proposex). Anchor/Ledger
+                // keep the <Transaction> modal flow, so emit to the bus for them.
+                const walletType = ctx?.type;
+                if (walletType !== 'ultra' && walletType !== 'ultra-web') {
+                    emitter.emit('updateAppActions', reply.actions);
+                }
             } else if (reply.kind === 'act') {
                 // Ultra ext/web sign one-click from the chat card (no modal) —
                 // ProposalCard drives Ultra.signTransaction directly. Anchor /
