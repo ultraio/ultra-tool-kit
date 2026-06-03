@@ -43,7 +43,7 @@ export type HarnessBudget = {
     maxRetries?: number;
 };
 
-// Defaults follow guidelines §4.7: 15 s wall-clock, retry cap of 2, output
+// Defaults follow guidelines §4.7: 30 s wall-clock, retry cap of 2, output
 // cap small enough to keep Haiku 4.5 per-turn cost ≤ $0.0008 (roadmap §3
 // "Per-turn target: ≤ 1.5 K input + ≤ 400 output"). The 8 K input cap is
 // the DoS ceiling, generous over the 1.5 K target — the post-W7 system
@@ -51,10 +51,15 @@ export type HarnessBudget = {
 // and a turn with verbose top-K catalog entries (e.g. eosio.nft.ft::create.b)
 // can push system+user past 6 K. 8 K leaves headroom for future prompt
 // growth while staying far below Haiku 4.5's 200 K context.
+// The 30 s (raised from 15 s) bound accommodates the multi-turn tool-use loop
+// (account-verification get_account calls + Haiku turns) that legitimately
+// exceeds 15 s on hosted Haiku — ~40% of valid act/propose requests were
+// spuriously returning refuse:wall-clock. Still a hard DoS ceiling, still
+// env-overridable via LLM_MAX_WALL_MS. Fails-closed behavior unchanged.
 export const DEFAULT_BUDGET: Required<HarnessBudget> = {
     maxInputTokens: 8000,
     maxOutputTokens: 1024,
-    maxWallMs: 15_000,
+    maxWallMs: 30_000,
     maxRetries: 2,
 };
 

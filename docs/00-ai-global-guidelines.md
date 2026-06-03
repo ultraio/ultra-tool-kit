@@ -192,7 +192,7 @@ Cost is a security property under sponsorship. The doc's per-IP + global monthly
 - Output token cap enforced in the harness (`max_tokens`), not the prompt.
 - Tool-call budget per turn (§4.2) prevents runaway tool loops.
 - Retries on transient provider errors capped at 2; no exponential backoff that consumes budget.
-- Per-call wall-clock budget (`max_wall_ms = 15s`). Exceeded → abort, log, return `refuse`.
+- Per-call wall-clock budget (`max_wall_ms = 30s`, raised from 15s to fit the multi-turn tool-use loop on hosted Haiku; still env-overridable via `LLM_MAX_WALL_MS`). Exceeded → abort, log, return `refuse`.
 
 ---
 
