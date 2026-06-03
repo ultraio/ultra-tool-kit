@@ -56,35 +56,101 @@
         <div v-else class="text-neutral-500">Review and sign in the transaction modal.</div>
     </div>
 
-    <!-- propose (W6) — multisig proposal summary. The inner actions land in
-         the <Transaction> modal via the bus; the user clicks "Create Proposal"
-         inside the modal and copies the proposalName + requested approvers
-         from this card into the modal's fields (Transaction.vue is frozen per
-         decision 10 — no programmatic pre-fill). -->
+    <!-- propose — multisig proposal. Ultra ext/web build + sign in-card (no
+         modal): editable name, expiration, approvers (SignatureForm quick-add
+         grabs all producers/admins/props). Anchor/Ledger keep the modal flow. -->
     <div v-else-if="props.reply?.kind === 'propose'" class="flex flex-col gap-2 text-xs">
         <div class="flex items-center gap-2 font-mono text-purple-300">
             <Icon icon="fa-file-contract" class="text-purple-400" />
-            <span
-                >multisig proposal · <span class="text-purple-200">{{ props.reply.proposalName }}</span></span
-            >
+            <span>multisig proposal</span>
         </div>
-        <div v-if="props.reply.rationale" class="text-neutral-400 italic">
-            {{ props.reply.rationale }}
-        </div>
+        <div v-if="props.reply.rationale" class="text-neutral-400 italic">{{ props.reply.rationale }}</div>
+
         <div class="flex flex-col gap-1">
             <div class="text-neutral-500">Inner actions ({{ props.reply.actions.length }}):</div>
             <div v-for="(a, i) in props.reply.actions" :key="i" class="font-mono text-neutral-300 pl-3">
                 {{ i + 1 }}. {{ a.contract }}<span class="text-neutral-500">::</span>{{ a.action }}
             </div>
         </div>
-        <div class="flex flex-col gap-1">
+
+        <template v-if="canDirectSignPropose">
+            <template v-if="proposeTxHash">
+                <a
+                    v-if="proposeTxLink"
+                    :href="proposeTxLink"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    class="flex items-center gap-1 text-green-400"
+                    data-testid="ai-propose-success"
+                >
+                    ✓ Proposal submitted · <span class="font-mono underline">{{ proposeShortHash }}</span>
+                </a>
+                <div v-else class="flex items-center gap-1 text-green-400" data-testid="ai-propose-success">
+                    ✓ Proposal submitted · <span class="font-mono">{{ proposeShortHash }}</span>
+                </div>
+            </template>
+            <template v-else>
+                <label class="text-neutral-500">Proposal name</label>
+                <input
+                    v-model="proposalName"
+                    maxlength="13"
+                    class="bg-neutral-950 rounded border border-neutral-800 px-2 py-1 font-mono text-neutral-200 focus:outline-none focus:border-purple-500"
+                    data-testid="ai-propose-name"
+                />
+                <label class="text-neutral-500">Expiration (blank = 30 days)</label>
+                <input
+                    v-model="proposalExpiration"
+                    placeholder="YYYY-MM-DDTHH:MM:SS or seconds"
+                    class="bg-neutral-950 rounded border border-neutral-800 px-2 py-1 font-mono text-neutral-200 focus:outline-none focus:border-purple-500"
+                />
+                <label class="text-neutral-500">Requested approvers</label>
+                <SignatureForm
+                    v-if="props.state"
+                    :signatures="approvers"
+                    :state="props.state"
+                    @set-signatures="onSetApprovers"
+                />
+                <div
+                    v-for="c in missingApprovers"
+                    :key="c.actor"
+                    class="text-amber-400"
+                    data-testid="ai-propose-approver-warning"
+                >
+                    ⚠ {{ c.actor }} not found on this chain
+                </div>
+
+                <div class="flex gap-2 pt-1">
+                    <button
+                        class="self-start px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 disabled:opacity-50"
+                        :disabled="validating || proposeSigning"
+                        @click="onValidate"
+                        data-testid="ai-propose-validate"
+                    >
+                        {{ validating ? 'Validating…' : 'Validate on-chain' }}
+                    </button>
+                    <button
+                        class="self-start px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 disabled:text-neutral-400 text-white"
+                        :disabled="proposeSigning"
+                        @click="onSignProposal"
+                        data-testid="ai-propose-sign"
+                    >
+                        {{ proposeSigning ? 'Signing…' : 'Sign & submit proposal' }}
+                    </button>
+                </div>
+                <div v-if="proposeValidation" :class="proposeValidation.ok ? 'text-green-400' : 'text-red-400'">
+                    {{ proposeValidation.message }}
+                </div>
+                <div v-if="proposeError" class="text-red-400" data-testid="ai-propose-error">{{ proposeError }}</div>
+            </template>
+        </template>
+        <div v-else class="flex flex-col gap-1">
             <div class="text-neutral-500">Requested approvers:</div>
             <div v-for="(r, i) in props.reply.requested" :key="i" class="font-mono text-neutral-300 pl-3">
                 {{ r.actor }}<span class="text-neutral-500">@</span>{{ r.permission }}
             </div>
-        </div>
-        <div class="text-neutral-500">
-            Open the transaction modal, toggle "Create Proposal", and enter the proposal name + approvers above.
+            <div class="text-neutral-500 pt-1">
+                Open the transaction modal, toggle "Create Proposal", and enter the proposal name + approvers above.
+            </div>
         </div>
     </div>
 
@@ -131,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { Reply } from '../../utilities/aiClient';
 import type { AuthState } from '../../interfaces';
 import { useActionSigner } from './useActionSigner';
@@ -156,6 +222,66 @@ const firstAction = computed(() => {
 });
 
 const { signing, txHash: signTxHash, error: signError, sign } = useActionSigner();
+
+import { useProposalSigner } from './useProposalSigner';
+
+// Proposal editor state (Ultra/UltraWeb only).
+const proposalName = ref<string>(props.reply?.kind === 'propose' ? props.reply.proposalName : '');
+const proposalExpiration = ref<string>('');
+const approvers = ref<Array<{ actor: string; permission: string }>>(
+    props.reply?.kind === 'propose'
+        ? props.reply.requested.map((r) => ({ actor: r.actor, permission: r.permission }))
+        : []
+);
+
+const {
+    signing: proposeSigning,
+    validating,
+    txHash: proposeTxHash,
+    error: proposeError,
+    validation: proposeValidation,
+    approverChecks,
+    checkApprovers,
+    validateOnChain,
+    sign: signProposal,
+} = useProposalSigner();
+
+const canDirectSignPropose = computed(
+    () =>
+        props.reply?.kind === 'propose' &&
+        !!props.state?.accountName &&
+        (props.state?.type === 'ultra' || props.state?.type === 'ultra-web')
+);
+
+const proposeTxLink = computed<string | null>(() =>
+    proposeTxHash.value && props.state?.endpoint
+        ? getTransactionLink(getEnvironmentName(props.state.endpoint), proposeTxHash.value) ?? null
+        : null
+);
+const proposeShortHash = computed(() =>
+    proposeTxHash.value ? `${proposeTxHash.value.slice(0, 8)}…${proposeTxHash.value.slice(-6)}` : ''
+);
+const missingApprovers = computed(() => approverChecks.value.filter((c) => !c.exists));
+
+function onSetApprovers(next: Array<{ actor: string; permission: string }>) {
+    approvers.value = next;
+    void checkApprovers(next);
+}
+async function onValidate() {
+    if (props.reply?.kind !== 'propose' || !props.state) return;
+    await validateOnChain(props.state, proposalName.value, approvers.value, props.reply.actions, proposalExpiration.value);
+}
+async function onSignProposal() {
+    if (props.reply?.kind !== 'propose' || !props.state) return;
+    await signProposal(props.state, proposalName.value, approvers.value, props.reply.actions, proposalExpiration.value);
+    if (proposeTxHash.value) emit('signed', proposeTxHash.value);
+}
+
+onMounted(() => {
+    if (props.reply?.kind === 'propose' && canDirectSignPropose.value) {
+        void checkApprovers(approvers.value);
+    }
+});
 
 const canDirectSign = computed(
     () =>
