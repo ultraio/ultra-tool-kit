@@ -95,11 +95,18 @@ export async function signTransaction(
     environment: string | undefined
 ): Promise<UltraResponse<SignTransactionResult>> {
     const wallet = getSDK(environment);
+    // Deep plain-clone each action: action.data may be a Vue reactive Proxy
+    // (AI chat replies live in a ref), and the SDK postMessages this argument —
+    // structuredClone rejects proxies ("#<Object> could not be cloned"). The
+    // JSON round-trip matches getProposalTxData's existing idiom; chat/modal
+    // action data is plain JSON (no BigInt/Date).
     const sdkActions: BlockchainTransaction[] = actions.map((a) => ({
         contract: a.contract,
         action: a.action,
-        data: a.data,
-        authorization: a.authorization ? a.authorization : [{ actor, permission }],
+        data: a.data === undefined ? a.data : JSON.parse(JSON.stringify(a.data)),
+        authorization: a.authorization
+            ? JSON.parse(JSON.stringify(a.authorization))
+            : [{ actor, permission }],
     }));
     return wallet.signTransaction(sdkActions);
 }
