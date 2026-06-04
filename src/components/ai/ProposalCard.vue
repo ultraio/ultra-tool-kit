@@ -201,6 +201,7 @@ import { computed, onMounted, ref } from 'vue';
 import type { Reply } from '../../utilities/aiClient';
 import type { AuthState } from '../../interfaces';
 import { useActionSigner } from './useActionSigner';
+import { useProposalSigner } from './useProposalSigner';
 import { getTransactionLink, getEnvironmentName } from '../../utilities/networks';
 
 const props = defineProps<{
@@ -222,8 +223,6 @@ const firstAction = computed(() => {
 });
 
 const { signing, txHash: signTxHash, error: signError, sign } = useActionSigner();
-
-import { useProposalSigner } from './useProposalSigner';
 
 // Proposal editor state (Ultra/UltraWeb only).
 const proposalName = ref<string>(props.reply?.kind === 'propose' ? props.reply.proposalName : '');

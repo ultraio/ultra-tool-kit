@@ -83,8 +83,16 @@ export function useProposalSigner() {
         if (validating.value) return;
         error.value = null;
         validation.value = null;
+        if (!state.accountName) {
+            error.value = 'Connect a wallet account to validate.';
+            return;
+        }
         if (state.type !== 'ultra' && state.type !== 'ultra-web') {
             error.value = 'This wallet type validates in the transaction modal.';
+            return;
+        }
+        if (requested.length === 0) {
+            error.value = 'Add at least one approver before validating.';
             return;
         }
         validating.value = true;
@@ -96,15 +104,15 @@ export function useProposalSigner() {
                 data: validateData,
                 authorization: [{ actor: state.accountName, permission: state.accountPerm ?? 'active' }],
             };
+            // eosio.msig::validatetrx always aborts on-chain (it calls failtrx),
+            // so a valid trx surfaces as the "validated transaction and aborted it"
+            // abort message — never a wallet success. Both the failed-result and
+            // thrown-error forms route through abortIsSuccess.
             const result = await signWallet(action, state);
-            if (result?.status === 'success') {
-                validation.value = { ok: true, message: 'Validation passed.' };
-            } else {
-                const msg = result?.message ?? '';
-                validation.value = abortIsSuccess(msg)
-                    ? { ok: true, message: 'Validation passed (chain validated and aborted).' }
-                    : { ok: false, message: msg || 'Validation failed.' };
-            }
+            const msg = result?.status === 'success' ? '' : result?.message ?? '';
+            validation.value = abortIsSuccess(msg)
+                ? { ok: true, message: 'Validation passed (chain validated and aborted).' }
+                : { ok: false, message: msg || 'Validation failed.' };
         } catch (err) {
             const msg = extractError(err);
             validation.value = abortIsSuccess(msg)
