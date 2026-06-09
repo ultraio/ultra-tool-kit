@@ -126,7 +126,7 @@
                         @click="onValidate"
                         data-testid="ai-propose-validate"
                     >
-                        {{ validating ? 'Validating…' : 'Validate on-chain' }}
+                        {{ validating ? 'Validating…' : 'Validate' }}
                     </button>
                     <button
                         class="self-start px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 disabled:text-neutral-400 text-white"
@@ -241,7 +241,7 @@ const {
     validation: proposeValidation,
     approverChecks,
     checkApprovers,
-    validateOnChain,
+    validate: validateProposal,
     sign: signProposal,
 } = useProposalSigner();
 
@@ -268,7 +268,7 @@ function onSetApprovers(next: Array<{ actor: string; permission: string }>) {
 }
 async function onValidate() {
     if (props.reply?.kind !== 'propose' || !props.state) return;
-    await validateOnChain(props.state, proposalName.value, approvers.value, props.reply.actions, proposalExpiration.value);
+    await validateProposal(props.state, proposalName.value, approvers.value, props.reply.actions, proposalExpiration.value);
 }
 async function onSignProposal() {
     if (props.reply?.kind !== 'propose' || !props.state) return;
