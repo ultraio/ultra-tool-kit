@@ -40,6 +40,20 @@ test.describe('AI chat smoke', () => {
                 }),
             });
         });
+        await page.route(/.*\/api\/ai-quota$/, async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    spentTodayUsd: 0,
+                    dailyCapUsd: 0.01,
+                    stakedUos: 0,
+                    uosPriceUsd: 0.004,
+                    sessionSpentUsd: 0,
+                    nextTier: { stakeUosForMax: 12500, maxDailyUsd: 1.0 },
+                }),
+            });
+        });
 
         await page.goto('/');
         await page.waitForLoadState('networkidle');
