@@ -127,7 +127,7 @@ Per-turn target (hosted): **≤ 1.5 K input + ≤ 400 output**, ~$0.0008 on Haik
 
 ---
 
-## 6. Roadmap — 9 waves, each 1–3 days
+## 6. Roadmap — 10 waves, each 1–3 days
 
 Each wave is one branch commit / one PR off `feature/ai-enhancement`. Don't merge to main until wave 9.
 
@@ -146,7 +146,7 @@ Each wave is one branch commit / one PR off `feature/ai-enhancement`. Don't merg
 | W9 | Wallet-native attestation + balance-gated AI | 1d | Toolkit adopts `@ultraos/wallet-sdk@0.4.0` attestation as the v2 identity primitive. The FE forwards `Authorization: Attestation` when the wallet provides it; the backend verifies it, attaches `c.var.identity`, gates AI access on the summed UOS balance across `signableAccounts`, and re-keys the rate limit from `ip:` to `pubkey:` with looser tiers. Unattested (Anchor/Ledger) requests hit the per-IP path unchanged. Matches RFC §9. | §3.7, §5 grep 13, §7 |
 | W10 | Stake-tiered daily cost cap | 2d | Per-identity daily USD cap on AI spend; attested users raise their cap by staking UOS (read from `eosio/userres`, priced via `eosio.oracle` with config fallback). In-memory counters; single replica. `GET /api/ai-quota` powers the FE badge. No new contract, no new LLM tool. | §3.8, §7 |
 
-**Total: ~18 working days, one person.** W1.5 adds 2 days but is non-negotiable for sponsored AI.
+**Total: ~20 working days, one person.** W1.5 adds 2 days but is non-negotiable for sponsored AI.
 
 Dependencies: W0 → W1 → W1.5 → W2 → W3 → W4 → W5 → W6 → W7 → W8. W7 can run in parallel with W6 if needed.
 
