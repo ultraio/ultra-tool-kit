@@ -4,7 +4,7 @@
 
 **Goal:** Add a per-identity daily *cost* cap to the AI backend, where an attested user raises their own cap by staking UOS on-chain (a refundable bond the backend reads — no new contract, no DB).
 
-**Architecture:** Three in-memory/stateless modules behind thin interfaces — `UsageStore` (per-identity daily + per-session micro-USD counters), `StakeReader` (reads `eosio.system/userres.power_weight`), `PriceSource` (reads `eosio.oracle` UOS/USD, config fallback) — plus a `quotaGate` middleware that straddles the chat handler: it refuses when the day's spend ≥ `clamp(stakedUos × uosPrice × RATE, FREE_FLOOR, MAX_CAP)`, then accumulates the turn's actual cost after. A new `GET /api/ai-quota` exposes the caller's numbers for the FE badge. Single replica makes the in-memory counter authoritative (also fixes the existing per-pod doubling of the §3.2 caps).
+**Architecture:** Three in-memory/stateless modules behind thin interfaces — `UsageStore` (per-identity daily + per-session micro-USD counters), `StakeReader` (reads `eosio/userres.power_weight`), `PriceSource` (reads `eosio.oracle` UOS/USD, config fallback) — plus a `quotaGate` middleware that straddles the chat handler: it refuses when the day's spend ≥ `clamp(stakedUos × uosPrice × RATE, FREE_FLOOR, MAX_CAP)`, then accumulates the turn's actual cost after. A new `GET /api/ai-quota` exposes the caller's numbers for the FE badge. Single replica makes the in-memory counter authoritative (also fixes the existing per-pod doubling of the §3.2 caps).
 
 **Tech Stack:** TypeScript (strict), Hono middleware, Vitest. Asset parsing is plain string math (no `@wharfkit/antelope` needed); chain reads follow the existing `get_table_rows` fetch pattern.
 
@@ -38,30 +38,19 @@
 
 ---
 
-## Pre-flight (do once, before Task 1)
+## Pre-flight — VERIFIED 2026-06-10 against `https://api.testnet.ultra.io`
 
-- [ ] **Confirm test runner + current green baseline**
+- [x] **Test runner + green baseline:** `npm --prefix backend test` → 47 files / 408 tests PASS.
 
-Run: `npm --prefix backend test`
-Expected: PASS (establish a green baseline before changes). If it is not green on a clean checkout, stop and report — do not build on red.
+- [x] **Oracle feed identity (spec §13.1) — RESOLVED.** `finalaverage` scope `1` is EMPTY on testnet. The live moving average is on table **`finalrates`**, scope **`1`**, at `rows[0].rolling_moving_average.average`:
+  `{ "timestamp": 1781109060, "price": "0.00408043 DUOS" }`
+  — `timestamp` is unix SECONDS; `price` is an asset STRING with 8-dp `DUOS` symbol (≈ $0.0041/UOS at verification time). Task 5's constants, row accessor, and fixtures use this shape.
 
-- [ ] **Confirm the oracle feed identity (spec §13.1) — verification, not a blocker**
+- [x] **UOS precision on `userres` — RESOLVED, two corrections.** The deployed system contract account is **`eosio`**, NOT `eosio.system` (that account does not exist on-chain — RPC returns "Fail to retrieve account for eosio.system"). A real row (`code=eosio, scope=eosio.token, table=userres`):
+  `{ "owner": "eosio.token", "power_weight": "0.00000000 UOS", "ram_bytes": 524288000, "flags": 0 }`
+  — `power_weight` is an asset STRING with **8** decimal places (not 4). The ABI confirms `user_resources.power_weight: asset`. The string parser is precision-agnostic; the precision only matters for fixtures and the `{amount, symbol}` fallback form.
 
-Run (substitute a real testnet endpoint and confirm which scope/param the deployed oracle uses; this informs the constants in Task 5):
-```bash
-curl -s https://api.testnet.ultra.io/v1/chain/get_table_rows \
-  -H 'content-type: application/json' \
-  -d '{"code":"eosio.oracle","scope":"1","table":"finalrates","json":true,"limit":1}'
-```
-Expected: a row containing a price + timestamp. Record the exact `table`, `scope`, `param` (if `finalaverage`), and the price field's symbol precision. If unreachable, proceed with the fallback-constant path (Task 5) and leave a `// TODO(verify oracle feed)` only inside the test fixture comment, never in shipped logic.
-
-Also confirm UOS precision on a real `userres` row (Task 4 assumes `4,UOS`):
-```bash
-curl -s https://api.testnet.ultra.io/v1/chain/get_table_rows \
-  -H 'content-type: application/json' \
-  -d '{"code":"eosio.system","scope":"<some-account>","table":"userres","json":true,"limit":1}'
-```
-Expected: a `power_weight` like `"12345.6789 UOS"` (4 dp) or an object `{amount, symbol}`.
+- [x] **Fallback price default lowered to `0.004`** (was `0.02`): market is ≈$0.0041/UOS, and the conservative failure mode is a fallback at-or-below market (an oracle outage must not inflate caps ~5×). Env-tunable per environment as before.
 
 ---
 
@@ -92,8 +81,8 @@ monthly USD cap — it does not replace them; all still bind. This caps the
   signature-verified account, so they always get `FREE_FLOOR`. Earning a higher
   cap requires proving account ownership (attestation) AND staking UOS — Sybil
   resistance.
-- **Stake** = `eosio.system/userres.power_weight` for the verified active account
-  (self-stake only). **Price** = `eosio.oracle` UOS/USD moving-average; on stale
+- **Stake** = the system contract's `eosio/userres.power_weight` for the verified
+  active account (self-stake only). **Price** = `eosio.oracle` UOS/USD moving-average; on stale
   or failed read, fall back to env `UOS_PRICE_USD_FALLBACK`. Both are **internal
   middleware reads** (host-allowlist-guarded direct RPC) — NOT new LLM tools, so
   no §4.2 allowlist row.
@@ -115,7 +104,7 @@ monthly USD cap — it does not replace them; all still bind. This caps the
 Append after the W9 row in the §6 table:
 
 ```markdown
-| W10 | Stake-tiered daily cost cap | 2d | Per-identity daily USD cap on AI spend; attested users raise their cap by staking UOS (read from `eosio.system/userres`, priced via `eosio.oracle` with config fallback). In-memory counters; single replica. `GET /api/ai-quota` powers the FE badge. No new contract, no new LLM tool. | §3.8, §7 |
+| W10 | Stake-tiered daily cost cap | 2d | Per-identity daily USD cap on AI spend; attested users raise their cap by staking UOS (read from `eosio/userres`, priced via `eosio.oracle` with config fallback). In-memory counters; single replica. `GET /api/ai-quota` powers the FE badge. No new contract, no new LLM tool. | §3.8, §7 |
 ```
 
 - [ ] **Step 3: Commit**
@@ -172,7 +161,7 @@ describe('readQuotaConfig', () => {
         expect(c.maxCapUsd).toBe(1.0);
         expect(c.sessionCapUsd).toBe(0.25);
         expect(c.priceMaxAgeS).toBe(3600);
-        expect(c.priceFallbackUsd).toBe(0.02);
+        expect(c.priceFallbackUsd).toBe(0.004);
         expect(c.disabled).toBe(false);
     });
 
@@ -242,7 +231,9 @@ export function readQuotaConfig(env: Record<string, string | undefined>): QuotaC
         maxCapUsd: num(env, 'QUOTA_MAX_CAP_USD', 1.0),
         sessionCapUsd: num(env, 'QUOTA_SESSION_CAP_USD', 0.25),
         priceMaxAgeS: num(env, 'QUOTA_PRICE_MAX_AGE_S', 3600),
-        priceFallbackUsd: num(env, 'UOS_PRICE_USD_FALLBACK', 0.02),
+        // Default deliberately ≤ market (≈$0.0041 on 2026-06-10): an oracle
+        // outage must not inflate caps. Tune per env.
+        priceFallbackUsd: num(env, 'UOS_PRICE_USD_FALLBACK', 0.004),
         disabled: env.QUOTA_DISABLED === 'true',
     };
 }
@@ -462,15 +453,15 @@ function fetchReturning(rows: unknown[]) {
 }
 
 describe('StakeReader.getStakedUos', () => {
-    it('parses power_weight given as an asset string "N.NNNN UOS"', async () => {
-        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '125.0000 UOS' }]);
+    it('parses power_weight given as an asset string (8dp UOS, verified testnet shape)', async () => {
+        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '125.00000000 UOS' }]);
         const r = new StakeReader({ allowlist: ALLOWLIST, fetchImpl });
         expect(await r.getStakedUos('alice', ENDPOINT)).toBe(125);
     });
 
-    it('parses power_weight given as an {amount, symbol} object (4dp)', async () => {
+    it('parses power_weight given as an {amount, symbol} object (defensive fallback)', async () => {
         const fetchImpl = fetchReturning([
-            { owner: 'alice', power_weight: { amount: '1250000', symbol: '4,UOS' } },
+            { owner: 'alice', power_weight: { amount: '12500000000', symbol: '8,UOS' } },
         ]);
         const r = new StakeReader({ allowlist: ALLOWLIST, fetchImpl });
         expect(await r.getStakedUos('alice', ENDPOINT)).toBe(125);
@@ -491,7 +482,7 @@ describe('StakeReader.getStakedUos', () => {
     });
 
     it('caches per (endpoint, account) within the TTL — one fetch for two reads', async () => {
-        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '10.0000 UOS' }]);
+        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '10.00000000 UOS' }]);
         let t = 0;
         const r = new StakeReader({ allowlist: ALLOWLIST, fetchImpl, now: () => t, cacheTtlMs: 1000 });
         expect(await r.getStakedUos('alice', ENDPOINT)).toBe(10);
@@ -504,7 +495,7 @@ describe('StakeReader.getStakedUos', () => {
     });
 
     it('rejects an endpoint outside the host allowlist (returns 0, no fetch)', async () => {
-        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '10.0000 UOS' }]);
+        const fetchImpl = fetchReturning([{ owner: 'alice', power_weight: '10.00000000 UOS' }]);
         const r = new StakeReader({ allowlist: ALLOWLIST, fetchImpl });
         expect(await r.getStakedUos('alice', 'https://evil.example.com')).toBe(0);
         expect(fetchImpl).not.toHaveBeenCalled();
@@ -524,15 +515,18 @@ Create `backend/src/usage/stake.ts`:
 ```ts
 // StakeReader — reads an account's self-staked UOS (docs/00 §3.8).
 // Bespoke internal read (NOT an LLM tool): direct, host-allowlist-guarded
-// POST to /v1/chain/get_table_rows for (eosio.system, userres) scoped to the
-// verified active account. power_weight is an asset; we return its UOS amount
-// as a float. Degrade-safe: any failure → 0 (caller falls to the free floor).
+// POST to /v1/chain/get_table_rows for (eosio, userres) scoped to the
+// verified active account. NOTE: the deployed system contract account is
+// `eosio` — `eosio.system` is only the repo name and does not exist on-chain
+// (verified 2026-06-10 testnet). power_weight is an asset serialized as a
+// string ("125.00000000 UOS", 8 dp); we return its UOS amount as a float.
+// Degrade-safe: any failure → 0 (caller falls to the free floor).
 // Cached per (endpoint, account) for 5 min, mirroring balance-gate.ts.
 
 import { isAllowedEndpoint } from '../pipeline/tools/host-allowlist.js';
 import { logger } from '../middleware/logging.js';
 
-const CONTRACT = 'eosio.system';
+const CONTRACT = 'eosio';
 const TABLE = 'userres';
 const CACHE_TTL_MS = 5 * 60_000;
 
@@ -545,7 +539,7 @@ export type StakeReaderDeps = {
 
 type CacheEntry = { uos: number; atMs: number };
 
-// "125.0000 UOS" or { amount: "1250000", symbol: "4,UOS" } → 125.
+// "125.00000000 UOS" or { amount: "12500000000", symbol: "8,UOS" } → 125.
 function parsePowerWeight(pw: unknown): number {
     if (typeof pw === 'string') {
         const n = Number(pw.trim().split(' ')[0]);
@@ -630,9 +624,9 @@ git commit -m "$(printf 'feat(ai): StakeReader — read self-staked UOS from eos
 - Create: `backend/src/usage/price.ts`
 - Test: `backend/test/usage/price.test.ts`
 
-Reads the `eosio.oracle` moving-average price; on stale/failed read returns the configured fallback. Same host-allowlist guard + injectable `fetchImpl`. The exact `(table, scope, param, precision)` are constants at the top of the file — set them from the Pre-flight verification; the test pins the parse against a representative row.
+Reads the `eosio.oracle` moving-average price; on stale/failed read returns the configured fallback. Same host-allowlist guard + injectable `fetchImpl`.
 
-> Note: the row shape below (`{ average: { price: { amount, symbol }, timestamp } }` on `finalaverage`) is from the exploration. If Pre-flight showed a different deployed shape (e.g. `finalrates`), adjust `ORACLE_TABLE`/`ORACLE_SCOPE`/the row accessor and the test fixture together — keep the staleness + fallback logic identical.
+> Row shape VERIFIED 2026-06-10 on testnet (see Pre-flight): table `finalrates`, scope `1`, accessor `rows[0].rolling_moving_average.average` = `{ timestamp: <unix seconds>, price: "0.00408043 DUOS" }` — `price` is an asset STRING (8-dp DUOS). `finalaverage` is empty on testnet; do not use it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -660,8 +654,8 @@ function fetchReturning(row: unknown) {
 const NOW_S = 1_800_000_000;
 
 describe('PriceSource.getUosPriceUsd', () => {
-    it('parses a fresh oracle price (8dp DUOS) into USD', async () => {
-        const row = { average: { price: { amount: '2000000', symbol: '8,DUOS' }, timestamp: NOW_S - 10 } };
+    it('parses a fresh oracle price (asset string, verified testnet shape) into USD', async () => {
+        const row = { rolling_moving_average: { average: { price: '0.02000000 DUOS', timestamp: NOW_S - 10 } } };
         const p = new PriceSource({
             allowlist: ALLOWLIST,
             fetchImpl: fetchReturning(row),
@@ -669,11 +663,11 @@ describe('PriceSource.getUosPriceUsd', () => {
             maxAgeS: MAX_AGE_S,
             nowS: () => NOW_S,
         });
-        expect(await p.getUosPriceUsd(ENDPOINT)).toBeCloseTo(0.02, 8); // 2000000 / 1e8
+        expect(await p.getUosPriceUsd(ENDPOINT)).toBeCloseTo(0.02, 8);
     });
 
     it('falls back when the price row is older than maxAgeS', async () => {
-        const row = { average: { price: { amount: '2000000', symbol: '8,DUOS' }, timestamp: NOW_S - 7200 } };
+        const row = { rolling_moving_average: { average: { price: '0.02000000 DUOS', timestamp: NOW_S - 7200 } } };
         const p = new PriceSource({
             allowlist: ALLOWLIST,
             fetchImpl: fetchReturning(row),
@@ -709,7 +703,7 @@ describe('PriceSource.getUosPriceUsd', () => {
     });
 
     it('falls back for an endpoint outside the host allowlist (no fetch)', async () => {
-        const fetchImpl = fetchReturning({ average: { price: { amount: '2000000', symbol: '8,DUOS' }, timestamp: NOW_S } });
+        const fetchImpl = fetchReturning({ rolling_moving_average: { average: { price: '0.02000000 DUOS', timestamp: NOW_S } } });
         const p = new PriceSource({ allowlist: ALLOWLIST, fetchImpl, fallbackUsd: FALLBACK, maxAgeS: MAX_AGE_S, nowS: () => NOW_S });
         expect(await p.getUosPriceUsd('https://evil.example.com')).toBe(FALLBACK);
         expect(fetchImpl).not.toHaveBeenCalled();
@@ -729,21 +723,22 @@ Create `backend/src/usage/price.ts`:
 ```ts
 // PriceSource — reads UOS/USD from eosio.oracle (docs/00 §3.8).
 // Bespoke internal read (NOT an LLM tool): the oracle table is scoped by a
-// numeric symbol_code raw, which the generic get_table_rows tool's SCOPE_RE
-// rejects. Host-allowlist-guarded direct fetch. Degrade-safe: a stale row, a
+// numeric scope, which the generic get_table_rows tool's SCOPE_RE rejects.
+// Host-allowlist-guarded direct fetch. Degrade-safe: a stale row, a
 // missing row, an out-of-allowlist endpoint, or any fetch error → the
 // configured fallback constant. Cached per endpoint for 5 min.
 //
-// ORACLE_* constants reflect the deployed feed (verify per plan Pre-flight /
-// spec §13.1). The moving-average row is { average: { price: asset, timestamp } }.
+// ORACLE_* constants reflect the deployed feed (VERIFIED 2026-06-10 testnet,
+// spec §13.1): the live row is on `finalrates` scope '1' at
+//   rows[0].rolling_moving_average.average = { timestamp: <unix s>, price: "0.00408043 DUOS" }
+// (`finalaverage` is empty). `price` is an asset string with 8-dp DUOS.
 
 import { isAllowedEndpoint } from '../pipeline/tools/host-allowlist.js';
 import { logger } from '../middleware/logging.js';
 
-// Verify against the deployed oracle (spec §13.1) before trusting in prod.
 const ORACLE_CODE = 'eosio.oracle';
-const ORACLE_TABLE = 'finalaverage';
-const ORACLE_SCOPE = '1'; // symbol_code raw / interval scope — confirm in Pre-flight
+const ORACLE_TABLE = 'finalrates';
+const ORACLE_SCOPE = '1';
 const CACHE_TTL_MS = 5 * 60_000;
 
 export type PriceSourceDeps = {
@@ -759,7 +754,12 @@ export type PriceSourceDeps = {
 type CacheEntry = { price: number; atMs: number };
 
 function parseAssetUsd(price: unknown): number | null {
-    // { amount: "2000000", symbol: "8,DUOS" } → 0.02
+    // "0.02000000 DUOS" → 0.02 (the node serializes asset as a string).
+    if (typeof price === 'string') {
+        const n = Number(price.trim().split(' ')[0]);
+        return Number.isFinite(n) ? n : null;
+    }
+    // Defensive fallback for an { amount, symbol } object form.
     if (price && typeof price === 'object' && 'amount' in price && 'symbol' in price) {
         const amount = Number((price as { amount: unknown }).amount);
         const precision = Number(String((price as { symbol: unknown }).symbol).split(',')[0]);
@@ -802,7 +802,12 @@ export class PriceSource {
             if (!res.ok) return this.deps.fallbackUsd;
             const body = (await res.json()) as { rows?: unknown[] };
             const row = Array.isArray(body.rows) ? body.rows[0] : undefined;
-            const avg = row && typeof row === 'object' ? (row as { average?: { price?: unknown; timestamp?: unknown } }).average : undefined;
+            const rma =
+                row && typeof row === 'object'
+                    ? (row as { rolling_moving_average?: { average?: { price?: unknown; timestamp?: unknown } } })
+                          .rolling_moving_average
+                    : undefined;
+            const avg = rma?.average;
             if (!avg) return this.deps.fallbackUsd;
             const ts = Number(avg.timestamp);
             if (!Number.isFinite(ts) || this.nowS() - ts > this.deps.maxAgeS) return this.deps.fallbackUsd;
@@ -1432,7 +1437,7 @@ QUOTA_FREE_FLOOR_USD=0.01        # daily cap at zero stake (anon + no-stake)
 QUOTA_MAX_CAP_USD=1.00           # per-identity/day ceiling (saturates ~$50 staked)
 QUOTA_SESSION_CAP_USD=0.25       # advisory per-session soft cap
 QUOTA_PRICE_MAX_AGE_S=3600       # oracle price staleness threshold (seconds)
-UOS_PRICE_USD_FALLBACK=0.02      # UOS/USD used when the oracle read is stale/failed
+UOS_PRICE_USD_FALLBACK=0.004     # UOS/USD when the oracle read is stale/failed (≤ market ≈$0.0041 on 2026-06-10)
 ```
 
 - [ ] **Step 5: Run the wiring test + full suite**
