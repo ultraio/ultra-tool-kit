@@ -144,7 +144,12 @@ interface UsageStore {
   it. Delegated-out (`delband`) is out of scope (decided in brainstorm).
 - Cache per `(endpoint, account)` for ~5 min (stake rarely changes); same TTL
   and injectable-reader pattern as `balance-gate.ts` (tests stub the reader).
-- Requires allowlist row `(eosio.system, userres)` (see §8).
+- **Bespoke internal read, not an LLM tool.** It POSTs `/v1/chain/get_table_rows`
+  directly, guarded by `isAllowedEndpoint(url, allowlist)` (the host allowlist),
+  exactly like a tool but invoked by middleware for a fixed `(contract, table,
+  account)` — never LLM-controlled. So it needs **no `TABLE_ALLOWLIST` / §4.2
+  edit** and trips no CI grep. (If LLM-readable stake is ever wanted, that's a
+  separate wave with the §4.2 doc-first dance.)
 
 ### 5.3 `usage/price.ts` — `PriceSource`
 
@@ -157,8 +162,11 @@ interface UsageStore {
   `UOS_PRICE_USD_FALLBACK` (default e.g. `0.02`). Never throw into the gate —
   fail to the fallback so a flaky oracle never blocks chat.
 - Cache the price for ~5 min per endpoint.
-- Requires allowlist row `(eosio.oracle, <table>)` — see §13 (exact table/scope/
-  param is a pre-implementation verification item).
+- **Bespoke internal read, not an LLM tool** (same rationale as `StakeReader`).
+  The oracle table is scoped by a numeric `symbol_code` raw — which the generic
+  `get_table_rows` tool's `SCOPE_RE` rejects anyway — so a direct host-allowlist-
+  guarded fetch is the only fit. No `TABLE_ALLOWLIST` / §4.2 edit. Exact table /
+  scope / param is a pre-implementation verification item (see §13).
 
 ### 5.4 `middleware/quota-gate.ts` — the gate (straddles `next()`)
 
@@ -225,30 +233,31 @@ everything else):
 - On a `quota-daily` / `quota-session` refuse, render the structured hint inline:
   "Daily AI budget reached — stake UOS to raise your limit" with the
   `nextTier` numbers.
-- Optional (nice-to-have, can defer): a button that asks the AI to compose a
-  `eosio.system::delegatebw` action to stake, routed through the existing
-  in-card signer / `<Transaction>` modal — the AI helping a user raise their own
-  cap. Gated behind the normal validation pipeline; no special path.
+- The hint is **informational text only** (how much to stake for the next/max
+  tier). It does NOT auto-compose a stake action: `eosio.system` is undeployed
+  on the chains we target and is **not in the catalog** (W0 notes), so the
+  planner cannot emit `delegatebw`. AI-composed staking is a future item gated on
+  a source-only (`--no-abi`) extractor mode for `eosio.system`.
 
 ---
 
 ## 8. Required canonical-doc edits (DOC-FIRST — own PR)
 
-Per roadmap §2 ("schema changes are their own PR; one concept per PR") and §4.2
-("new tool / new allowlist row → doc change first, then PR"), these land
-**before** code, ideally as PR 1 of the wave:
+Per roadmap §2 ("§6 is the only feature list. If a wave PR builds something not
+in §6, stop and ask. One concept per PR."), these land **before** code, as PR 1
+of the wave. Because the stake/price reads are bespoke internal reads (§5.2/§5.3)
+and **not** new LLM tools, there is **no §4.2 allowlist edit and no CI-grep #8 /
+sync-test coupling** — the doc work is just two sections:
 
-1. **`docs/00-ai-global-guidelines.md §4.2`** — add allowlist rows
-   `(eosio.system, userres)` and `(eosio.oracle, <table>)`. The
-   `get_table_rows.ts` sync test + CI grep #8 will then pass.
-2. **`docs/00-ai-global-guidelines.md §3`** — add **§3.8 "Per-identity daily
-   cost cap (stake-tiered)"** describing the formula, the attested-only-above-
-   floor rule, the degrade-safe behavior, and the new refuse reasons
-   (`quota-daily`, `quota-session`). Note it composes with §3.2/§3.7, does not
-   replace them, and the global monthly cap still binds.
-3. **`docs/01-ai-enhancement-roadmap.md §6`** — add row **W10 — Stake-tiered
+1. **`docs/00-ai-global-guidelines.md`** — add **§3.8 "Per-identity daily cost
+   cap (stake-tiered)"** describing the formula, the attested-only-above-floor
+   rule, the degrade-safe behavior, and the new refuse reasons (`quota-daily`,
+   `quota-session`). Note it composes with §3.2/§3.7, does not replace them, the
+   global monthly cap still binds, and the stake/price reads are internal
+   middleware reads (no new tool, no allowlist row).
+2. **`docs/01-ai-enhancement-roadmap.md §6`** — add row **W10 — Stake-tiered
    daily cost cap**, with acceptance criteria and the guidelines §s it satisfies
-   (§3.8, §4.2, §7). Update §9 if any sub-item is explicitly deferred.
+   (§3.8, §7). Update §9 if any sub-item is explicitly deferred.
 
 ---
 
@@ -328,7 +337,8 @@ Middleware/integration (mock RPC + mock provider cost, inject readers):
   free floor.
 - Accumulation: a turn's `computeCostUsd` is added to the daily + session totals.
 - `QUOTA_DISABLED=true` → gate is a pure no-op, no RPC reads.
-- `get_table_rows` allowlist sync test passes with the two new rows.
+- `StakeReader` / `PriceSource` reject an endpoint outside the host allowlist
+  (`isAllowedEndpoint` guard) before fetching.
 
 Determinism/contract: no change to the §6 baseline (quota gates *access*, not
 *which action* is emitted).
