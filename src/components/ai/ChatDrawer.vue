@@ -22,7 +22,12 @@
                             <span>AI Assistant</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <CostBadge :last-usage="lastUsage" :open="props.open" :reset-counter="resetCounter" />
+                            <CostBadge
+                                :last-usage="lastUsage"
+                                :open="props.open"
+                                :reset-counter="resetCounter"
+                                :quota="quota"
+                            />
                             <button
                                 class="p-1.5 text-neutral-400 hover:text-neutral-100"
                                 title="Reset session"
@@ -48,8 +53,8 @@
                         data-testid="ai-warming"
                     >
                         <span class="inline-block animate-pulse">●</span>
-                        The model is thinking — a local model can take up to a minute on the first or a complex
-                        turn. Hang tight, your message will still go through.
+                        The model is thinking — a local model can take up to a minute on the first or a complex turn.
+                        Hang tight, your message will still go through.
                     </div>
 
                     <!-- Messages -->
@@ -137,7 +142,8 @@ const stateRef = computed(() => props.state);
 // can chat (the AI needs them to compose anything). The backend is
 // anonymous (no JWT, no auth gate) and rate-limits on client IP — the
 // CTA does not affect backend access.
-const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage } = useAiChat(stateRef);
+const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage, quota, refreshQuota } =
+    useAiChat(stateRef);
 
 const loggedIn = computed(() => !!props.state.accountName);
 
@@ -200,6 +206,9 @@ watch(
         if (open && loggedIn.value && props.state.type === 'ultra') {
             void ensureAttestation();
         }
+        // W10: refresh the quota view on every open so the badge shows the
+        // current `spent / cap` even before the first turn. Best-effort.
+        if (open) void refreshQuota();
     },
     { immediate: true }
 );

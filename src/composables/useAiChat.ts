@@ -22,7 +22,15 @@ import { ref, type Ref } from 'vue';
 import { emitter } from '../eventBus';
 import * as I from '../interfaces';
 import { useWalletAccounts } from '../wallets/wallet-accounts';
-import { postAiChat, AiClientError, type Reply, type AiChatRequest, type AiUsageSidecar } from '../utilities/aiClient';
+import {
+    postAiChat,
+    fetchQuota,
+    AiClientError,
+    type Reply,
+    type AiChatRequest,
+    type AiUsageSidecar,
+    type QuotaView,
+} from '../utilities/aiClient';
 
 export const MAX_MESSAGE_CHARS = 1000;
 export const MAX_SESSION_MESSAGES = 30;
@@ -39,6 +47,9 @@ const pending = ref<boolean>(false);
 const warming = ref<boolean>(false);
 const lastReply = ref<Reply | null>(null);
 const lastUsage = ref<AiUsageSidecar | null>(null);
+// W10: the caller's stake-tiered quota view from GET /api/ai-quota. null until
+// the first successful fetch; kept at its last known value on fetch failure.
+const quota = ref<QuotaView | null>(null);
 const inlineError = ref<string | null>(null);
 const sessionId = ref<string>(loadOrCreateSessionId());
 
@@ -51,6 +62,20 @@ function loadOrCreateSessionId(): string {
 }
 
 export function useAiChat(authState?: Ref<I.AuthState>) {
+    // W10: best-effort quota refresh — on failure keep the previous value,
+    // never throw into the UI. Forwards the same attestation as the chat POST
+    // so the backend reports the per-account (stake-tiered) view when it can.
+    async function refreshQuota(): Promise<void> {
+        try {
+            const { attestation } = useWalletAccounts();
+            quota.value = await fetchQuota(sessionId.value, authState?.value?.endpoint ?? '', {
+                attestation: attestation.value,
+            });
+        } catch {
+            /* swallow — badge stays at last known value */
+        }
+    }
+
     async function sendMessage(text: string): Promise<void> {
         inlineError.value = null;
         const trimmed = text.trim();
@@ -107,6 +132,9 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
             const reply = response.reply;
             lastReply.value = reply;
             lastUsage.value = response.usage ?? null;
+            // W10: the turn's spend is recorded server-side by now — refresh
+            // the quota view so the badge tracks `spent / cap` per turn.
+            void refreshQuota();
             messages.value.push({ role: 'assistant', content: reply });
             if (reply.kind === 'propose') {
                 // Ultra ext/web build + sign the proposal in-card (ProposalCard
@@ -154,9 +182,11 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
         warming,
         lastReply,
         lastUsage,
+        quota,
         inlineError,
         sessionId,
         sendMessage,
+        refreshQuota,
         reset,
     };
 }

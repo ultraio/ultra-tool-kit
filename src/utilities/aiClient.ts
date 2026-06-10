@@ -39,7 +39,16 @@ export type ReplyPropose = {
     rationale: string;
 };
 export type ReplyAsk = { kind: 'ask'; question: string };
-export type ReplyRefuse = { kind: 'refuse'; reason: string };
+// W10: quota refuses (`reason: 'quota-daily' | 'quota-session'`) carry the
+// caller's spend/cap snapshot so the FE can render a stake-to-raise hint.
+export type QuotaRefusePayload = {
+    spentUsd: number;
+    capUsd: number;
+    stakedUos: number;
+    uosPriceUsd: number;
+    nextTier: { stakeUosForMax: number | null; maxDailyUsd: number };
+};
+export type ReplyRefuse = { kind: 'refuse'; reason: string; quota?: QuotaRefusePayload };
 export type ReplyAnswer = { kind: 'answer'; text: string };
 export type Reply = ReplyAct | ReplyPropose | ReplyAsk | ReplyRefuse | ReplyAnswer;
 
@@ -103,6 +112,12 @@ function base64UrlEncode(input: string): string {
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// Single source for the `Authorization: Attestation <…>` header — used by the
+// chat POST and the quota GET so both identify the caller the same way.
+function attestationHeader(attestation: ConnectAttestation): string {
+    return `Attestation ${base64UrlEncode(JSON.stringify(attestation))}`;
+}
+
 export interface PostOptions {
     onWarming?: () => void;
     signal?: AbortSignal;
@@ -149,7 +164,7 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
     try {
         const headers: Record<string, string> = { 'content-type': 'application/json' };
         if (opts.attestation) {
-            headers['Authorization'] = `Attestation ${base64UrlEncode(JSON.stringify(opts.attestation))}`;
+            headers['Authorization'] = attestationHeader(opts.attestation);
         }
         const res = await fetch(`${getBaseUrl()}/api/ai-chat`, {
             method: 'POST',
@@ -208,5 +223,53 @@ export async function getAiUsage(opts: GetAiUsageOptions = {}): Promise<AiUsageT
         tokensOutToday: Number(body.tokensOutToday) || 0,
         costUsdToday: Number(body.costUsdToday) || 0,
         turnsToday: Number(body.turnsToday) || 0,
+    };
+}
+
+// W10: GET /api/ai-quota — the caller's stake-tiered quota view. Attestation
+// is optional (same scheme as the chat POST): with it the backend reports the
+// per-account stake-tiered cap, without it the per-IP free floor.
+export type QuotaView = {
+    spentTodayUsd: number;
+    dailyCapUsd: number;
+    stakedUos: number;
+    uosPriceUsd: number;
+    sessionSpentUsd: number;
+    nextTier: { stakeUosForMax: number | null; maxDailyUsd: number };
+};
+
+export interface FetchQuotaOptions {
+    signal?: AbortSignal;
+    attestation?: ConnectAttestation;
+}
+
+export async function fetchQuota(
+    sessionId: string,
+    endpoint: string,
+    opts: FetchQuotaOptions = {}
+): Promise<QuotaView> {
+    const params = new URLSearchParams({ sessionId, endpoint });
+    const headers: Record<string, string> = {};
+    if (opts.attestation) {
+        headers['Authorization'] = attestationHeader(opts.attestation);
+    }
+    const res = await fetch(`${getBaseUrl()}/api/ai-quota?${params.toString()}`, {
+        method: 'GET',
+        headers,
+        signal: opts.signal,
+    });
+    if (!res.ok) throw new AiClientError(`Quota endpoint returned ${res.status}`, res.status);
+    const body = (await res.json()) as QuotaView;
+    // Validate the shape so a malformed response doesn't break the badge.
+    return {
+        spentTodayUsd: Number(body.spentTodayUsd) || 0,
+        dailyCapUsd: Number(body.dailyCapUsd) || 0,
+        stakedUos: Number(body.stakedUos) || 0,
+        uosPriceUsd: Number(body.uosPriceUsd) || 0,
+        sessionSpentUsd: Number(body.sessionSpentUsd) || 0,
+        nextTier: {
+            stakeUosForMax: body.nextTier?.stakeUosForMax == null ? null : Number(body.nextTier.stakeUosForMax),
+            maxDailyUsd: Number(body.nextTier?.maxDailyUsd) || 0,
+        },
     };
 }

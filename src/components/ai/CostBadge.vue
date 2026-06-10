@@ -14,7 +14,10 @@
         <Icon icon="fa-coins" class="text-amber-300" />
         <span>Session: ${{ sessionCostFormatted }}</span>
         <span class="text-neutral-500">·</span>
-        <span>Today: ${{ todayCostFormatted }}</span>
+        <!-- W10: prefer the per-identity `spent / cap` view; fall back to the
+             global aggregate when no quota has been fetched yet. -->
+        <span v-if="props.quota">Today: ${{ quotaSpentFormatted }} / ${{ quotaCapFormatted }}</span>
+        <span v-else>Today: ${{ todayCostFormatted }}</span>
     </div>
 </template>
 
@@ -31,7 +34,7 @@
 // a user who never sends a message never sees "$0.0000". Errors from the
 // usage endpoint are swallowed — the chip stays at its last known value.
 import { computed, ref, watch, onMounted } from 'vue';
-import { getAiUsage, type AiUsageSidecar } from '../../utilities/aiClient';
+import { getAiUsage, type AiUsageSidecar, type QuotaView } from '../../utilities/aiClient';
 
 const props = defineProps<{
     /** The most recent per-reply usage from useAiChat. null when no reply yet. */
@@ -40,20 +43,25 @@ const props = defineProps<{
     open: boolean;
     /** Bumped from the parent whenever the session is reset. */
     resetCounter?: number;
+    /** W10: per-identity quota view from useAiChat. null until first fetch. */
+    quota?: QuotaView | null;
 }>();
 
 const sessionCost = ref<number>(0);
 const todayCost = ref<number>(0);
-const visible = computed(() => sessionCost.value > 0 || todayCost.value > 0);
+const visible = computed(() => sessionCost.value > 0 || todayCost.value > 0 || (props.quota?.spentTodayUsd ?? 0) > 0);
 // Hide from production users — sponsor-budget telemetry is operator-only.
 // Vite sets `import.meta.env.DEV` to true under `vite dev`, false in builds.
 const isDev = import.meta.env.DEV;
 
 const sessionCostFormatted = computed(() => sessionCost.value.toFixed(4));
 const todayCostFormatted = computed(() => todayCost.value.toFixed(4));
-const title = computed(
-    () =>
-        `Session cost (this conversation): $${sessionCostFormatted.value}\nToday's spend: $${todayCostFormatted.value}`
+const quotaSpentFormatted = computed(() => (props.quota?.spentTodayUsd ?? 0).toFixed(4));
+const quotaCapFormatted = computed(() => (props.quota?.dailyCapUsd ?? 0).toFixed(2));
+const title = computed(() =>
+    props.quota
+        ? `Session cost (this conversation): $${sessionCostFormatted.value}\nToday's spend: $${quotaSpentFormatted.value} of your $${quotaCapFormatted.value} daily cap`
+        : `Session cost (this conversation): $${sessionCostFormatted.value}\nToday's spend: $${todayCostFormatted.value}`
 );
 
 // Accumulate session cost on every new usage sidecar. Also re-fetch the
