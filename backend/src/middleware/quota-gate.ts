@@ -24,7 +24,6 @@ import { computeCostUsd } from './usage-log.js';
 export type QuotaGateDeps = {
     config: QuotaConfig;
     store: UsageStore;
-    allowlist: readonly string[];
     readStakedUos: (account: string, endpoint: string) => Promise<number>;
     readUosPrice: (endpoint: string) => Promise<number>;
     now?: () => Date; // default new Date()

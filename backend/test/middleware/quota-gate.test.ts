@@ -59,10 +59,7 @@ describe('quotaGate', () => {
         const cfg = { ...CFG, disabled: true };
         const readStakedUos = vi.fn();
         const readUosPrice = vi.fn();
-        const app = makeApp(
-            { config: cfg, store: new InMemoryUsageStore(), allowlist: [], readStakedUos, readUosPrice },
-            0.001
-        );
+        const app = makeApp({ config: cfg, store: new InMemoryUsageStore(), readStakedUos, readUosPrice }, 0.001);
         const res = await post(app, { sessionId: 's1', messages: [] });
         expect(res.status).toBe(200);
         expect((await json(res)).reply.kind).toBe('answer');
@@ -76,7 +73,6 @@ describe('quotaGate', () => {
             {
                 config: CFG,
                 store,
-                allowlist: [],
                 readStakedUos: async () => 0,
                 readUosPrice: async () => 0.02,
                 now: () => new Date('2026-06-09T00:00:00Z'),
@@ -95,7 +91,6 @@ describe('quotaGate', () => {
         const deps: QuotaGateDeps = {
             config: CFG,
             store,
-            allowlist: [],
             readStakedUos: async () => 0,
             readUosPrice: async () => 0.02,
             now: () => new Date('2026-06-09T12:00:00Z'),
@@ -118,21 +113,30 @@ describe('quotaGate', () => {
 
     it('gives an attested staker a higher cap', async () => {
         const store = new InMemoryUsageStore();
+        const readStakedUos = vi.fn(async () => 500); // 500 UOS
         const deps: QuotaGateDeps = {
             config: CFG,
             store,
-            allowlist: [],
-            readStakedUos: async () => 500, // 500 UOS
-            readUosPrice: async () => 0.02, // → $10 staked → $0.20/day cap
+            readStakedUos, // → $10 staked → $0.20/day cap
+            readUosPrice: async () => 0.02,
             now: () => new Date('2026-06-09T12:00:00Z'),
         };
-        const app = makeApp(deps, 0.05);
-        const res = await post(
-            app,
-            { sessionId: 's1', messages: [] },
-            { account: 'whale', pubkey: 'PUB', permission: 'active', signableAccounts: [] }
-        );
-        expect((await json(res)).reply.kind).toBe('answer'); // $0.05 < $0.20 cap
+        const identity = { account: 'whale', pubkey: 'PUB', permission: 'active', signableAccounts: [] };
+
+        // Turn 1: $0.05 < $0.20 cap → allowed
+        const app1 = makeApp(deps, 0.05);
+        const res1 = await post(app1, { sessionId: 's1', messages: [] }, identity);
+        expect((await json(res1)).reply.kind).toBe('answer');
+        expect(readStakedUos).toHaveBeenCalledWith('whale', expect.anything());
+
+        // After turn 1: acct:whale key holds 50_000 micro ($0.05).
+        // Turn 2: $0.05 more = 100_000 micro total.
+        // At free floor (10_000): 100_000 ≥ 10_000 → would refuse.
+        // Under $0.20 cap (200_000): 100_000 < 200_000 → must still be 'answer'.
+        const app2 = makeApp(deps, 0.05);
+        const res2 = await post(app2, { sessionId: 's2', messages: [] }, identity);
+        const body2 = await json(res2);
+        expect(body2.reply.kind).toBe('answer'); // stake-tiered cap allowed it
     });
 
     it('refuses with quota-session when the session soft cap is hit', async () => {
@@ -142,7 +146,6 @@ describe('quotaGate', () => {
         const deps: QuotaGateDeps = {
             config: CFG,
             store,
-            allowlist: [],
             readStakedUos: async () => 0,
             readUosPrice: async () => 0.02,
             now: () => new Date('2026-06-09T12:00:00Z'),
