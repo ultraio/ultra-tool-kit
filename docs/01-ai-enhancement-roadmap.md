@@ -144,6 +144,7 @@ Each wave is one branch commit / one PR off `feature/ai-enhancement`. Don't merg
 | W7 | Q&A mode (knowledge answers) | 1d | "What does `eosio.nft.ft::setfact.uri` do?" returns a grounded explanation citing catalog entries. Refuses non-Ultra questions politely. | §1 maxim 2 (no invented refs), §4.1 |
 | W8 | Telemetry + regression baseline + polish | 2d | `logs/usage.jsonl` written per §7. Baseline fixtures green (§6). Prompt caching headers on, sliding-window summary, cost badge live, Playwright suite green. | §6 full, §7 full |
 | W9 | Wallet-native attestation + balance-gated AI | 1d | Toolkit adopts `@ultraos/wallet-sdk@0.4.0` attestation as the v2 identity primitive. The FE forwards `Authorization: Attestation` when the wallet provides it; the backend verifies it, attaches `c.var.identity`, gates AI access on the summed UOS balance across `signableAccounts`, and re-keys the rate limit from `ip:` to `pubkey:` with looser tiers. Unattested (Anchor/Ledger) requests hit the per-IP path unchanged. Matches RFC §9. | §3.7, §5 grep 13, §7 |
+| W10 | Stake-tiered daily cost cap | 2d | Per-identity daily USD cap on AI spend; attested users raise their cap by staking UOS (read from `eosio/userres`, priced via `eosio.oracle` with config fallback). In-memory counters; single replica. `GET /api/ai-quota` powers the FE badge. No new contract, no new LLM tool. | §3.8, §7 |
 
 **Total: ~18 working days, one person.** W1.5 adds 2 days but is non-negotiable for sponsored AI.
 

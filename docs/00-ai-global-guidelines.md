@@ -124,6 +124,37 @@ W9 adopts the §3.6 proposal as a live, **opportunistic** identity primitive. Id
 
 The two paths are mutually exclusive per request: an attested request is keyed on pubkey and never touches an IP bucket; an unattested request is keyed on IP and never touches a pubkey bucket. Order of operations: identity is verified first, then the balance gate, then the rate limit.
 
+### 3.8 Per-identity daily cost cap (stake-tiered)
+
+Layered ON TOP of §3.2 / §3.7 (request-count limits) and the §3.2 tier-5 global
+monthly USD cap — it does not replace them; all still bind. This caps the
+**dollar** spend of a single identity per UTC day.
+
+- **Cap formula:** `dailyCapUsd = clamp(stakedUos × uosPriceUsd × RATE, FREE_FLOOR, MAX_CAP)`.
+  Defaults: `RATE=0.02`/day, `FREE_FLOOR=$0.01`, `MAX_CAP=$1.00`. All env-tunable.
+- **Identity key:** verified attested account (`acct:<account>`, §3.7) else
+  hashed client IP (`ip:<sha256>`, §3.2). Mutually exclusive per request.
+- **Attested-only above the floor.** Unattested (per-IP) callers have no
+  signature-verified account, so they always get `FREE_FLOOR`. Earning a higher
+  cap requires proving account ownership (attestation) AND staking UOS — Sybil
+  resistance.
+- **Stake** = the system contract's `eosio/userres.power_weight` for the verified
+  active account (self-stake only). **Price** = `eosio.oracle` UOS/USD moving-average; on stale
+  or failed read, fall back to env `UOS_PRICE_USD_FALLBACK`. Both are **internal
+  middleware reads** (host-allowlist-guarded direct RPC) — NOT new LLM tools, so
+  no §4.2 allowlist row.
+- **Degrade-safe:** a stake read failure → treat as 0 stake (free floor); a price
+  read failure/staleness → fallback constant. Reads never block chat.
+- **Enforcement:** check-then-accumulate. Refuse when the day's accumulated spend
+  ≥ cap, with HTTP 200 `{ kind: 'refuse', reason: 'quota-daily', quota: {...} }`
+  (never 429, per §3.2). An advisory per-session soft cap emits
+  `reason: 'quota-session'`. Spend is accumulated in integer micro-USD after each
+  turn from `computeCostUsd` (the same value §7 logs).
+- **Kill switch:** `QUOTA_DISABLED=true` makes the gate a pure no-op (no RPC
+  reads), mirroring `BALANCE_THRESHOLD_UOS=0` (§3.7).
+- **Single instance.** The daily/session counters are in-process (roadmap
+  decision 1, §9). Multi-replica requires the deferred Redis-backed store (§9).
+
 ---
 
 ## 4. Security baseline
