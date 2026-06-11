@@ -4,13 +4,12 @@
 // sessionId comes from the query string (this is a GET; no body).
 // Reuses the gate's config + store + readers (single source of truth).
 
-import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 
-import { clientIpOf } from '../middleware/logging.js';
 import type { IdentityVariables } from '../middleware/attestation.js';
 import type { UsageStore } from '../usage/store.js';
-import { type QuotaConfig, dailyCapMicroUsd, MICRO } from '../usage/quota-config.js';
+import { type QuotaConfig, dailyCapMicroUsd, nextTier, MICRO } from '../usage/quota-config.js';
+import { identityKey } from '../usage/identity.js';
 
 export type AiQuotaDeps = {
     config: QuotaConfig;
@@ -19,10 +18,6 @@ export type AiQuotaDeps = {
     readUosPrice: (endpoint: string) => Promise<number>;
     now?: () => Date;
 };
-
-function sha256Hex(s: string): string {
-    return createHash('sha256').update(s).digest('hex');
-}
 
 export function createAiQuotaRouter(deps: AiQuotaDeps): Hono<IdentityVariables> {
     const now = deps.now ?? (() => new Date());
@@ -34,7 +29,7 @@ export function createAiQuotaRouter(deps: AiQuotaDeps): Hono<IdentityVariables> 
         const endpoint = c.req.query('endpoint') ?? '';
         const dayUtc = now().toISOString().slice(0, 10);
 
-        const key = identity ? `acct:${identity.account}` : `ip:${sha256Hex(clientIpOf(c) ?? 'unknown')}`;
+        const key = identityKey(c, identity);
 
         let stakedUos = 0;
         let uosPriceUsd = deps.config.priceFallbackUsd;
@@ -57,13 +52,7 @@ export function createAiQuotaRouter(deps: AiQuotaDeps): Hono<IdentityVariables> 
                 stakedUos,
                 uosPriceUsd,
                 sessionSpentUsd: sessionSpent / MICRO,
-                nextTier: {
-                    stakeUosForMax:
-                        uosPriceUsd > 0
-                            ? Math.ceil(deps.config.maxCapUsd / (uosPriceUsd * deps.config.ratePerDay))
-                            : null,
-                    maxDailyUsd: deps.config.maxCapUsd,
-                },
+                nextTier: nextTier(deps.config, uosPriceUsd),
             },
             200
         );

@@ -43,3 +43,16 @@ export function dailyCapMicroUsd(cfg: QuotaConfig, stakedUos: number, uosPriceUs
     const clampedUsd = Math.min(cfg.maxCapUsd, Math.max(cfg.freeFloorUsd, rawUsd));
     return Math.round(clampedUsd * MICRO);
 }
+
+export type NextTier = { stakeUosForMax: number | null; maxDailyUsd: number };
+
+// The "stake to raise your cap" hint shared by the gate's refuse body and the
+// /api/ai-quota read: how much self-staked UOS would lift the daily cap to the
+// MAX_CAP ceiling at the current price. stakeUosForMax is null when the price
+// is unknown (can't divide), so the FE hides the hint.
+export function nextTier(cfg: QuotaConfig, uosPriceUsd: number): NextTier {
+    return {
+        stakeUosForMax: uosPriceUsd > 0 ? Math.ceil(cfg.maxCapUsd / (uosPriceUsd * cfg.ratePerDay)) : null,
+        maxDailyUsd: cfg.maxCapUsd,
+    };
+}

@@ -12,13 +12,12 @@
 // rate-limited or balance-refused request never reaches the cap logic, and the
 // usage-log row is still written for a quota refuse (cost 0, no providerModel).
 
-import { createHash } from 'node:crypto';
 import type { Context, MiddlewareHandler } from 'hono';
 
-import { clientIpOf } from './logging.js';
 import type { IdentityVariables } from './attestation.js';
 import type { UsageStore } from '../usage/store.js';
-import { type QuotaConfig, dailyCapMicroUsd, MICRO } from '../usage/quota-config.js';
+import { type QuotaConfig, dailyCapMicroUsd, nextTier, MICRO } from '../usage/quota-config.js';
+import { identityKey } from '../usage/identity.js';
 import { computeCostUsd } from './usage-log.js';
 
 export type QuotaGateDeps = {
@@ -35,10 +34,6 @@ type QuotaVars = IdentityVariables & {
         lastUsage?: { input: number; output: number };
     };
 };
-
-function sha256Hex(s: string): string {
-    return createHash('sha256').update(s).digest('hex');
-}
 
 // Drain a clone of the body for { sessionId, context.endpoint }. Mirrors
 // usage-log.ts / balance-gate.ts — never consumes the handler's stream.
@@ -69,7 +64,7 @@ export function quotaGate(deps: QuotaGateDeps): MiddlewareHandler<QuotaVars> {
         const dayUtc = now().toISOString().slice(0, 10);
 
         // Identity key: verified attested account, else hashed client IP.
-        const key = identity ? `acct:${identity.account}` : `ip:${sha256Hex(clientIpOf(c) ?? 'unknown')}`;
+        const key = identityKey(c, identity);
 
         // Cap: attested → stake-tiered; unattested → free floor (no reads).
         let capMicro: number;
@@ -95,13 +90,7 @@ export function quotaGate(deps: QuotaGateDeps): MiddlewareHandler<QuotaVars> {
                 capUsd: capMicro / MICRO,
                 stakedUos,
                 uosPriceUsd,
-                nextTier: {
-                    stakeUosForMax:
-                        uosPriceUsd > 0
-                            ? Math.ceil(deps.config.maxCapUsd / (uosPriceUsd * deps.config.ratePerDay))
-                            : null,
-                    maxDailyUsd: deps.config.maxCapUsd,
-                },
+                nextTier: nextTier(deps.config, uosPriceUsd),
             },
         });
 
