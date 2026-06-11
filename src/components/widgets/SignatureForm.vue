@@ -11,11 +11,7 @@
                         :title="'Pick an account from the connected wallet'"
                     >
                         <option value="">— Custom —</option>
-                        <option
-                            v-for="opt in walletAccounts"
-                            :key="opt.accountName"
-                            :value="opt.accountName"
-                        >
+                        <option v-for="opt in walletAccounts" :key="opt.accountName" :value="opt.accountName">
                             {{ opt.accountName }}
                         </option>
                     </select>
@@ -54,10 +50,14 @@
                 >
                     {{ props.state.accountName }}
                 </Button>
-                <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('admins')">Admins</Button>
+                <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('admins')"
+                    >Admins</Button
+                >
                 <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('props')">Props</Button>
                 <Button class="flex-grow" @click="quickAdd('producers')">Producers</Button>
-                <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('techops')">TechOps</Button>
+                <Button v-if="showUltraAccountsInQuickAdd()" class="flex-grow" @click="quickAdd('techops')"
+                    >TechOps</Button
+                >
             </div>
         </div>
     </div>
@@ -90,9 +90,7 @@ function addSignatureRequest() {
 }
 
 function matchAccount(signature: { actor: string; permission: string }) {
-    return walletAccounts.value.some((a) => a.accountName === signature.actor)
-        ? signature.actor
-        : '';
+    return walletAccounts.value.some((a) => a.accountName === signature.actor) ? signature.actor : '';
 }
 
 function onPickAccount(rowIndex: number, accountName: string) {
@@ -130,7 +128,6 @@ function addSignatureIfMissing(actor: string, permission: string) {
 }
 
 async function quickAdd(type: 'self' | 'admins' | 'props' | 'producers' | 'techops') {
-
     if (type === 'self') {
         addSignatureIfMissing(props.state.accountName, props.state.accountPerm);
     }

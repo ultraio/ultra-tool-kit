@@ -27,7 +27,7 @@ import { useRoute } from 'vue-router/auto';
 
 const route = useRoute('/contract/');
 
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const getAccountName = computed(() => {

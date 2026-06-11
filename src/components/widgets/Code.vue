@@ -68,8 +68,8 @@ const MONACO_EDITOR_OPTIONS = {
     minimap: { enabled: false },
     scrollbar: {
         vertical: 'hidden',
-        horizontal: 'hidden'
-    }
+        horizontal: 'hidden',
+    },
 };
 
 let displayedCode = ref<string>('');
@@ -110,8 +110,8 @@ function applyEdit() {
 }
 
 defineExpose({
-    applyEdit
-})
+    applyEdit,
+});
 
 const handleEditorMount = (editor) => {
     monacoEditorLoaded.value = true;

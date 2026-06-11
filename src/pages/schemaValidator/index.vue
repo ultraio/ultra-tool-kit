@@ -65,7 +65,7 @@ import LoadingSpinner from '../../components/widgets/LoadingSpinner.vue';
 import { SchemaValidator } from '../../utilities/schemaValidator';
 
 const route = useRoute('/schemaValidator/');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const file = ref<any>();

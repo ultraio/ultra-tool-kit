@@ -12,8 +12,8 @@
                         <b>Input Format</b>
                         <br />
                         <br />
-                            Your CSV file must be formatted like below, make sure you have the first row with the
-                            header. Duplicate receiver accounts are allowed.
+                        Your CSV file must be formatted like below, make sure you have the first row with the header.
+                        Duplicate receiver accounts are allowed.
                     </span>
                 </div>
                 <div class="grid gap-px grid-rows-1">
@@ -59,7 +59,9 @@ bb1cc2dd3ee4,420
                     <div class="grid gap-4 py-4">
                         <span></span>
                         <Button :disabled="userActions.length == 0" @onClick="emits('transact', userActions)">{{
-                            userActions.length ? `Make ${userActions.length} UOS transfers (total ${totalUosTransferred} UOS)` : 'Transfer'
+                            userActions.length
+                                ? `Make ${userActions.length} UOS transfers (total ${totalUosTransferred} UOS)`
+                                : 'Transfer'
                         }}</Button>
                     </div>
                 </div>
@@ -85,7 +87,7 @@ import LoadingSpinner from '../../components/widgets/LoadingSpinner.vue';
 import Papa from 'papaparse';
 
 const route = useRoute('/uosMassTransfer/');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const authorizer = ref<string>();
@@ -149,7 +151,7 @@ const parseFile = async () => {
 const generateActions = () => {
     totalUosTransferred.value = 0;
     userActions.value = dataRows.value.map((row) => {
-        let quantity = parseFloat(row.quantity)
+        let quantity = parseFloat(row.quantity);
         totalUosTransferred.value += quantity;
         return {
             contract: 'eosio.token',

@@ -1,10 +1,5 @@
 import { UltraWalletSDK } from '@ultraos/wallet-sdk';
-import type {
-    UltraResponse,
-    ConnectResult,
-    SignTransactionResult,
-    BlockchainTransaction,
-} from '@ultraos/wallet-sdk';
+import type { UltraResponse, ConnectResult, SignTransactionResult, BlockchainTransaction } from '@ultraos/wallet-sdk';
 
 /**
  * Ultra Web Wallet integration.
@@ -104,9 +99,7 @@ export async function signTransaction(
         contract: a.contract,
         action: a.action,
         data: a.data === undefined ? a.data : JSON.parse(JSON.stringify(a.data)),
-        authorization: a.authorization
-            ? JSON.parse(JSON.stringify(a.authorization))
-            : [{ actor, permission }],
+        authorization: a.authorization ? JSON.parse(JSON.stringify(a.authorization)) : [{ actor, permission }],
     }));
     return wallet.signTransaction(sdkActions);
 }
@@ -123,7 +116,7 @@ export function extractAccountInfo(result: ConnectResult): {
         const activePermission = result.selectedAccount.permissions.find((p) => p.name === 'active');
         return {
             accountName: result.selectedAccount.accountName,
-            permission: activePermission ? 'active' : (result.selectedAccount.permissions[0]?.name ?? 'active'),
+            permission: activePermission ? 'active' : result.selectedAccount.permissions[0]?.name ?? 'active',
         };
     }
     return {

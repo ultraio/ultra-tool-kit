@@ -112,9 +112,7 @@ export async function signTransaction(
         contract: a.contract,
         action: a.action,
         data: a.data === undefined ? a.data : JSON.parse(JSON.stringify(a.data)),
-        authorization: a.authorization
-            ? JSON.parse(JSON.stringify(a.authorization))
-            : [{ actor, permission }],
+        authorization: a.authorization ? JSON.parse(JSON.stringify(a.authorization)) : [{ actor, permission }],
     }));
 
     return wallet.signTransaction(sdkActions);

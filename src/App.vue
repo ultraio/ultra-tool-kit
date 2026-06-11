@@ -50,7 +50,12 @@
                 id="content"
                 class="flex flex-grow flex-col h-screen overflow-y-auto pr-6 sm:pr-6 md:pr-24 lg:pr-48 pt-6 pl-6 pb-32"
             >
-                <router-view :state="authState" :metadata="runtimeMetadata" :key="keyRouterUpdate" @transact="setTransaction" />
+                <router-view
+                    :state="authState"
+                    :metadata="runtimeMetadata"
+                    :key="keyRouterUpdate"
+                    @transact="setTransaction"
+                />
             </div>
         </div>
 
@@ -116,11 +121,11 @@ let authState = ref<I.AuthState>({
     endpoint: defaultNetworks[0].urls[0],
     environment: defaultNetworks[0].name,
     type: undefined,
-    isAdmin: false
+    isAdmin: false,
 });
 
 let runtimeMetadata = ref<I.RuntimeMetadata>({
-    lastSignedActions: undefined
+    lastSignedActions: undefined,
 });
 
 function setAuthStateKeys(newData: Partial<I.AuthState>) {
@@ -168,10 +173,8 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
     // survive an env change, and can't sign at all on Local/Custom endpoints.
     // Log out now and (if switching between Mainnet/Testnet) open a reconnect
     // popup on the new env after the rest of initServices() completes.
-    const webWalletEnvChanged =
-        previousType === 'ultra-web' && previousEnvironment !== environment;
-    const shouldAutoReconnectWebWallet =
-        webWalletEnvChanged && UltraWeb.isSupportedEnvironment(environment);
+    const webWalletEnvChanged = previousType === 'ultra-web' && previousEnvironment !== environment;
+    const shouldAutoReconnectWebWallet = webWalletEnvChanged && UltraWeb.isSupportedEnvironment(environment);
 
     if (webWalletEnvChanged && !shouldAutoReconnectWebWallet) {
         alert(
@@ -206,7 +209,7 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
         let args = uri[1].split('&');
         let lastEnv = args.shift();
         if (lastEnv != environment) {
-            window.location.href = uri[0] + 'env=' + environment + (args.length > 0 ? '&' + args.join('&') : '')
+            window.location.href = uri[0] + 'env=' + environment + (args.length > 0 ? '&' + args.join('&') : '');
             return;
         }
     }
@@ -271,9 +274,7 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
                     const response = await Ultra.connect();
                     if (response.status === 'success') {
                         populateWalletAccountsFromConnectResult(response.data);
-                        const { accountName, permission } = await Ultra.resolveSelectedAccount(
-                            response.data
-                        );
+                        const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
                         await setAccount('ultra', accountName, permission);
                     }
                     localStorage.setItem('authState', JSON.stringify(authState.value));
@@ -296,12 +297,7 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
  * @param accountName
  * @param permission
  */
-async function setAccount(
-    type: I.WalletTypes,
-    accountName: string,
-    permission: string,
-    ledgerIndex?: number
-) {
+async function setAccount(type: I.WalletTypes, accountName: string, permission: string, ledgerIndex?: number) {
     setAuthStateKeys({
         type,
         accountName,
@@ -335,11 +331,7 @@ async function setAccount(
                 // Toolkit→Wallet switchNetwork echo in setEndpoint (this is
                 // wallet-driven; we follow, never push back).
                 const matched = getNetworkByChainId(walletChainId);
-                if (
-                    matched &&
-                    !matched.urls.includes(authState.value.endpoint) &&
-                    !isNetworkSyncing
-                ) {
+                if (matched && !matched.urls.includes(authState.value.endpoint) && !isNetworkSyncing) {
                     isNetworkSyncing = true;
                     try {
                         await setEndpoint(matched.urls[0], false);
@@ -441,10 +433,7 @@ async function restoreSession() {
         try {
             response = await Ultra.connect(true);
         } catch (err) {
-            console.warn(
-                '[ultra-tool-kit] restoreSession: Ultra.connect threw — clearing authState',
-                err
-            );
+            console.warn('[ultra-tool-kit] restoreSession: Ultra.connect threw — clearing authState', err);
             localStorage.removeItem('authState');
             return;
         }
@@ -462,10 +451,7 @@ async function restoreSession() {
         let hasAuths = false;
         if (!hasSelected && !hasAccounts) {
             const auths = await Ultra.getAvailableAuthorizations().catch(() => null);
-            hasAuths =
-                auths?.status === 'success' &&
-                Array.isArray(auths.data) &&
-                auths.data.length > 0;
+            hasAuths = auths?.status === 'success' && Array.isArray(auths.data) && auths.data.length > 0;
         }
         const isEmptySuccess = !hasSelected && !hasAccounts && !hasAuths;
         if (isEmptySuccess) {
@@ -650,7 +636,7 @@ function handleWalletAccountChanged(data: {
  */
 function preferActivePermission(
     accountName: string,
-    eventAccounts: Array<{ accountName: string; permission?: string }>,
+    eventAccounts: Array<{ accountName: string; permission?: string }>
 ): string {
     const matches = eventAccounts.filter((a) => a.accountName === accountName);
     const active = matches.find((m) => m.permission === 'active');
@@ -682,9 +668,7 @@ async function handleWalletNetworkChanged(data: { chainId: string; name: string 
                         const response = await Ultra.connect();
                         if (response.status === 'success') {
                             populateWalletAccountsFromConnectResult(response.data);
-                            const { accountName, permission } = await Ultra.resolveSelectedAccount(
-                                response.data
-                            );
+                            const { accountName, permission } = await Ultra.resolveSelectedAccount(response.data);
                             await setAccount('ultra', accountName, permission);
                         }
                     } catch {
@@ -765,5 +749,4 @@ onUnmounted(async () => {
     // would short-circuit anyway, but we'd rather not pay the timer overhead.
     Ultra.dispose();
 });
-
 </script>

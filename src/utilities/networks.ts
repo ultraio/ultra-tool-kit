@@ -1,4 +1,4 @@
-import { BlockchainService } from "./blockchain";
+import { BlockchainService } from './blockchain';
 
 export const defaultNetworks = [
     {

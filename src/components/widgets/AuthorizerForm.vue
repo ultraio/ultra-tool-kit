@@ -64,9 +64,7 @@ const { validatedAccounts: walletAccounts } = useWalletAccounts();
 let authorizers = ref<Array<{ actor: string; permission: string }>>([]);
 
 function matchOption(authorizer: { actor: string; permission: string }) {
-    return walletAccounts.value.some((a) => a.accountName === authorizer.actor)
-        ? authorizer.actor
-        : '';
+    return walletAccounts.value.some((a) => a.accountName === authorizer.actor) ? authorizer.actor : '';
 }
 
 function onPickOption(rowIndex: number, accountName: string) {

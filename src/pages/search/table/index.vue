@@ -1,4 +1,3 @@
-
 <template>
     <div class="flex flex-col gap-4">
         <div class="text-2xl font-bold">Search Table</div>
@@ -16,10 +15,7 @@
         </div>
         <div class="flex flex-row gap-4">
             <template v-for="name in quickAdds">
-                <Button
-                    @click="setContract(name)"
-                    class="flex flex-row gap-4 items-center justify-center"
-                >
+                <Button @click="setContract(name)" class="flex flex-row gap-4 items-center justify-center">
                     <span>{{ name }}</span>
                 </Button>
             </template>
@@ -33,7 +29,8 @@
             />
             <select
                 class="flex-row gap-2 bg-neutral-950 rounded focus:outline-none border border-neutral-700 w-full h-12 px-4"
-                v-if="currentAbi" single
+                v-if="currentAbi"
+                single
                 v-model="data.table"
                 v-on:change="clearScopeSearch"
             >
@@ -56,11 +53,7 @@
                 placeholder="Scope Name"
                 class="flex flex-row gap-2 flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
             />
-            <Button
-                @onClick="searchTable(scopeSearch)"
-            >
-                Search by scope name
-            </Button>
+            <Button @onClick="searchTable(scopeSearch)"> Search by scope name </Button>
         </div>
         <Expand title="Additional Options">
             <div class="flex flex-col p-4 border rounded border-neutral-700">
@@ -95,22 +88,14 @@
                 {{ scope === '' ? 0 : scope }}
             </template>
             <template #item-action="{ scope }">
-                <Button
-                    @onClick="searchTable(scope)"
-                >
-                    Search
-                </Button>
+                <Button @onClick="searchTable(scope)"> Search </Button>
             </template>
             <template #empty-message>
                 <p>No Scopes found</p>
             </template>
         </EasyDataTable>
         <div v-if="tableScopes.dataTable.rows.length > 0" class="flex flex-row gap-2">
-            <Button
-                :disabled="!moreScopesToLoad"
-                @onClick="loadAllScopes(100)"
-                class="w-full mt-6"
-            >
+            <Button :disabled="!moreScopesToLoad" @onClick="loadAllScopes(100)" class="w-full mt-6">
                 Load 100 scopes
             </Button>
             <!-- <Button
@@ -137,10 +122,7 @@
                     <p>No Entries found</p>
                 </template>
             </EasyDataTable>
-            <Button
-                v-if="moreResultsToLoad"
-                @click="() => searchTable(data.scope, queryResultRaw.next_key)"
-            >
+            <Button v-if="moreResultsToLoad" @click="() => searchTable(data.scope, queryResultRaw.next_key)">
                 Load 100 results
             </Button>
             <Expand title="Raw response">
@@ -164,7 +146,7 @@ import { ABI } from '../../../utilities/abi';
 import { routePageEnvironment } from '../../../utilities/networks';
 
 const route = useRoute('/search/table/');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 
 const data = reactive({
     account: '',
@@ -179,18 +161,18 @@ const currentAbiAccount = ref<string>();
 const currentAbi = ref<ABI>();
 
 const tableScopesMore = ref<string>();
-const tableScopes = ref<I.DataTableType & {notFound: boolean}>({
+const tableScopes = ref<I.DataTableType & { notFound: boolean }>({
     dataTable: {
         headers: [
             { text: 'Scope', value: 'scope', sortable: true },
             { text: 'Count', value: 'count', sortable: true },
-            { text: 'Action', value: 'action'}
+            { text: 'Action', value: 'action' },
         ],
         rows: [],
     },
-    notFound: false
+    notFound: false,
 });
-const scopeSearchField = ref("scope");
+const scopeSearchField = ref('scope');
 const scopeSearch = ref<string>();
 const scopesPerRequest = ref<number>(100);
 const moreScopesToLoad = ref<boolean>(true);
@@ -204,12 +186,12 @@ const moreResultsToLoad = ref<boolean>(true);
 
 function clear() {
     (data.account = ''),
-    (data.table = ''),
-    (data.scope = ''),
-    (data.lower_bound = ''),
-    (data.upper_bound = ''),
-    (queryResult.value = undefined);
-    
+        (data.table = ''),
+        (data.scope = ''),
+        (data.lower_bound = ''),
+        (data.upper_bound = ''),
+        (queryResult.value = undefined);
+
     currentAbiAccount.value = null;
     currentAbi.value = null;
 
@@ -220,8 +202,7 @@ function clear() {
     moreResultsToLoad.value = true;
 }
 
-interface TableEmits extends SharedEmits {
-}
+interface TableEmits extends SharedEmits {}
 
 const emits = defineEmits<TableEmits>();
 
@@ -240,10 +221,10 @@ async function parseQueryParams() {
         data.table = <string>route.query.table;
     }
     if (route.query.lower_bound) {
-        data.lower_bound = <string>(route.query.lower_bound);
+        data.lower_bound = <string>route.query.lower_bound;
     }
     if (route.query.upper_bound) {
-        data.upper_bound = <string>(route.query.upper_bound);
+        data.upper_bound = <string>route.query.upper_bound;
     }
 
     // If 3 required fields were set - perform the search automatically
@@ -265,14 +246,14 @@ function populateResultHeaders() {
     let table = currentAbi.value.tables.find((t) => t.name === data.table);
     table.key_names.forEach((k) => {
         headers.push({ text: k, value: k, sortable: true });
-    })
+    });
 
     queryResult.value = {
         dataTable: {
             headers: headers,
             rows: [],
         },
-    }
+    };
 }
 
 async function searchTable(scope: string, lower_bound = null) {
@@ -304,7 +285,14 @@ async function searchTable(scope: string, lower_bound = null) {
             queryResultRaw.value = undefined;
         }
 
-        const response = await BlockchainService.getTableData(data.account, data.scope, data.table, data.lower_bound, data.upper_bound, resultsPerRequest.value);
+        const response = await BlockchainService.getTableData(
+            data.account,
+            data.scope,
+            data.table,
+            data.lower_bound,
+            data.upper_bound,
+            resultsPerRequest.value
+        );
         if (!queryResultRaw.value) queryResultRaw.value = response;
         else {
             queryResultRaw.value.next_key = response.next_key;
@@ -326,7 +314,7 @@ async function searchTable(scope: string, lower_bound = null) {
                 }
             });
         }
-        
+
         queryResult.value.dataTable.rows = queryResult.value.dataTable.rows.concat(response.rows);
 
         if (!response.next_key || queryResultRaw.value.rows.length < resultsPerRequest.value) {
@@ -392,7 +380,7 @@ async function fetchScopesInit() {
 
 async function fetchScopes(clear: boolean) {
     // Ensure that the table exists
-    if (!currentAbi.value.tables.find(t => t.name === data.table)) return;
+    if (!currentAbi.value.tables.find((t) => t.name === data.table)) return;
 
     loading.value = true;
     if (clear) {
@@ -403,7 +391,7 @@ async function fetchScopes(clear: boolean) {
     let lower_bound = clear ? undefined : tableScopesMore.value;
     let scopes = await BlockchainService.getTableByScope(data.account, data.table, scopesPerRequest.value, lower_bound);
     // Fetch until we reach the slice of desired data or reach the end of the contract
-    while(scopes.rows.length === 0) {
+    while (scopes.rows.length === 0) {
         lower_bound = scopes.more;
         scopes = await BlockchainService.getTableByScope(data.account, data.table, scopesPerRequest.value, lower_bound);
         if (!scopes.more || scopes.more === '') {
@@ -414,24 +402,26 @@ async function fetchScopes(clear: boolean) {
 
     // Make sure an empty table is shown if no scopes are found
     if (scopes.rows.length === 0) tableScopes.value.notFound = true;
-    
+
     // Result with contract scope is sometimes not returned because it is deeper in the scope list
     // Need to fetch it manually and append to the list of results
-    const contractScope = clear ? await BlockchainService.getTableByScope(data.account, data.table, 1, data.account) : null;
+    const contractScope = clear
+        ? await BlockchainService.getTableByScope(data.account, data.table, 1, data.account)
+        : null;
     // Make sure that the result for the contract scope is actually for the contract
     if (contractScope && contractScope.rows.length === 1 && contractScope.rows[0].scope === data.account) {
-        if (!scopes.rows.find((s) => s.scope === data.account) &&
-            !tableScopes.value.dataTable.rows.find((s) => s.scope === data.account)) {
+        if (
+            !scopes.rows.find((s) => s.scope === data.account) &&
+            !tableScopes.value.dataTable.rows.find((s) => s.scope === data.account)
+        ) {
             scopes.rows.push(contractScope.rows[0]);
         }
     }
 
     // Concatenate and delete duplicates
-    tableScopes.value.dataTable.rows = tableScopes.value.dataTable.rows.concat(scopes.rows).filter((value, index, self) =>
-        index === self.findIndex((t) => (
-            t.scope === value.scope
-        ))
-    )
+    tableScopes.value.dataTable.rows = tableScopes.value.dataTable.rows
+        .concat(scopes.rows)
+        .filter((value, index, self) => index === self.findIndex((t) => t.scope === value.scope));
 
     if (!scopes.more || scopes.more === '') {
         moreScopesToLoad.value = false;

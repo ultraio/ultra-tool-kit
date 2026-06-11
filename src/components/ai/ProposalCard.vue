@@ -268,7 +268,13 @@ function onSetApprovers(next: Array<{ actor: string; permission: string }>) {
 }
 async function onValidate() {
     if (props.reply?.kind !== 'propose' || !props.state) return;
-    await validateProposal(props.state, proposalName.value, approvers.value, props.reply.actions, proposalExpiration.value);
+    await validateProposal(
+        props.state,
+        proposalName.value,
+        approvers.value,
+        props.reply.actions,
+        proposalExpiration.value
+    );
 }
 async function onSignProposal() {
     if (props.reply?.kind !== 'propose' || !props.state) return;

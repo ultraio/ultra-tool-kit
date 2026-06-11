@@ -87,7 +87,7 @@ import LoadingSpinner from '../../components/widgets/LoadingSpinner.vue';
 import Papa from 'papaparse';
 
 const route = useRoute('/airdrop/');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const authorizer = ref<string>();

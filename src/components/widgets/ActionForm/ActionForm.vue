@@ -31,7 +31,7 @@
 
         <!-- Authorization -->
         <AuthorizerForm
-            :authorizers="[{actor: props.state.accountName, permission: props.state.accountPerm}]"
+            :authorizers="[{ actor: props.state.accountName, permission: props.state.accountPerm }]"
             :index="1"
             :action="action"
             @set-authorizer="setAuthorizer"
@@ -70,14 +70,14 @@ const emits = defineEmits<{
 
 const data = ref<MutableObject>(new MutableObject());
 const actionField = ref<FieldData>();
-const action = ref<I.Action>({contract: '', action: '', data: {}, authorization: []});
+const action = ref<I.Action>({ contract: '', action: '', data: {}, authorization: [] });
 let authorizers = ref<Array<{ actor: string; permission: string }>>([]);
 
 function addAction(submit = false) {
     // Must not pass object/arrays by reference
     // https://stackoverflow.com/a/65712327/9376397
     action.value.data = { ...data.value.data[props.name] };
-    emits('add-action', {...action.value}, submit);
+    emits('add-action', { ...action.value }, submit);
 }
 
 function setAuthorizer(index: number, newAuths: Array<{ actor: string; permission: string }>) {
@@ -86,6 +86,11 @@ function setAuthorizer(index: number, newAuths: Array<{ actor: string; permissio
 
 onMounted(() => {
     actionField.value = props.abi.getActionType(props.name);
-    action.value = {contract: props.account, action: props.name, data: {}, authorization: [{actor: props.state.accountName, permission: props.state.accountPerm}]};
+    action.value = {
+        contract: props.account,
+        action: props.name,
+        data: {},
+        authorization: [{ actor: props.state.accountName, permission: props.state.accountPerm }],
+    };
 });
 </script>

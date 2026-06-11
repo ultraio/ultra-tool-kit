@@ -158,7 +158,14 @@ export class FieldData {
             let struct = this.abi.structs.find((x) => x.name === this.typeWithoutDecorators);
             if (struct) {
                 if (this.isArray) {
-                    this.children = [new FieldData(this.name, this.typeWithoutDecorators + '[]'.repeat(this.isArray - 1), this.abi, metadata)];
+                    this.children = [
+                        new FieldData(
+                            this.name,
+                            this.typeWithoutDecorators + '[]'.repeat(this.isArray - 1),
+                            this.abi,
+                            metadata
+                        ),
+                    ];
                 } else {
                     this.populateParentType(struct.base, metadata);
 
@@ -229,7 +236,6 @@ export class FieldData {
             this.type = this.getWithDecorators();
             return;
         }
-
 
         this.isArray += this.type.indexOf('[]') >= 0 ? 1 : 0;
         this.isOptional = this.isOptional || this.type.indexOf('?') >= 0;
@@ -323,10 +329,26 @@ export class ABI {
             meta = JSON.parse(JSON.stringify(this.metadata.actions[actionName]));
 
             // Update documentation link based on the environment
-            if (meta.documentation && meta.documentation.includes('https://developers.ultra.io') && this.authState.environment) {
-                if (window.origin.includes('localhost:5172') && this.authState.environment === 'Local:8888') meta.documentation = meta.documentation.replace('https://developers.ultra.io', 'http://localhost:5173/experimental');
-                else if (this.authState.environment === 'Testnet') meta.documentation = meta.documentation.replace('developers.ultra.io', 'developers.ultra.io/staging');
-                else if (this.authState.environment !== 'Mainnet') meta.documentation = meta.documentation.replace('developers.ultra.io', 'developers.ultra.io/experimental');
+            if (
+                meta.documentation &&
+                meta.documentation.includes('https://developers.ultra.io') &&
+                this.authState.environment
+            ) {
+                if (window.origin.includes('localhost:5172') && this.authState.environment === 'Local:8888')
+                    meta.documentation = meta.documentation.replace(
+                        'https://developers.ultra.io',
+                        'http://localhost:5173/experimental'
+                    );
+                else if (this.authState.environment === 'Testnet')
+                    meta.documentation = meta.documentation.replace(
+                        'developers.ultra.io',
+                        'developers.ultra.io/staging'
+                    );
+                else if (this.authState.environment !== 'Mainnet')
+                    meta.documentation = meta.documentation.replace(
+                        'developers.ultra.io',
+                        'developers.ultra.io/experimental'
+                    );
             }
         }
         let t = new FieldData(actionName, act.type, this, meta);

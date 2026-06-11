@@ -32,7 +32,7 @@ export interface Resale {
     onSaleDate: string;
     price: Price;
     promoterBasisPoints: number;
-    shares: Share[]
+    shares: Share[];
 }
 
 export interface Price {

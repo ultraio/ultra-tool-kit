@@ -136,8 +136,8 @@
                         Please sign in to your Ultra Wallet extension and approve the connection request.
                     </div>
                     <div v-if="loginState.connectingWalletType === 'ultra-web'" class="text-center">
-                        Please complete sign-in in the Ultra Web Wallet popup. If you don't see it, make sure popups
-                        are allowed for this site.
+                        Please complete sign-in in the Ultra Web Wallet popup. If you don't see it, make sure popups are
+                        allowed for this site.
                     </div>
                     <div class="text-center">Waiting for wallet provider...</div>
                 </template>
@@ -163,7 +163,7 @@ import * as Anchor from '../wallets/anchor';
 import { connect as ledgerConnect, LedgerConnectionAPI } from '@ultraos/ultra-ledger-lib';
 import { BlockchainService } from '../utilities/blockchain';
 import { GetAccountsByAuthorizersAccount } from '../interfaces';
-import {fetchWithTimeout} from '../utilities/networks';
+import { fetchWithTimeout } from '../utilities/networks';
 
 interface LoginState {
     isUltraWalletAvailable: boolean;
@@ -346,9 +346,7 @@ async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
             const CONNECT_TIMEOUT_MS = 120_000; // 2 minutes
             const response = await Promise.race([
                 Ultra.connect(),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('timeout')), CONNECT_TIMEOUT_MS)
-                ),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), CONNECT_TIMEOUT_MS)),
             ]);
 
             if (!response || response.status !== 'success') {
@@ -369,7 +367,9 @@ async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
         } catch (err) {
             loginState.isSelectingLogin = true;
             if (err instanceof Error && err.message === 'timeout') {
-                alert('Connection timed out. Please make sure you are signed in to the Ultra Wallet extension and try again.');
+                alert(
+                    'Connection timed out. Please make sure you are signed in to the Ultra Wallet extension and try again.'
+                );
             } else {
                 alert('Ultra Wallet Extension connection was canceled.');
             }

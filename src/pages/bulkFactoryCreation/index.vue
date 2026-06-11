@@ -13,13 +13,15 @@
                     </span>
                     <br />
                     <p>
-                        Please ensure your CSV file is formatted as specified below. The first row should contain column headers,
-                        and each subsequent row should include the corresponding data for a Uniq Factory. All fields are required
-                        unless otherwise specified.
+                        Please ensure your CSV file is formatted as specified below. The first row should contain column
+                        headers, and each subsequent row should include the corresponding data for a Uniq Factory. All
+                        fields are required unless otherwise specified.
                     </p>
                 </div>
                 <div class="grid gap-px grid-rows-1 mb-2">
-                    <p>For a detailed example, download the template: <a href="/resources/bulk-factories.csv" target="_blank">bulk-factories.csv</a>
+                    <p>
+                        For a detailed example, download the template:
+                        <a href="/resources/bulk-factories.csv" target="_blank">bulk-factories.csv</a>
                     </p>
                 </div>
             </div>
@@ -48,9 +50,8 @@
                     </div>
                     <div class="grid grid-cols-3 gap-4 py-4">
                         <span></span>
-                        <Button :disabled="userActions.length == 0" @onClick="emits('transact', userActions)">{{
-                                userActions.length ? `Create ${dataRows.length} Factories` : 'Create Factory'
-                            }}
+                        <Button :disabled="userActions.length == 0" @onClick="emits('transact', userActions)"
+                            >{{ userActions.length ? `Create ${dataRows.length} Factories` : 'Create Factory' }}
                         </Button>
                     </div>
                 </div>
@@ -74,7 +75,7 @@ import * as I from '../../interfaces/index';
 import LoadingSpinner from '../../components/widgets/LoadingSpinner.vue';
 import Papa from 'papaparse';
 
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const authorizer = ref<string>();
@@ -116,7 +117,7 @@ const parseFile = async () => {
     Papa.parse(file.value, {
         header: true,
         skipEmptyLines: true,
-        complete: function(results) {
+        complete: function (results) {
             if (results.errors) {
                 errorType.value = 'parse';
                 errorMessage.value = results.errors
@@ -144,17 +145,19 @@ const parseArrayField = (prefix: string, count: number, row: any, parseFn: (fiel
     return array;
 };
 
-const mapAuthorizedMinters = (row: any) => parseArrayField('authorized_minters_', 5, row, field => {
-    const [authorized_minter, quantity] = field.split(':');
-    return { authorized_minter, quantity: parseInt(quantity) };
-});
+const mapAuthorizedMinters = (row: any) =>
+    parseArrayField('authorized_minters_', 5, row, (field) => {
+        const [authorized_minter, quantity] = field.split(':');
+        return { authorized_minter, quantity: parseInt(quantity) };
+    });
 
-const mapConditionlessReceivers = (row: any) => parseArrayField('conditionless_receivers_', 5, row, field => field);
+const mapConditionlessReceivers = (row: any) => parseArrayField('conditionless_receivers_', 5, row, (field) => field);
 
-const mapResalesShares = (row: any) => parseArrayField('resale_shares_', 5, row, field => {
-    const [receiver, basis_point] = field.split(':');
-    return { receiver, basis_point: parseInt(basis_point) };
-});
+const mapResalesShares = (row: any) =>
+    parseArrayField('resale_shares_', 5, row, (field) => {
+        const [receiver, basis_point] = field.split(':');
+        return { receiver, basis_point: parseInt(basis_point) };
+    });
 
 const mapTimePointSec = (field: string | undefined) => {
     if (!field || field === '') {

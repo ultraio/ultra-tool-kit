@@ -37,7 +37,16 @@
                     @click="removeByIndex(index)"
                     class="flex flex-row gap-4 items-center justify-center"
                 >
-                    <span>{{ account.account }} {{ (account.status === 'found') ? '' : (account.status === 'not found') ? '(not found)' : '(loading)' }}</span>
+                    <span
+                        >{{ account.account }}
+                        {{
+                            account.status === 'found'
+                                ? ''
+                                : account.status === 'not found'
+                                  ? '(not found)'
+                                  : '(loading)'
+                        }}</span
+                    >
                     <Icon icon="fa-close" />
                 </Button>
             </div>
@@ -57,7 +66,7 @@ import { onMounted, ref } from 'vue';
 import * as I from '../../interfaces/index';
 import { BlockchainService } from '../../utilities/blockchain';
 
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 
 const accounts = ref<I.TransactionBuilderContract[]>([]);
@@ -69,7 +78,7 @@ const quickAdds = ref<string[]>(['eosio', 'eosio.token', 'eosio.nft.ft', 'eosio.
 
 async function addContract(name: string) {
     if (name) {
-        accounts.value.push({account: name, status: 'loading'});
+        accounts.value.push({ account: name, status: 'loading' });
         await update();
         return;
     }
@@ -78,7 +87,7 @@ async function addContract(name: string) {
         return;
     }
 
-    accounts.value.push({account: contractNameInput.value, status: 'loading'});
+    accounts.value.push({ account: contractNameInput.value, status: 'loading' });
     contractNameInput.value = '';
     await update();
 }

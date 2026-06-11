@@ -14,10 +14,7 @@ import * as I from '../interfaces/index';
  */
 const PUBLISHED_DESCRIPTORS: ReadonlySet<string> = new Set(['eosio.nft.ft']);
 
-export async function getContractDescriptor(
-    contract: string,
-    environment: string,
-): Promise<I.SmartContractMetadata> {
+export async function getContractDescriptor(contract: string, environment: string): Promise<I.SmartContractMetadata> {
     const localOverride =
         window.origin.includes('localhost:5172') && environment === 'Local:8888'
             ? [`http://localhost:5173/experimental/descriptors/${contract}-descriptor.json`]
