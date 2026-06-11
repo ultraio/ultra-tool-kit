@@ -44,8 +44,12 @@ In order, before touching anything:
    change isn't on it, stop and ask.
 3. Root `CLAUDE.md` — frontend conventions you may need to hand off to.
 
-The old per-stage design docs that used to live in `backend/docs/` are
-demo-era. Don't reference them.
+The per-stage design docs under `backend/docs/` (`00`–`04`) are demo-era
+drafts (branch `task/ai-enhance-demo`, May 2026) kept in-tree for historical
+context only — NOT a source of truth. They predate the locked decisions and
+may contradict current behavior (their own headers still say "local-only, not
+committed"). For rules and architecture use `docs/00-ai-global-guidelines.md`
++ `docs/01-ai-enhancement-roadmap.md`.
 
 ## Hard rules
 
