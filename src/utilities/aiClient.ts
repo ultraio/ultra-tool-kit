@@ -193,7 +193,11 @@ export async function postAiChat(req: AiChatRequest, opts: PostOptions = {}): Pr
         if (isAbortError(err)) {
             const reason = controller.signal.reason;
             const isTimeout = reason instanceof Error && reason.message === 'timeout';
-            throw new AiClientError(isTimeout ? 'Request timed out after 60s' : 'Request aborted', undefined, reason);
+            throw new AiClientError(
+                isTimeout ? `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` : 'Request aborted',
+                undefined,
+                reason
+            );
         }
         throw new AiClientError(`Couldn't reach the AI backend. Is it running on ${getBaseUrl()}?`, undefined, err);
     } finally {
