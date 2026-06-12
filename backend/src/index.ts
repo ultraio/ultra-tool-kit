@@ -24,7 +24,7 @@ import { createRateLimitStore, rateLimit } from './middleware/ratelimit.js';
 import { logger, requestLogger } from './middleware/logging.js';
 import { isKnownModelTag, usageLog } from './middleware/usage-log.js';
 import { attestation } from './middleware/attestation.js';
-import { balanceGate } from './middleware/balance-gate.js';
+import { balanceGate, makeDefaultReader } from './middleware/balance-gate.js';
 import { quotaGate } from './middleware/quota-gate.js';
 import { createAiQuotaRouter } from './routes/ai-quota.js';
 import { InMemoryUsageStore } from './usage/store.js';
@@ -161,13 +161,18 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
             now: deps.attestationNow,
         })
     );
+    // One liquid-UOS reader shared by the W9 balance gate and the /api/ai-quota
+    // unlock view, so both report the same held balance (single source of truth).
+    const readUosBalance = deps.readUosBalance ?? makeDefaultReader(catalog, cfg.allowedChainHosts);
+    const thresholdUos = cfg.balanceThresholdUos ?? 1.0;
+
     app.use(
         '/api/ai-chat',
         balanceGate({
-            thresholdUos: cfg.balanceThresholdUos ?? 1.0,
+            thresholdUos,
             catalog,
             allowlist: cfg.allowedChainHosts,
-            readUosBalance: deps.readUosBalance,
+            readUosBalance,
         })
     );
 
@@ -202,7 +207,7 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
             now: deps.attestationNow,
         })
     );
-    app.route('/api/ai-quota', createAiQuotaRouter(quotaDeps));
+    app.route('/api/ai-quota', createAiQuotaRouter({ ...quotaDeps, readUosBalance, thresholdUos }));
 
     return app;
 }

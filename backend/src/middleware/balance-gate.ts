@@ -37,7 +37,7 @@ export type BalanceGateDeps = {
 
 type CacheEntry = { uos: number; atMs: number };
 
-function makeDefaultReader(
+export function makeDefaultReader(
     catalog: CatalogIndex,
     allowlist: readonly string[],
     fetchImpl?: typeof globalThis.fetch
