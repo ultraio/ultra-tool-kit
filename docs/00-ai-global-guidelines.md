@@ -152,6 +152,10 @@ monthly USD cap — it does not replace them; all still bind. This caps the
   turn from `computeCostUsd` (the same value §7 logs).
 - **Kill switch:** `QUOTA_DISABLED=true` makes the gate a pure no-op (no RPC
   reads), mirroring `BALANCE_THRESHOLD_UOS=0` (§3.7).
+- **Quota view.** `GET /api/ai-quota` returns the caller's `spentTodayUsd` /
+  `dailyCapUsd` / `stakedUos` / `nextTier` AND the §3.7 unlock state
+  (`heldUos`, `thresholdUos`, `locked`) so the FE can show the daily budget and
+  the minimum UOS to unlock proactively, without a blocked send.
 - **Single instance.** The daily/session counters are in-process (roadmap
   decision 1, §9). Multi-replica requires the deferred Redis-backed store (§9).
 
