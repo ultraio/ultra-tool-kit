@@ -1,8 +1,9 @@
-// GET /api/ai-quota — the caller's current quota view for the FE badge
-// (docs/00 §3.8). Identity is optional: if an upstream attestation middleware
-// set c.var.identity we report the stake-tiered cap, else the free floor.
-// sessionId comes from the query string (this is a GET; no body).
-// Reuses the gate's config + store + readers (single source of truth).
+// GET /api/ai-quota — the caller's current quota + unlock view for the FE badge
+// (docs/00 §3.8 cap, §3.7 balance gate). Identity is optional: if an upstream
+// attestation middleware set c.var.identity we report the stake-tiered cap and
+// the unlock state, else the free floor and unlocked. sessionId comes from the
+// query string (this is a GET; no body). Reuses the gate's config + store +
+// readers (single source of truth).
 
 import { Hono } from 'hono';
 
@@ -16,6 +17,10 @@ export type AiQuotaDeps = {
     store: UsageStore;
     readStakedUos: (account: string, endpoint: string) => Promise<number>;
     readUosPrice: (endpoint: string) => Promise<number>;
+    // Liquid UOS reader (W9 balance gate). Powers the unlock view.
+    readUosBalance: (account: string, endpoint: string) => Promise<number>;
+    // BALANCE_THRESHOLD_UOS — the unlock minimum (<=0 disables the gate).
+    thresholdUos: number;
     now?: () => Date;
 };
 
@@ -42,6 +47,22 @@ export function createAiQuotaRouter(deps: AiQuotaDeps): Hono<IdentityVariables> 
             capMicro = Math.round(deps.config.freeFloorUsd * MICRO);
         }
 
+        // Unlock state (W9 balance gate, docs/00 §3.7): liquid UOS vs threshold.
+        // Mirror the gate exactly — anonymous callers and a disabled gate
+        // (threshold<=0) do NO read and are never locked; an attested read
+        // failure counts as 0 UOS (fail-closed, like balance-gate.ts), so the
+        // badge agrees with what a real send would do.
+        let heldUos = 0;
+        let locked = false;
+        if (identity && deps.thresholdUos > 0) {
+            try {
+                heldUos = await deps.readUosBalance(identity.account, endpoint);
+            } catch {
+                heldUos = 0;
+            }
+            locked = heldUos < deps.thresholdUos;
+        }
+
         const spentToday = deps.store.getSpentMicroUsd(key, dayUtc);
         const sessionSpent = sessionId ? deps.store.getSessionMicroUsd(sessionId) : 0;
 
@@ -53,6 +74,9 @@ export function createAiQuotaRouter(deps: AiQuotaDeps): Hono<IdentityVariables> 
                 uosPriceUsd,
                 sessionSpentUsd: sessionSpent / MICRO,
                 nextTier: nextTier(deps.config, uosPriceUsd),
+                heldUos,
+                thresholdUos: deps.thresholdUos,
+                locked,
             },
             200
         );
