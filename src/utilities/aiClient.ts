@@ -240,6 +240,10 @@ export type QuotaView = {
     uosPriceUsd: number;
     sessionSpentUsd: number;
     nextTier: { stakeUosForMax: number | null; maxDailyUsd: number };
+    // Unlock view (W9 balance gate, docs/00 §3.7).
+    heldUos: number;
+    thresholdUos: number;
+    locked: boolean;
 };
 
 export interface FetchQuotaOptions {
@@ -275,5 +279,8 @@ export async function fetchQuota(
             stakeUosForMax: body.nextTier?.stakeUosForMax == null ? null : Number(body.nextTier.stakeUosForMax),
             maxDailyUsd: Number(body.nextTier?.maxDailyUsd) || 0,
         },
+        heldUos: Number(body.heldUos) || 0,
+        thresholdUos: Number(body.thresholdUos) || 0,
+        locked: Boolean(body.locked),
     };
 }
