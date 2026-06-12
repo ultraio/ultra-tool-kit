@@ -51,6 +51,9 @@ test.describe('AI chat smoke', () => {
                     uosPriceUsd: 0.004,
                     sessionSpentUsd: 0,
                     nextTier: { stakeUosForMax: 12500, maxDailyUsd: 1.0 },
+                    heldUos: 0,
+                    thresholdUos: 0,
+                    locked: false,
                 }),
             });
         });

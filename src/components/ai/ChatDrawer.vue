@@ -91,7 +91,27 @@
                             >
                                 Sign in
                             </button>
+                            <div class="text-[10px] text-neutral-500">
+                                Sign in and stake UOS to raise your daily AI budget.
+                            </div>
                         </div>
+
+                        <!-- Logged in but below the unlock threshold (W9 balance gate) -->
+                        <div
+                            v-else-if="quota?.locked"
+                            class="flex flex-col items-center gap-1 py-2 text-center"
+                            data-testid="ai-chat-locked"
+                        >
+                            <Icon icon="fa-lock" class="text-amber-300" />
+                            <div class="text-xs text-neutral-300">
+                                AI needs ≥ {{ formatUos(quota.thresholdUos) }} UOS to unlock.
+                            </div>
+                            <div class="text-[10px] text-neutral-500">
+                                Your account holds {{ formatUos(quota.heldUos) }} UOS.
+                            </div>
+                        </div>
+
+                        <!-- Logged in + unlocked (or quota not yet known) -->
                         <template v-else>
                             <div v-if="inlineError" class="mb-2 text-xs text-red-400" data-testid="ai-inline-error">
                                 {{ inlineError }}
@@ -114,8 +134,17 @@
                                     <Icon icon="fa-paper-plane" />
                                 </button>
                             </div>
-                            <div class="text-[10px] text-neutral-500 mt-1">
-                                Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}
+                            <!-- Usage under the chat (Claude-style). Budget line only when quota is known. -->
+                            <div class="flex items-center justify-between gap-2 text-[10px] text-neutral-500 mt-1">
+                                <span v-if="quota" data-testid="ai-quota-budget">
+                                    Daily AI budget: ${{ formatUsd4(quota.spentTodayUsd) }} / ${{
+                                        formatUsd2(quota.dailyCapUsd)
+                                    }}
+                                    <span class="text-neutral-600">· {{ raiseHint }}</span>
+                                </span>
+                                <span class="whitespace-nowrap">
+                                    Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}
+                                </span>
                             </div>
                         </template>
                     </footer>
@@ -157,6 +186,24 @@ function handleReset() {
 const draft = ref<string>('');
 const scrollEl = ref<HTMLElement | null>(null);
 const remaining = computed(() => draft.value.length);
+
+// Display helpers for the quota/unlock footer.
+function formatUos(v: number): string {
+    return Number(v).toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+function formatUsd4(v: number): string {
+    return Number(v).toFixed(4);
+}
+function formatUsd2(v: number): string {
+    return Number(v).toFixed(2);
+}
+// Text-only "stake to raise" hint — never composes a stake transaction
+// (eosio.system is not in the catalog; see spec §7).
+const raiseHint = computed(() => {
+    const n = quota.value?.nextTier.stakeUosForMax;
+    const max = quota.value?.nextTier.maxDailyUsd ?? 0;
+    return n == null ? 'stake UOS to raise' : `stake ~${n.toLocaleString()} UOS for the $${max.toFixed(2)}/day max`;
+});
 
 async function onSend() {
     const text = draft.value;
