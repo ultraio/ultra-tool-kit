@@ -22,12 +22,6 @@
                             <span>AI Assistant</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <CostBadge
-                                :last-usage="lastUsage"
-                                :open="props.open"
-                                :reset-counter="resetCounter"
-                                :quota="quota"
-                            />
                             <button
                                 class="p-1.5 text-neutral-400 hover:text-neutral-100"
                                 title="Reset session"
@@ -134,17 +128,39 @@
                                     <Icon icon="fa-paper-plane" />
                                 </button>
                             </div>
-                            <!-- Usage under the chat (Claude-style). Budget line only when quota is known. -->
+                            <!-- Compact usage row under the input (Claude-style): daily
+                                 budget on the left (tap to expand), char count on the right. -->
                             <div class="flex items-center justify-between gap-2 text-[10px] text-neutral-500 mt-1">
-                                <span v-if="quota" data-testid="ai-quota-budget">
-                                    Daily AI budget: ${{ formatUsd4(quota.spentTodayUsd) }} / ${{
-                                        formatUsd2(quota.dailyCapUsd)
-                                    }}
-                                    <span class="text-neutral-600">· {{ raiseHint }}</span>
-                                </span>
-                                <span class="whitespace-nowrap">
-                                    Cmd/Ctrl+Enter to send · {{ remaining }}/{{ MAX_MESSAGE_CHARS }}
-                                </span>
+                                <button
+                                    v-if="quota"
+                                    type="button"
+                                    class="flex items-center gap-1 rounded hover:text-neutral-300"
+                                    :aria-expanded="showQuotaDetails"
+                                    @click="showQuotaDetails = !showQuotaDetails"
+                                    data-testid="ai-quota-budget"
+                                >
+                                    <Icon icon="fa-coins" class="text-amber-300/80" />
+                                    <span
+                                        >${{ formatUsd4(quota.spentTodayUsd) }} / ${{
+                                            formatUsd2(quota.dailyCapUsd)
+                                        }}</span
+                                    >
+                                    <Icon
+                                        :icon="showQuotaDetails ? 'fa-chevron-down' : 'fa-chevron-up'"
+                                        class="text-[8px] text-neutral-600"
+                                    />
+                                </button>
+                                <span v-else />
+                                <span class="whitespace-nowrap">{{ remaining }}/{{ MAX_MESSAGE_CHARS }}</span>
+                            </div>
+                            <!-- Expanded detail: stake-to-raise hint + send shortcut. -->
+                            <div
+                                v-if="quota && showQuotaDetails"
+                                class="mt-1 pt-1 border-t border-neutral-700/60 text-[10px] leading-relaxed text-neutral-500"
+                                data-testid="ai-quota-details"
+                            >
+                                <div>{{ raiseHint }}</div>
+                                <div class="text-neutral-600">Cmd/Ctrl+Enter to send</div>
                             </div>
                         </template>
                     </footer>
@@ -158,7 +174,6 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
-import CostBadge from './CostBadge.vue';
 import MessageBubble from './MessageBubble.vue';
 import { ensureAttestation } from '../../wallets/ultra';
 
@@ -171,21 +186,19 @@ const stateRef = computed(() => props.state);
 // can chat (the AI needs them to compose anything). The backend is
 // anonymous (no JWT, no auth gate) and rate-limits on client IP — the
 // CTA does not affect backend access.
-const { messages, pending, warming, inlineError, sendMessage, reset, lastUsage, quota, refreshQuota } =
-    useAiChat(stateRef);
+const { messages, pending, warming, inlineError, sendMessage, reset, quota, refreshQuota } = useAiChat(stateRef);
 
 const loggedIn = computed(() => !!props.state.accountName);
 
-// W8: bumped on every reset so CostBadge zeros out its session running total.
-const resetCounter = ref(0);
 function handleReset() {
     reset();
-    resetCounter.value += 1;
 }
 
 const draft = ref<string>('');
 const scrollEl = ref<HTMLElement | null>(null);
 const remaining = computed(() => draft.value.length);
+// Collapsed by default; the compact usage row expands to the stake hint.
+const showQuotaDetails = ref(false);
 
 // Display helpers for the quota/unlock footer.
 function formatUos(v: number): string {
@@ -202,7 +215,9 @@ function formatUsd2(v: number): string {
 const raiseHint = computed(() => {
     const n = quota.value?.nextTier.stakeUosForMax;
     const max = quota.value?.nextTier.maxDailyUsd ?? 0;
-    return n == null ? 'stake UOS to raise' : `stake ~${n.toLocaleString()} UOS for the $${max.toFixed(2)}/day max`;
+    return n == null
+        ? 'Stake UOS to raise your daily budget.'
+        : `Stake ~${n.toLocaleString()} UOS for the $${max.toFixed(2)}/day max.`;
 });
 
 async function onSend() {

@@ -11,12 +11,6 @@
 //
 // sessionId persists in `sessionStorage` so reopening the drawer in the same
 // tab continues the session.
-//
-// W8: the only addition to the public surface is `lastUsage` — a Ref to the
-// most recent per-turn usage sidecar from the backend (null when none seen
-// yet, or after reset). Everything else (return shape, lastReply, sendMessage
-// signature) is unchanged. The CostBadge in the drawer reads this ref to
-// accumulate session-running totals.
 
 import { ref, type Ref } from 'vue';
 import { emitter } from '../eventBus';
@@ -28,7 +22,6 @@ import {
     AiClientError,
     type Reply,
     type AiChatRequest,
-    type AiUsageSidecar,
     type QuotaView,
 } from '../utilities/aiClient';
 
@@ -46,7 +39,6 @@ const messages = ref<ChatTurn[]>([]);
 const pending = ref<boolean>(false);
 const warming = ref<boolean>(false);
 const lastReply = ref<Reply | null>(null);
-const lastUsage = ref<AiUsageSidecar | null>(null);
 // W10: the caller's stake-tiered quota view from GET /api/ai-quota. null until
 // the first successful fetch; kept at its last known value on fetch failure.
 const quota = ref<QuotaView | null>(null);
@@ -131,9 +123,8 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
             });
             const reply = response.reply;
             lastReply.value = reply;
-            lastUsage.value = response.usage ?? null;
             // W10: the turn's spend is recorded server-side by now — refresh
-            // the quota view so the badge tracks `spent / cap` per turn.
+            // the quota view so the footer tracks `spent / cap` per turn.
             void refreshQuota();
             messages.value.push({ role: 'assistant', content: reply });
             if (reply.kind === 'propose') {
@@ -169,7 +160,6 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
     function reset(): void {
         messages.value = [];
         lastReply.value = null;
-        lastUsage.value = null;
         inlineError.value = null;
         const fresh = crypto.randomUUID();
         sessionId.value = fresh;
@@ -181,7 +171,6 @@ export function useAiChat(authState?: Ref<I.AuthState>) {
         pending,
         warming,
         lastReply,
-        lastUsage,
         quota,
         inlineError,
         sessionId,
