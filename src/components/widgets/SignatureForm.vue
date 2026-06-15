@@ -2,12 +2,12 @@
     <div class="flex flex-col gap-4">
         <div class="flex flex-col p-4 border rounded border-neutral-600 bg-neutral-950 gap-4">
             <div v-for="(signature, index) in signatures" :key="index" class="flex flex-col">
-                <div class="flex flex-row gap-2">
+                <div class="flex flex-row flex-wrap items-center gap-2">
                     <select
                         v-if="walletAccounts.length > 0"
                         :value="matchAccount(signature)"
                         @change="(e) => onPickAccount(index, (e.target as HTMLSelectElement).value)"
-                        class="rounded bg-neutral-950 text-neutral-200 pl-2 pr-2 border border-neutral-700 focus:outline-none"
+                        class="min-w-0 max-w-full shrink rounded bg-neutral-950 text-neutral-200 pl-2 pr-2 border border-neutral-700 focus:outline-none"
                         :title="'Pick an account from the connected wallet'"
                     >
                         <option value="">— Custom —</option>
@@ -18,16 +18,16 @@
                     <input
                         placeholder="actor"
                         v-model="signature.actor"
-                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
+                        class="flex-grow min-w-[7rem] rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
                         @input="updateSignatures"
                     />
                     <input
                         placeholder="permission"
                         v-model="signature.permission"
-                        class="flex-grow rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
+                        class="flex-grow min-w-[6rem] rounded bg-neutral-950 text-neutral-200 pl-4 border border-neutral-700 focus:outline-none pr-4"
                         @input="updateSignatures"
                     />
-                    <Button @click="removeSignatureRequest(index)">
+                    <Button class="shrink-0" @click="removeSignatureRequest(index)">
                         <Icon icon="fa-trash" size="sm" />
                     </Button>
                 </div>
