@@ -10,9 +10,10 @@
                 <!-- Backdrop -->
                 <div class="absolute inset-0 bg-black/40" />
 
-                <!-- Panel -->
+                <!-- Panel. Width toggles between the side panel and full screen. -->
                 <aside
-                    class="relative h-full w-full md:w-96 bg-neutral-900 border-l border-neutral-700 flex flex-col text-neutral-200 shadow-2xl"
+                    class="relative h-full bg-neutral-900 border-l border-neutral-700 flex flex-col text-neutral-200 shadow-2xl"
+                    :class="fullscreen ? 'w-full' : 'w-full md:w-96'"
                 >
                     <header
                         class="flex items-center justify-between px-4 py-3 border-b border-neutral-700 bg-neutral-800"
@@ -22,6 +23,14 @@
                             <span>AI Assistant</span>
                         </div>
                         <div class="flex items-center gap-2">
+                            <button
+                                class="hidden md:inline-flex p-1.5 text-neutral-400 hover:text-neutral-100"
+                                :title="fullscreen ? 'Exit full screen' : 'Full screen'"
+                                @click="toggleFullscreen"
+                                data-testid="ai-chat-fullscreen"
+                            >
+                                <Icon :icon="fullscreen ? 'fa-compress' : 'fa-expand'" />
+                            </button>
                             <button
                                 class="p-1.5 text-neutral-400 hover:text-neutral-100"
                                 title="Reset session"
@@ -51,118 +60,122 @@
                         Hang tight, your message will still go through.
                     </div>
 
-                    <!-- Messages -->
-                    <div ref="scrollEl" class="flex-grow overflow-y-auto p-3 flex flex-col gap-3">
-                        <div v-if="messages.length === 0" class="text-xs text-neutral-500 text-center mt-8">
-                            Describe a transaction in plain English — e.g.
-                            <span class="text-neutral-300">"transfer 100 UOS from acc1 to acc2"</span>.
+                    <!-- Messages. Inner column is width-capped + centered in full screen. -->
+                    <div ref="scrollEl" class="flex-grow overflow-y-auto p-3">
+                        <div class="flex flex-col gap-3 w-full" :class="fullscreen ? 'max-w-3xl mx-auto' : ''">
+                            <div v-if="messages.length === 0" class="text-xs text-neutral-500 text-center mt-8">
+                                Describe a transaction in plain English — e.g.
+                                <span class="text-neutral-300">"transfer 100 UOS from acc1 to acc2"</span>.
+                            </div>
+                            <MessageBubble
+                                v-for="(m, i) in messages"
+                                :key="i"
+                                :role="m.role"
+                                :content="m.content"
+                                :state="props.state"
+                                @quick-reply="onQuickReply"
+                                @reset="handleReset"
+                            />
+                            <div v-if="pending" class="text-xs text-neutral-500 italic">Thinking…</div>
                         </div>
-                        <MessageBubble
-                            v-for="(m, i) in messages"
-                            :key="i"
-                            :role="m.role"
-                            :content="m.content"
-                            :state="props.state"
-                            @quick-reply="onQuickReply"
-                            @reset="handleReset"
-                        />
-                        <div v-if="pending" class="text-xs text-neutral-500 italic">Thinking…</div>
                     </div>
 
-                    <!-- Footer -->
+                    <!-- Footer. Inner content is width-capped + centered in full screen. -->
                     <footer class="border-t border-neutral-700 p-3 bg-neutral-800">
-                        <!-- Unauthenticated CTA (guidelines §3.1) -->
-                        <div
-                            v-if="!loggedIn"
-                            class="flex flex-col items-center gap-2 py-2 text-center"
-                            data-testid="ai-chat-signin-cta"
-                        >
-                            <div class="text-xs text-neutral-400">Sign in with your wallet to use AI.</div>
-                            <button
-                                class="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm"
-                                @click="onSignInClick"
-                                data-testid="ai-chat-signin"
-                            >
-                                Sign in
-                            </button>
-                            <div class="text-[10px] text-neutral-500">
-                                Sign in and stake UOS to raise your daily AI budget.
-                            </div>
-                        </div>
-
-                        <!-- Logged in but below the unlock threshold (W9 balance gate) -->
-                        <div
-                            v-else-if="quota?.locked"
-                            class="flex flex-col items-center gap-1 py-2 text-center"
-                            data-testid="ai-chat-locked"
-                        >
-                            <Icon icon="fa-lock" class="text-amber-300" />
-                            <div class="text-xs text-neutral-300">
-                                AI needs ≥ {{ formatUos(quota.thresholdUos) }} UOS to unlock.
-                            </div>
-                            <div class="text-[10px] text-neutral-500">
-                                Your account holds {{ formatUos(quota.heldUos) }} UOS.
-                            </div>
-                        </div>
-
-                        <!-- Logged in + unlocked (or quota not yet known) -->
-                        <template v-else>
-                            <div v-if="inlineError" class="mb-2 text-xs text-red-400" data-testid="ai-inline-error">
-                                {{ inlineError }}
-                            </div>
-                            <div class="flex gap-2 items-end">
-                                <textarea
-                                    v-model="draft"
-                                    rows="2"
-                                    placeholder="Describe the transaction…"
-                                    class="flex-grow resize-none bg-neutral-950 rounded border border-neutral-700 px-2 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-purple-500"
-                                    @keydown="onKeydown"
-                                    data-testid="ai-chat-input"
-                                />
-                                <button
-                                    class="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 text-white"
-                                    :disabled="pending || !draft.trim()"
-                                    @click="onSend"
-                                    data-testid="ai-chat-send"
-                                >
-                                    <Icon icon="fa-paper-plane" />
-                                </button>
-                            </div>
-                            <!-- Compact usage row under the input (Claude-style): daily
-                                 budget on the left (tap to expand), char count on the right. -->
-                            <div class="flex items-center justify-between gap-2 text-[10px] text-neutral-500 mt-1">
-                                <button
-                                    v-if="quota"
-                                    type="button"
-                                    class="flex items-center gap-1 rounded hover:text-neutral-300"
-                                    :aria-expanded="showQuotaDetails"
-                                    @click="showQuotaDetails = !showQuotaDetails"
-                                    data-testid="ai-quota-budget"
-                                >
-                                    <Icon icon="fa-coins" class="text-amber-300/80" />
-                                    <span
-                                        >${{ formatUsd4(quota.spentTodayUsd) }} / ${{
-                                            formatUsd2(quota.dailyCapUsd)
-                                        }}</span
-                                    >
-                                    <Icon
-                                        :icon="showQuotaDetails ? 'fa-chevron-down' : 'fa-chevron-up'"
-                                        class="text-[8px] text-neutral-600"
-                                    />
-                                </button>
-                                <span v-else />
-                                <span class="whitespace-nowrap">{{ remaining }}/{{ MAX_MESSAGE_CHARS }}</span>
-                            </div>
-                            <!-- Expanded detail: stake-to-raise hint + send shortcut. -->
+                        <div :class="fullscreen ? 'max-w-3xl mx-auto w-full' : ''">
+                            <!-- Unauthenticated CTA (guidelines §3.1) -->
                             <div
-                                v-if="quota && showQuotaDetails"
-                                class="mt-1 pt-1 border-t border-neutral-700/60 text-[10px] leading-relaxed text-neutral-500"
-                                data-testid="ai-quota-details"
+                                v-if="!loggedIn"
+                                class="flex flex-col items-center gap-2 py-2 text-center"
+                                data-testid="ai-chat-signin-cta"
                             >
-                                <div>{{ raiseHint }}</div>
-                                <div class="text-neutral-600">Cmd/Ctrl+Enter to send</div>
+                                <div class="text-xs text-neutral-400">Sign in with your wallet to use AI.</div>
+                                <button
+                                    class="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm"
+                                    @click="onSignInClick"
+                                    data-testid="ai-chat-signin"
+                                >
+                                    Sign in
+                                </button>
+                                <div class="text-[10px] text-neutral-500">
+                                    Sign in and stake UOS to raise your daily AI budget.
+                                </div>
                             </div>
-                        </template>
+
+                            <!-- Logged in but below the unlock threshold (W9 balance gate) -->
+                            <div
+                                v-else-if="quota?.locked"
+                                class="flex flex-col items-center gap-1 py-2 text-center"
+                                data-testid="ai-chat-locked"
+                            >
+                                <Icon icon="fa-lock" class="text-amber-300" />
+                                <div class="text-xs text-neutral-300">
+                                    AI needs ≥ {{ formatUos(quota.thresholdUos) }} UOS to unlock.
+                                </div>
+                                <div class="text-[10px] text-neutral-500">
+                                    Your account holds {{ formatUos(quota.heldUos) }} UOS.
+                                </div>
+                            </div>
+
+                            <!-- Logged in + unlocked (or quota not yet known) -->
+                            <template v-else>
+                                <div v-if="inlineError" class="mb-2 text-xs text-red-400" data-testid="ai-inline-error">
+                                    {{ inlineError }}
+                                </div>
+                                <div class="flex gap-2 items-end">
+                                    <textarea
+                                        v-model="draft"
+                                        rows="2"
+                                        placeholder="Describe the transaction…"
+                                        class="flex-grow resize-none bg-neutral-950 rounded border border-neutral-700 px-2 py-1.5 text-sm text-neutral-200 focus:outline-none focus:border-purple-500"
+                                        @keydown="onKeydown"
+                                        data-testid="ai-chat-input"
+                                    />
+                                    <button
+                                        class="px-3 py-2 rounded bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-700 text-white"
+                                        :disabled="pending || !draft.trim()"
+                                        @click="onSend"
+                                        data-testid="ai-chat-send"
+                                    >
+                                        <Icon icon="fa-paper-plane" />
+                                    </button>
+                                </div>
+                                <!-- Compact usage row under the input (Claude-style): daily
+                                 budget on the left (tap to expand), char count on the right. -->
+                                <div class="flex items-center justify-between gap-2 text-[10px] text-neutral-500 mt-1">
+                                    <button
+                                        v-if="quota"
+                                        type="button"
+                                        class="flex items-center gap-1 rounded hover:text-neutral-300"
+                                        :aria-expanded="showQuotaDetails"
+                                        @click="showQuotaDetails = !showQuotaDetails"
+                                        data-testid="ai-quota-budget"
+                                    >
+                                        <Icon icon="fa-coins" class="text-amber-300/80" />
+                                        <span
+                                            >${{ formatUsd4(quota.spentTodayUsd) }} / ${{
+                                                formatUsd2(quota.dailyCapUsd)
+                                            }}</span
+                                        >
+                                        <Icon
+                                            :icon="showQuotaDetails ? 'fa-chevron-down' : 'fa-chevron-up'"
+                                            class="text-[8px] text-neutral-600"
+                                        />
+                                    </button>
+                                    <span v-else />
+                                    <span class="whitespace-nowrap">{{ remaining }}/{{ MAX_MESSAGE_CHARS }}</span>
+                                </div>
+                                <!-- Expanded detail: stake-to-raise hint + send shortcut. -->
+                                <div
+                                    v-if="quota && showQuotaDetails"
+                                    class="mt-1 pt-1 border-t border-neutral-700/60 text-[10px] leading-relaxed text-neutral-500"
+                                    data-testid="ai-quota-details"
+                                >
+                                    <div>{{ raiseHint }}</div>
+                                    <div class="text-neutral-600">Cmd/Ctrl+Enter to send</div>
+                                </div>
+                            </template>
+                        </div>
                     </footer>
                 </aside>
             </div>
@@ -199,6 +212,15 @@ const scrollEl = ref<HTMLElement | null>(null);
 const remaining = computed(() => draft.value.length);
 // Collapsed by default; the compact usage row expands to the stake hint.
 const showQuotaDetails = ref(false);
+
+// Full-screen toggle (desktop only — the drawer is already full width on mobile).
+// Preference persists across opens within the browser.
+const FULLSCREEN_KEY = 'aiChatFullscreen';
+const fullscreen = ref<boolean>(localStorage.getItem(FULLSCREEN_KEY) === 'true');
+function toggleFullscreen() {
+    fullscreen.value = !fullscreen.value;
+    localStorage.setItem(FULLSCREEN_KEY, String(fullscreen.value));
+}
 
 // Display helpers for the quota/unlock footer.
 function formatUos(v: number): string {

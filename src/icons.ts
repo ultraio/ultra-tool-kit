@@ -53,6 +53,8 @@ library.add(
     solid.faMicrochip,
     solid.faCoins,
     solid.faLock,
+    solid.faExpand,
+    solid.faCompress,
     solid.faComments,
     solid.faRotateLeft,
     solid.faCircleQuestion,
