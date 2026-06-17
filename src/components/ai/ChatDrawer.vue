@@ -24,6 +24,14 @@
                         </div>
                         <div class="flex items-center gap-2">
                             <button
+                                class="p-1.5 text-neutral-400 hover:text-neutral-100"
+                                title="Backend settings"
+                                @click="showSettings = !showSettings"
+                                data-testid="ai-chat-settings"
+                            >
+                                <Icon icon="fa-gear" />
+                            </button>
+                            <button
                                 class="hidden md:inline-flex p-1.5 text-neutral-400 hover:text-neutral-100"
                                 :title="fullscreen ? 'Exit full screen' : 'Full screen'"
                                 @click="toggleFullscreen"
@@ -48,6 +56,38 @@
                             </button>
                         </div>
                     </header>
+
+                    <!-- Backend URL settings -->
+                    <div
+                        v-if="showSettings"
+                        class="px-4 py-3 border-b border-neutral-700 bg-neutral-800/60 text-sm"
+                        data-testid="ai-chat-settings-panel"
+                    >
+                        <label class="block text-xs text-neutral-400 mb-1">AI backend URL</label>
+                        <div class="flex gap-2">
+                            <input
+                                v-model="backendUrlDraft"
+                                placeholder="http://localhost:8787"
+                                class="flex-grow rounded bg-neutral-950 text-neutral-200 px-3 py-1"
+                            />
+                            <button
+                                class="px-3 rounded bg-purple-700 hover:bg-purple-600 disabled:opacity-50"
+                                :disabled="checkingBackend"
+                                @click="saveBackendUrl"
+                            >
+                                <Icon :icon="checkingBackend ? 'fa-spinner' : 'fa-check'" :spin="checkingBackend" />
+                            </button>
+                        </div>
+                        <div class="mt-1 flex items-center justify-between text-xs">
+                            <span class="text-neutral-500">Active: {{ activeBackendUrl }}</span>
+                            <button class="text-neutral-400 hover:text-neutral-200 underline" @click="resetBackendUrl">
+                                Reset to default
+                            </button>
+                        </div>
+                        <p v-if="backendMsg" class="mt-1 text-xs" :class="backendOk ? 'text-emerald-400' : 'text-red-400'">
+                            {{ backendMsg }}
+                        </p>
+                    </div>
 
                     <!-- Thinking / warming hint -->
                     <div
@@ -189,6 +229,7 @@ import * as I from '../../interfaces';
 import { useAiChat, MAX_MESSAGE_CHARS } from '../../composables/useAiChat';
 import MessageBubble from './MessageBubble.vue';
 import { ensureAttestation } from '../../wallets/ultra';
+import { getBaseUrl, getStoredBaseUrl, setBaseUrl, clearBaseUrl, pingBackend } from '../../utilities/aiClient';
 
 const props = defineProps<{ open: boolean; state: I.AuthState }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'show-login'): void }>();
@@ -220,6 +261,42 @@ const fullscreen = ref<boolean>(localStorage.getItem(FULLSCREEN_KEY) === 'true')
 function toggleFullscreen() {
     fullscreen.value = !fullscreen.value;
     localStorage.setItem(FULLSCREEN_KEY, String(fullscreen.value));
+}
+
+const showSettings = ref<boolean>(false);
+const activeBackendUrl = ref<string>(getBaseUrl());
+const backendUrlDraft = ref<string>(getStoredBaseUrl() ?? '');
+const checkingBackend = ref<boolean>(false);
+const backendMsg = ref<string>('');
+const backendOk = ref<boolean>(false);
+
+async function saveBackendUrl() {
+    const url = backendUrlDraft.value.trim();
+    if (!url) {
+        clearBaseUrl();
+        activeBackendUrl.value = getBaseUrl();
+        backendOk.value = true;
+        backendMsg.value = 'Reset to default.';
+        return;
+    }
+    checkingBackend.value = true;
+    backendMsg.value = '';
+    const reachable = await pingBackend(url);
+    checkingBackend.value = false;
+    backendOk.value = reachable;
+    setBaseUrl(url);
+    activeBackendUrl.value = getBaseUrl();
+    backendMsg.value = reachable
+        ? 'Saved — backend reachable.'
+        : 'Saved, but that URL was not reachable (check the URL / CORS origin).';
+}
+
+function resetBackendUrl() {
+    clearBaseUrl();
+    backendUrlDraft.value = '';
+    activeBackendUrl.value = getBaseUrl();
+    backendOk.value = true;
+    backendMsg.value = 'Reset to default.';
 }
 
 // Display helpers for the quota/unlock footer.

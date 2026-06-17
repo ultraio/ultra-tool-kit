@@ -60,6 +60,7 @@ library.add(
     solid.faCircleQuestion,
     solid.faClose,
     solid.faTimes,
+    solid.faGear,
     // brands
     brands.faUsb
 );
