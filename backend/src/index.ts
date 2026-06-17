@@ -108,6 +108,11 @@ export async function createApp(cfg: AppConfig, deps: CreateAppDeps = {}) {
     app.use('*', requestLogger);
     app.use('*', cors({ origin: cfg.allowedOrigins, allowMethods: ['GET', 'POST', 'OPTIONS'] }));
 
+    // Health probe for k8s liveness/readiness. Unauthenticated, no LLM, and
+    // mounted OUTSIDE the /api/* attestation + rate-limit + quota chain so probes
+    // never consume quota or reach a provider.
+    app.get('/health', (c) => c.json({ ok: true }));
+
     const rateLimitStore = createRateLimitStore();
 
     // W10 (docs/00 §3.8): per-identity daily cost cap. Single in-memory store
