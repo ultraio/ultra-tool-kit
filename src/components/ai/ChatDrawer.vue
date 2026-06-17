@@ -270,13 +270,18 @@ const checkingBackend = ref<boolean>(false);
 const backendMsg = ref<string>('');
 const backendOk = ref<boolean>(false);
 
+// Clear the user override and reflect the resolved default in the UI.
+function applyDefaultBackendUrl() {
+    clearBaseUrl();
+    activeBackendUrl.value = getBaseUrl();
+    backendOk.value = true;
+    backendMsg.value = 'Reset to default.';
+}
+
 async function saveBackendUrl() {
     const url = backendUrlDraft.value.trim();
     if (!url) {
-        clearBaseUrl();
-        activeBackendUrl.value = getBaseUrl();
-        backendOk.value = true;
-        backendMsg.value = 'Reset to default.';
+        applyDefaultBackendUrl();
         return;
     }
     checkingBackend.value = true;
@@ -292,11 +297,8 @@ async function saveBackendUrl() {
 }
 
 function resetBackendUrl() {
-    clearBaseUrl();
     backendUrlDraft.value = '';
-    activeBackendUrl.value = getBaseUrl();
-    backendOk.value = true;
-    backendMsg.value = 'Reset to default.';
+    applyDefaultBackendUrl();
 }
 
 // Display helpers for the quota/unlock footer.
