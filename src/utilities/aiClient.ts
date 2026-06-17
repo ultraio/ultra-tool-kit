@@ -88,6 +88,10 @@ export class AiClientError extends Error {
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:8787';
+// User-set override (e.g. a kubectl port-forward or a custom backend). Wins over
+// the build-time VITE_AI_BACKEND_URL so the static CF-Pages bundle is repointable
+// without a rebuild. Mirrors how custom RPC endpoints are stored (Endpoint.vue).
+const BASE_URL_STORAGE_KEY = 'aiBackendUrl';
 // Must outlast the backend's per-turn wall-clock budget (hosted ~15s, local
 // Ollama ~60s — see backend ai-chat.ts / LLM_MAX_WALL_MS) plus network overhead,
 // so a slow local "thinking" turn completes instead of the client aborting it.
@@ -97,9 +101,43 @@ const REQUEST_TIMEOUT_MS = 90_000;
 // slow (cold-load / reasoning) turns without nagging on fast ones.
 const WARMING_HINT_MS = 8_000;
 
-export function getBaseUrl(): string {
+export function getStoredBaseUrl(): string | null {
+    try {
+        return localStorage.getItem(BASE_URL_STORAGE_KEY)?.trim() || null;
+    } catch {
+        return null;
+    }
+}
+
+export function setBaseUrl(url: string): void {
+    const trimmed = url.trim();
+    if (trimmed) localStorage.setItem(BASE_URL_STORAGE_KEY, trimmed);
+    else localStorage.removeItem(BASE_URL_STORAGE_KEY);
+}
+
+export function clearBaseUrl(): void {
+    localStorage.removeItem(BASE_URL_STORAGE_KEY);
+}
+
+export function getEnvBaseUrl(): string | null {
     const fromEnv = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_AI_BACKEND_URL;
-    return fromEnv?.trim() || DEFAULT_BASE_URL;
+    return fromEnv?.trim() || null;
+}
+
+// Resolution order: user override -> build env -> localhost default.
+export function getBaseUrl(): string {
+    return getStoredBaseUrl() || getEnvBaseUrl() || DEFAULT_BASE_URL;
+}
+
+// Reachability + CORS sanity check for the settings UI. Hits the unauthenticated
+// /health route; a disallowed origin or unreachable host both resolve to false.
+export async function pingBackend(url: string): Promise<boolean> {
+    try {
+        const res = await fetch(`${url.replace(/\/+$/, '')}/health`, { method: 'GET' });
+        return res.ok;
+    } catch {
+        return false;
+    }
 }
 
 // base64url(JSON) for the Authorization: Attestation header. Browser-native
