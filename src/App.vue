@@ -16,6 +16,7 @@
             </router-link>
             <div class="flex items-center gap-2">
                 <button
+                    v-if="aiChatEnabled"
                     class="p-2 rounded text-neutral-300 hover:text-purple-300 hover:bg-neutral-700"
                     title="Open AI assistant"
                     aria-label="Open AI assistant"
@@ -77,6 +78,7 @@
         />
 
         <ChatDrawer
+            v-if="aiChatEnabled"
             :open="aiDrawerOpen"
             :state="authState"
             @close="aiDrawerOpen = false"
@@ -102,6 +104,11 @@ import { fetchWithTimeout } from './utilities/networks';
 import * as NFTAPI from './utilities/nftapi/api';
 import { emitter } from './eventBus';
 import ChatDrawer from './components/ai/ChatDrawer.vue';
+import { isAiChatEnabled } from './utilities/aiClient';
+
+// Build-time visibility switch (VITE_AI_CHAT_ENABLED). Defaults off so the AI
+// chat ships dark; flip the build var to 'true' and redeploy to reveal it.
+const aiChatEnabled = isAiChatEnabled();
 
 // Use `ref` here because we want to be able to set the whole object
 // and trigger a reaction when we set the whole object.

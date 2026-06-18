@@ -129,6 +129,14 @@ export function getBaseUrl(): string {
     return getStoredBaseUrl() || getEnvBaseUrl() || DEFAULT_BASE_URL;
 }
 
+// Global visibility switch for the AI chat UI. Build-time only (VITE_AI_CHAT_ENABLED),
+// baked by the GitHub Actions build. Defaults OFF — the chat launcher + drawer render
+// only when the value is exactly 'true', so the feature ships dark until flipped on.
+export function isAiChatEnabled(): boolean {
+    const flag = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_AI_CHAT_ENABLED;
+    return flag?.trim() === 'true';
+}
+
 // Reachability + CORS sanity check for the settings UI. Hits the unauthenticated
 // /health route; a disallowed origin or unreachable host both resolve to false.
 export async function pingBackend(url: string): Promise<boolean> {

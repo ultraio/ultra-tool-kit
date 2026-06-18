@@ -24,6 +24,7 @@ jobs:
               run: npm run build
               env:
                   VITE_AI_BACKEND_URL: ${{ vars.VITE_AI_BACKEND_URL }}
+                  VITE_AI_CHAT_ENABLED: ${{ vars.VITE_AI_CHAT_ENABLED }}
             - name: GitHub Pages 404 & Cloudflare Pages Headers
               run: |
                 cp ./dist/index.html ./dist/404.html
