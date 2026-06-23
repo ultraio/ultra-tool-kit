@@ -274,7 +274,18 @@ async function waitForListenerMap(sw: Worker, timeoutMs = 30_000): Promise<void>
 async function readTrustedApps(sw: Worker): Promise<Record<string, string[]>> {
   return sw.evaluate(async () => {
     const r = await chrome.storage.local.get('TRUSTED_APPS');
-    return (r?.TRUSTED_APPS ?? {}) as Record<string, string[]>;
+    // Trusted-apps entries are now `{ origin, attestationConsentedAt? }` objects
+    // (per-origin metadata added by the wallet-attestation feature); they were
+    // bare origin strings before. Normalize to origin strings so callers can
+    // assert membership regardless of which shape is on disk.
+    const raw = (r?.TRUSTED_APPS ?? {}) as Record<string, Array<string | { origin?: string }>>;
+    const out: Record<string, string[]> = {};
+    for (const [env, entries] of Object.entries(raw)) {
+      out[env] = Array.isArray(entries)
+        ? entries.map((e) => (typeof e === 'string' ? e : e?.origin)).filter((o): o is string => !!o)
+        : [];
+    }
+    return out;
   });
 }
 
@@ -369,13 +380,15 @@ test.describe('Wallet ↔ Toolkit disconnect/connect parity', () => {
       // `listenMessages` filter (`message.to === CONTENT_SCRIPT`) lets it
       // through to the page bridge.
       await sw.evaluate(async (origin) => {
-        // (1) Cross-env removal — replicates PermissionService.removeOriginEverywhere
+        // (1) Cross-env removal — replicates PermissionService.removeOriginEverywhere.
+        // Entries are `{ origin, attestationConsentedAt? }` objects (per-origin
+        // metadata from the wallet-attestation feature); compare on the origin field.
         const r = await chrome.storage.local.get('TRUSTED_APPS');
-        const map = (r?.TRUSTED_APPS ?? {}) as Record<string, string[]>;
+        const map = (r?.TRUSTED_APPS ?? {}) as Record<string, Array<string | { origin?: string }>>;
         let mutated = false;
         for (const env of Object.keys(map)) {
           const before = map[env] ?? [];
-          const next = before.filter((o) => o !== origin);
+          const next = before.filter((e) => (typeof e === 'string' ? e : e?.origin) !== origin);
           if (next.length !== before.length) {
             map[env] = next;
             mutated = true;
