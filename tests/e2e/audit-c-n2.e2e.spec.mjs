@@ -270,7 +270,7 @@ test.describe('Audit C-N2: silent network takeover via trusted dapp', () => {
         }
     });
 
-    test('trusted dapp can silently addNetwork + switchNetwork → signing endpoint becomes attacker RPC', async () => {
+    test('trusted dapp CANNOT silently addNetwork/switchNetwork → takeover blocked (N-N1)', async () => {
         const dappServer = await startDappServer();
         const { server: attackerServer, stats } = await startAttackerRpc();
 
@@ -350,9 +350,14 @@ test.describe('Audit C-N2: silent network takeover via trusted dapp', () => {
                 { name: ATTACKER_NAME_SPOOF, chainId: ATTACKER_CHAIN_ID, nodeUrl: ATTACKER_RPC },
             );
             console.log('[test] addNetwork result:', JSON.stringify(addResult));
-            expect(addResult.ok, 'addNetwork must succeed silently for a trusted dapp').toBeTruthy();
+            // N-N1 fix: the dapp-callable addNetwork handler was REMOVED (zero
+            // legitimate callers; it was the silent-takeover vector). A trusted dapp
+            // calling window.ultra.addNetwork must now be REJECTED, never silently
+            // persisting an attacker network.
+            expect(addResult.ok, 'addNetwork must be REJECTED for a dapp (N-N1 handler removed)').toBe(false);
 
-            // STEP 2: silent switchNetwork.
+            // STEP 2: switchNetwork to the attacker chain must also fail — the network
+            // was never added, so it is an unrecognized chain id.
             const switchResult = await page.evaluate(async (chainId) => {
                 try {
                     const r = await window.ultra.switchNetwork(chainId);
@@ -362,64 +367,46 @@ test.describe('Audit C-N2: silent network takeover via trusted dapp', () => {
                 }
             }, ATTACKER_CHAIN_ID);
             console.log('[test] switchNetwork result:', JSON.stringify(switchResult));
-            expect(switchResult.ok, 'switchNetwork must succeed silently').toBeTruthy();
+            expect(switchResult.ok, 'switchNetwork to the un-added attacker chain must be rejected').toBe(false);
 
-            // STEP 3: confirm wallet state was actually flipped.
+            // STEP 3: the wallet's active network must NOT have flipped to the attacker.
             await new Promise((r) => setTimeout(r, 500));
             const envAfter = await getEnvironment(sw);
-            console.log('[test] post-attack ENVIRONMENT/CUSTOM_*:', JSON.stringify(envAfter, null, 2));
-            expect(envAfter.ENVIRONMENT).toBe(ATTACKER_CHAIN_ID);
+            console.log('[test] post-attempt ENVIRONMENT/CUSTOM_*:', JSON.stringify(envAfter, null, 2));
+            expect(envAfter.ENVIRONMENT, 'ENVIRONMENT must not be the attacker chain').not.toBe(ATTACKER_CHAIN_ID);
 
-            // The CUSTOM_NETWORKS record should now contain a network named
-            // "Ultra Mainnet" pointing at the attacker URL. That's the takeover.
+            // The attacker network must NOT have been persisted anywhere.
             const customNets = envAfter.CUSTOM_NETWORKS || [];
-            const spoofed = customNets.find((n) => n.chainId === ATTACKER_CHAIN_ID);
-            expect(spoofed, 'attacker network must be persisted in CUSTOM_NETWORKS').toBeTruthy();
-            expect(spoofed.name).toBe(ATTACKER_NAME_SPOOF);
-            expect(spoofed.nodeUrl).toBe(ATTACKER_RPC);
+            expect(
+                customNets.find((n) => n.chainId === ATTACKER_CHAIN_ID),
+                'attacker network must NOT be persisted in CUSTOM_NETWORKS',
+            ).toBeFalsy();
 
-            // STEP 4: confirm getNetwork() now returns the spoofed metadata.
-            const netOut = await page.evaluate(async () => {
-                const r = await window.ultra.getNetwork();
-                return r;
-            });
-            console.log('[test] getNetwork after switch:', JSON.stringify(netOut));
-
-            // STEP 5: try to sign. We don't drive the full UI here; we directly
-            // observe that the wallet's getEnvConfig() (which is the source for
-            // wallet.service.ts:signTransaction's `endpoint`) returns the
-            // attacker URL post-switch. That's the load-bearing assertion: every
-            // sign performed after this point uses the attacker RPC for ABI
-            // fetch AND push_transaction.
+            // STEP 4: getEnvConfig() — the source of signTransaction's endpoint — must
+            // NOT resolve to the attacker RPC.
             const envConfig = await sw.evaluate(async () => {
-                // Pull the same data EnvManager.getEnvConfig() pulls.
                 const r = await chrome.storage.local.get(['ENVIRONMENT', 'CUSTOM_ENVIRONMENTS']);
                 const envName = r.ENVIRONMENT;
                 const customEnvs = r.CUSTOM_ENVIRONMENTS || {};
                 return { envName, fromCustom: customEnvs[envName] };
             });
-            console.log('[test] envConfig post-switch:', JSON.stringify(envConfig));
-            expect(envConfig.envName).toBe(ATTACKER_CHAIN_ID);
-            expect(envConfig.fromCustom.blockchainUrl).toBe(ATTACKER_RPC);
-            expect(envConfig.fromCustom.name).toBe(ATTACKER_NAME_SPOOF);
+            console.log('[test] envConfig post-attempt:', JSON.stringify(envConfig));
+            expect(envConfig.envName).not.toBe(ATTACKER_CHAIN_ID);
+            expect(envConfig.fromCustom?.blockchainUrl).not.toBe(ATTACKER_RPC);
 
-            // STEP 6: confirm the attacker RPC was actually called during the
-            // addNetwork chain_id verification.
+            // STEP 5: the attacker RPC must never have been contacted — addNetwork was
+            // rejected before any chain_id probe could fire.
             const s = stats();
             console.log('[test] attacker RPC hit counts:', s);
-            expect(s.hitInfo, 'addNetwork must have called attacker /v1/chain/get_info').toBeGreaterThanOrEqual(1);
+            expect(s.hitInfo, 'attacker /v1/chain/get_info must NOT be called — addNetwork was blocked').toBe(0);
 
             console.log(
-                '\n=== AUDIT C-N2 VERIFIED ===\n' +
-                    `Trusted dapp ${dappOrigin} silently:\n` +
-                    `  - Added network "${ATTACKER_NAME_SPOOF}" (name-spoofed built-in)\n` +
-                    `  - chainId=${ATTACKER_CHAIN_ID}\n` +
-                    `  - nodeUrl=${ATTACKER_RPC} (attacker-controlled)\n` +
-                    `  - Switched wallet to it (ENVIRONMENT=${ATTACKER_CHAIN_ID})\n` +
-                    `  - chain_id cross-check was bypassed because attacker controls the RPC's get_info response\n` +
-                    `  - Subsequent signTransaction will use endpoint=${ATTACKER_RPC} for get_abi + push_transaction\n` +
-                    `  - Signing popup network label will show "${ATTACKER_NAME_SPOOF}" (spoofed)\n` +
-                    `  - No popup or user gesture appeared at any point\n`,
+                '\n=== AUDIT C-N2: takeover BLOCKED (N-N1) ===\n' +
+                    `Trusted dapp ${dappOrigin} attempted a silent network takeover and was blocked:\n` +
+                    `  - addNetwork("${ATTACKER_NAME_SPOOF}", ${ATTACKER_RPC}) → REJECTED\n` +
+                    `  - switchNetwork(${ATTACKER_CHAIN_ID}) → REJECTED (unrecognized chain)\n` +
+                    `  - ENVIRONMENT unchanged (not the attacker chain)\n` +
+                    `  - No attacker network persisted; attacker RPC never contacted\n`,
             );
         } finally {
             await context.close();

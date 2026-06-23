@@ -1090,8 +1090,13 @@ test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
                 return r?.TRUSTED_APPS ?? null;
             });
             expect(trusted, 'TRUSTED_APPS missing or wrong shape').toBeTruthy();
+            // Entries are now `{ origin, attestationConsentedAt? }` objects (per-origin
+            // metadata from the wallet-attestation feature); map to origin strings.
+            const testnetTrusted = ((trusted as Record<string, Array<string | { origin?: string }>>).testnet ?? []).map(
+                (e) => (typeof e === 'string' ? e : e?.origin),
+            );
             expect(
-                (trusted as Record<string, string[]>).testnet ?? [],
+                testnetTrusted,
                 'toolkit origin was removed from testnet trust on transient lock — Issue 3 regression',
             ).toContain('http://localhost:5172');
 
