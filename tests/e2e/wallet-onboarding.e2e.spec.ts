@@ -484,6 +484,20 @@ test.describe('Wallet onboarding (real extension)', () => {
         )
         .toEqual([PUB_KEY]);
 
+      // onImport finishes with `router.navigate(['/home'])` AFTER discoverAccounts
+      // resolves — which is LATER than the vault persist we polled above. That
+      // trailing navigation races the `page.goto('#/keys')` below: when it fires
+      // last it clobbers /keys back to /home (observed flake — the failure
+      // screenshot shows the home view, not the key list). Wait for the import to
+      // settle on /home first, so our /keys navigation is the final one.
+      await expect
+        .poll(async () => await page.evaluate(() => location.hash).catch(() => ''), {
+          timeout: 30_000,
+          intervals: [200, 500],
+          message: 'import never navigated to /home',
+        })
+        .toBe('#/home');
+
       // Drive to the Key Manager. The view loads, calls
       // `getAccountsByAuthorizers` (mocked → returns tnetacct.test), then
       // renders one row per pubkey with the resolved account name. We
