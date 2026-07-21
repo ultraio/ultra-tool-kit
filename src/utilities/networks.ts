@@ -11,7 +11,6 @@ export const defaultNetworks = [
             'https://ultra.eosusa.io',
             'https://api.ultra.cryptolions.io',
             'https://api.ultra.eossweden.org',
-            'https://ultra-api.eoseoul.io',
             'https://ultra.eosphere.io',
             'https://ultra.eosrio.io',
         ],
