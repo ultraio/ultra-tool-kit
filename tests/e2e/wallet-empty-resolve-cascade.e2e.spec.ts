@@ -234,12 +234,12 @@ test.describe('Empty-resolve cascade — regression guards', () => {
                         accountName: 'tnetacct.test',
                         accountPerm: 'active',
                         isAdmin: false,
-                        endpoint: 'https://api.testnet.ultra.io',
+                        endpoint: 'https://api.ultra-testnet.cryptolions.io',
                         environment: 'testnet',
                         chainId,
                     }),
                 );
-                localStorage.setItem('endpoint', 'https://api.testnet.ultra.io');
+                localStorage.setItem('endpoint', 'https://api.ultra-testnet.cryptolions.io');
                 localStorage.setItem('environment', 'testnet');
             }, { chainId: TESTNET_CHAIN });
 
@@ -341,12 +341,12 @@ test.describe('Empty-resolve cascade — regression guards', () => {
                         accountName: 'initial.test',
                         accountPerm: 'active',
                         isAdmin: false,
-                        endpoint: 'https://api.testnet.ultra.io',
+                        endpoint: 'https://api.ultra-testnet.cryptolions.io',
                         environment: 'testnet',
                         chainId,
                     }),
                 );
-                localStorage.setItem('endpoint', 'https://api.testnet.ultra.io');
+                localStorage.setItem('endpoint', 'https://api.ultra-testnet.cryptolions.io');
                 localStorage.setItem('environment', 'testnet');
             }, { chainId: TESTNET_CHAIN });
             await page.reload();
@@ -464,12 +464,12 @@ test.describe('Empty-resolve cascade — regression guards', () => {
                         accountName: 'initial.test',
                         accountPerm: 'active',
                         isAdmin: false,
-                        endpoint: 'https://api.testnet.ultra.io',
+                        endpoint: 'https://api.ultra-testnet.cryptolions.io',
                         environment: 'testnet',
                         chainId,
                     }),
                 );
-                localStorage.setItem('endpoint', 'https://api.testnet.ultra.io');
+                localStorage.setItem('endpoint', 'https://api.ultra-testnet.cryptolions.io');
                 localStorage.setItem('environment', 'testnet');
             }, { chainId: TESTNET_CHAIN });
             await page.reload();
