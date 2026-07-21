@@ -20,11 +20,15 @@ export const defaultNetworks = [
         name: 'Testnet',
         chainId: '7fc56be645bb76ab9d747b53089f132dcb7681db06f0852cfa03eaf6f7ac80e9',
         urls: [
-            'https://test.ultra.eosusa.io',
-            'https://api.ultra-testnet.cryptolions.io',
+            // Order matters: App.vue starts on urls[0].
+            // test.ultra.eosusa.io 404s get_accounts_by_authorizers (breaks
+            // Ledger login), so it must not lead. cryptolions serves it but
+            // IP-bans clients at the TCP layer under load, so it fails slowly.
             'https://api.testnet.ultra.eossweden.org',
-            'https://ultra-testnet.eosphere.io',
             'https://testnet.ultra.eosrio.io',
+            'https://ultra-testnet.eosphere.io',
+            'https://api.ultra-testnet.cryptolions.io',
+            'https://test.ultra.eosusa.io',
         ],
         isPublic: true,
     },
