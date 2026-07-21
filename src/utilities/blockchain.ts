@@ -96,7 +96,19 @@ export abstract class BlockchainService {
                 requestErrors.push(err);
                 console.error(`Failed to make request because of error: ${err}`);
             }
-            if (result) return result;
+            // A raw `Response` is truthy even for 4xx/5xx, so returning it here
+            // short-circuits the round-robin on an endpoint that simply does not
+            // serve the API (e.g. test.ultra.eosusa.io 404s
+            // get_accounts_by_authorizers). Treat a non-ok Response as a failure
+            // so we advance to the next endpoint instead of giving up.
+            const isFailedHttpResponse =
+                typeof Response !== 'undefined' && result instanceof Response && !result.ok;
+            if (isFailedHttpResponse) {
+                requestErrors.push(new Error(`HTTP ${(result as Response).status} from endpoint`));
+                console.error(`Endpoint returned HTTP ${(result as Response).status}; trying next endpoint`);
+            } else if (result) {
+                return result;
+            }
             newLastApiNodeIndex++;
 
             if (newLastApiNodeIndex >= BlockchainService.maxApiRetries) newLastApiNodeIndex = 0;
