@@ -4,7 +4,7 @@ import * as I from '../interfaces/index';
 import { useRouter } from 'vue-router/auto';
 
 const router = useRouter();
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 type LinkItem = {
     title: string;

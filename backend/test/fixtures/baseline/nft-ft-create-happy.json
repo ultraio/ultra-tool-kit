@@ -1,0 +1,28 @@
+{
+    "name": "nft-ft-create-happy",
+    "request": {
+        "sessionId": "nft-ft-create-happy-session",
+        "messages": [
+            {
+                "role": "user",
+                "content": "create an NFT factory for duncan, asset manager duncan, asset creator duncan, max 1000 tokens"
+            }
+        ],
+        "context": {
+            "validatedAccounts": ["duncan", "bob", "ceo", "cfo"],
+            "knownAccounts": [],
+            "selectedAccount": "duncan",
+            "chainId": "test-chain",
+            "endpoint": "http://localhost:8888"
+        }
+    },
+    "expectedReply": {
+        "kind": "act",
+        "actions": [
+            {
+                "contract": "eosio.nft.ft",
+                "action": "create.b"
+            }
+        ]
+    }
+}

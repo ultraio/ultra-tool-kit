@@ -1,0 +1,614 @@
+{
+  "contract": "ultra.claim",
+  "abi_hash": "0ed165ef94c8cbc060171b1f08fb9d16bc0f9a0b6bf83f9325615e6dc4a10883",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:50.702Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.claim",
+  "actions": {
+    "delethcmpn": {
+      "contract": "ultra.claim",
+      "action": "delethcmpn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "max_reward_entries",
+          "type": "uint64?"
+        },
+        {
+          "name": "max_stat_entries",
+          "type": "uint64?"
+        },
+        {
+          "name": "max_mint_reward_entries",
+          "type": "uint64?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"newethrew\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "campaign_removed || eth_fixed_reward_removed > 0 || claim_stat_removed > 0 || mint_reward_removed > 0",
+          "message": "nothing to delete"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          139,
+          165
+        ]
+      }
+    },
+    "delultracmpn": {
+      "contract": "ultra.claim",
+      "action": "delultracmpn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "max_entries",
+          "type": "uint64?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"delultracmpn\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "rewards_removed > 0 || claim_stat_removed > 0",
+          "message": "nothing to delete"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          364,
+          377
+        ]
+      }
+    },
+    "ethclaim": {
+      "contract": "ultra.claim",
+      "action": "ethclaim",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "eth_contract",
+          "type": "string"
+        },
+        {
+          "name": "eth_asset_id",
+          "type": "checksum256"
+        },
+        {
+          "name": "eth_asset_traits",
+          "type": "eth_trait[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ethclaim\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "_eth_campaign_conditional_rewards_singleton.exists()",
+          "message": "campaign does not exist"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(user)",
+          "message": "user does not exist"
+        },
+        {
+          "kind": "invariant",
+          "expr": "to_lower_case(user_eth_contract) == to_lower_case(eth_conditional_rewards.required_contract)",
+          "message": "wrong ethereum contract"
+        },
+        {
+          "kind": "state",
+          "expr": "idx.find(user_eth_asset_id) == idx.end()",
+          "message": "asset was already claimed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "first_itr != _eth_campaign_fixed_reward_table.end()",
+          "message": "no fixed rewards left in this campaign"
+        },
+        {
+          "kind": "invariant",
+          "expr": "fixed_rewards.size() > 0",
+          "message": "invalid fix rewards"
+        },
+        {
+          "kind": "invariant",
+          "expr": "conditional_rewards.size() > 0",
+          "message": "invalid conditional rewards"
+        },
+        {
+          "kind": "invariant",
+          "expr": "conditional_reward_issued",
+          "message": "traits didn't match any of the conditional reward requirements"
+        }
+      ],
+      "field_constraints": {
+        "user_eth_asset_traits": [
+          {
+            "expr": ".size() > 0",
+            "message": "ethereum asset has no traits"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          173,
+          265
+        ]
+      }
+    },
+    "ethmintclaim": {
+      "contract": "ultra.claim",
+      "action": "ethmintclaim",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "wallet_id",
+          "type": "checksum256"
+        },
+        {
+          "name": "ultra_rewards",
+          "type": "uint64[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ethmintclaim\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "_eth_campaign_conditional_rewards_singleton.exists()",
+          "message": "campaign does not exist"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(user)",
+          "message": "user does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mint_reward_idx_itr != idx.end()",
+          "message": "no mint rewards found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mint_reward_itr != _eth_mint_reward_table.end()",
+          "message": "failed to find the matching reward entry"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_id != 0",
+          "message": "factory id 0 is not allowed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr != temp_mint_rewards.end()",
+          "message": "was not able to find one of the rewards"
+        }
+      ],
+      "field_constraints": {
+        "ultra_rewards": [
+          {
+            "expr": ".size() > 0",
+            "message": "must issue at least 1 reward"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          268,
+          329
+        ]
+      }
+    },
+    "newethcmpn": {
+      "contract": "ultra.claim",
+      "action": "newethcmpn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "conditional_rewards",
+          "type": "eth_campaign_conditional_rewards"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"newethcmpn\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "!_eth_campaign_conditional_rewards_singleton.exists()",
+          "message": "campaign already exists"
+        },
+        {
+          "kind": "invariant",
+          "expr": "is_eth_address(eth_conditional_rewards.required_contract)",
+          "message": "invalid ethereum address format"
+        },
+        {
+          "kind": "invariant",
+          "expr": "required_eth_traits.size() > 0",
+          "message": "required eth traits cannot be empty for given condition rewards"
+        },
+        {
+          "kind": "invariant",
+          "expr": "ultra_rewards.size() > 0",
+          "message": "ultra rewards cannot be empty for condition rewards"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!t.trait_type.empty()",
+          "message": "trait type cannot be empty"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!t.value.empty()",
+          "message": "trait value cannot be empty"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "factory does not exist"
+        }
+      ],
+      "field_constraints": {
+        "eth_conditional_rewards": [
+          {
+            "expr": ".conditional_rewards.size() > 0",
+            "message": "conditional reward cannot be empty for eth campaign"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          24,
+          55
+        ]
+      }
+    },
+    "newethrew": {
+      "contract": "ultra.claim",
+      "action": "newethrew",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "reward_factories",
+          "type": "B_vector_uint64_E[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"newethrew\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "_eth_campaign_conditional_rewards_singleton.exists()",
+          "message": "campaign does not exist"
+        },
+        {
+          "kind": "invariant",
+          "expr": "reward.size() > 0",
+          "message": "each fixed reward entry must have a positive number of reward factories"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "factory does not exist"
+        }
+      ],
+      "field_constraints": {
+        "reward_factories": [
+          {
+            "expr": ".size() > 0",
+            "message": "must provide positive number of fixed reward entries"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          58,
+          85
+        ]
+      }
+    },
+    "newultracmpn": {
+      "contract": "ultra.claim",
+      "action": "newultracmpn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "rewards",
+          "type": "ultra_campaign_reward[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"newultracmpn\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_ultra_campaign_reward_table.begin() == _ultra_campaign_reward_table.end()",
+          "message": "campaign already exists"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "required factory does not exist"
+        },
+        {
+          "kind": "invariant",
+          "expr": "reward.ultra_rewards.size() > 0",
+          "message": "uniq rewards for a given ultra factory cannot be empty"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "reward factory does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "reward_itr == _ultra_campaign_reward_table.end()",
+          "message": "the required ultra factory has been added for the campaign"
+        }
+      ],
+      "field_constraints": {
+        "rewards": [
+          {
+            "expr": ".size() > 0",
+            "message": "rewards for an ultra campaign cannot be empty"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          332,
+          361
+        ]
+      }
+    },
+    "setethmntrew": {
+      "contract": "ultra.claim",
+      "action": "setethmntrew",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "wallet_id",
+          "type": "checksum256"
+        },
+        {
+          "name": "ultra_rewards",
+          "type": "uint64[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setethmntrew\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "state",
+          "expr": "_eth_campaign_conditional_rewards_singleton.exists()",
+          "message": "campaign does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_id != 0",
+          "message": "factory id 0 is not allowed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "factory does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mint_reward_itr != _eth_mint_reward_table.end()",
+          "message": "failed to find the matching reward entry"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "mint_reward_itr != _eth_mint_reward_table.end()",
+          "message": "failed to find the matching reward entry"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          88,
+          136
+        ]
+      }
+    },
+    "ultraclaim": {
+      "contract": "ultra.claim",
+      "action": "ultraclaim",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "user_uniq",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ultraclaim\"_n)",
+          "message": "(unresolved: action_is_currently_disabled)"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token_itr != owner_tokens.end()",
+          "message": "token does not exist or does not belong to user"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "factory_itr != token_factories.end()",
+          "message": "token factory ID is invalid"
+        },
+        {
+          "kind": "invariant",
+          "expr": "_ultra_campaign_reward_table.begin() != _ultra_campaign_reward_table.end()",
+          "message": "campaign does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "reward_itr != _ultra_campaign_reward_table.end()",
+          "message": "user uniq is not eligible for any claim"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "claimed_itr == factories_claimed.end()",
+          "message": "user has already claimed reward for this type of factory"
+        },
+        {
+          "kind": "invariant",
+          "expr": "ultra_rewards.size() > 0",
+          "message": "invalid ultra rewards"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.claim.cpp",
+        "lines": [
+          380,
+          438
+        ]
+      }
+    }
+  }
+}

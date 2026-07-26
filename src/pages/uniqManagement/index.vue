@@ -3,7 +3,7 @@ import * as I from '../../interfaces/index';
 import { useRoute } from 'vue-router/auto';
 
 const route = useRoute('/uniqManagement/');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
 </script>
 
@@ -26,7 +26,7 @@ const emits = defineEmits<{ (e: 'transact', actions: I.Action[]): void }>();
                 'bidauction.a',
                 'settleauct.a',
                 'cancelauct.a',
-                'setvals.a'
+                'setvals.a',
             ]"
             @transact="(actions) => emits('transact', actions)"
             :state="props.state"

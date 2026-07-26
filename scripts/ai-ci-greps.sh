@@ -1,0 +1,439 @@
+#!/usr/bin/env bash
+# AI-enhancement CI greps — block PRs that bypass the rules in
+# docs/00-ai-global-guidelines.md §5.
+#
+# W1   landed greps #1 + #2 (provider isolation).
+# W1.5 lands greps #3 / #4 / #5 / #9 (frontend secret-storage discipline,
+#                                     127.0.0.1 bind, no committed
+#                                     DEV_RATELIMIT_BYPASS=true, no `*` CORS).
+# W8   lands grep #11 (baseline-fixture protection).
+# W1.5-redo (this PR) repoints grep #5 (DEV_AUTH_BYPASS → DEV_RATELIMIT_BYPASS).
+#                     The JWT_SECRET grep (#12) landed in PR 2 alongside the
+#                     backend/.env.example cleanup that removed the W1.5 residue.
+# W9   lands grep #13 (block JWT/auth-middleware re-introduction in backend
+#                      code — c.var.auth / jwtAuth / JWT_SECRET / nonce-store /
+#                      verify-signature; the wallet-native attestation path uses
+#                      c.var.identity, not c.var.auth).
+# Remaining greps land in their owning waves; rules listed below as TODO so
+# the wave that needs them can pick up where this leaves off.
+#
+# Usage: scripts/ai-ci-greps.sh
+# Exit 0 = all rules pass. Exit non-zero = at least one rule found a
+# violation (output names the offending file/line so the dev sees what to
+# fix).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+FAILED=0
+fail() {
+    echo "AI-CI-GREP FAIL: $*" >&2
+    FAILED=1
+}
+
+# Only scan files git is willing to track — keeps node_modules / dist /
+# generated JSON out of the grep set. macOS ships bash 3.2 (no `mapfile`),
+# so we round-trip through a tempfile and read with a while-loop.
+TRACKED_FILE="$(mktemp -t ai-ci-greps-XXXXXX)"
+trap 'rm -f "$TRACKED_FILE"' EXIT
+git ls-files > "$TRACKED_FILE"
+
+# ----------------------------------------------------------------------------
+# Grep #1: @anthropic-ai/sdk + ollama imports outside backend/src/llm/.
+#
+# Guidelines §5 rule 1. The provider SDKs are the harness's exclusive
+# dependency. Any other module that imports them is bypassing the schema
+# gate, budget caps, and audit log.
+# ----------------------------------------------------------------------------
+GREP1_PATTERN='from[[:space:]]+['\''"]@anthropic-ai/sdk['\''"]|from[[:space:]]+['\''"]ollama['\''"]'
+GREP1_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/llm/*) continue ;;
+        scripts/ai-ci-greps.sh) continue ;; # this file documents the pattern
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP1_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP1_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP1_HITS[@]} > 0 )); then
+    fail "Grep #1: @anthropic-ai/sdk or ollama imported outside backend/src/llm/"
+    for f in "${GREP1_HITS[@]}"; do
+        grep -nE "$GREP1_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #2: raw fetch against the provider hosts outside backend/src/llm/.
+#
+# Guidelines §5 rule 2. Same reason as grep #1 — anything that talks
+# directly to a provider URL bypasses the wrapper.
+# ----------------------------------------------------------------------------
+GREP2_PATTERN='fetch[[:space:]]*\([^)]*(api\.anthropic\.com|localhost:11434)'
+GREP2_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/llm/*) continue ;;
+        scripts/ai-ci-greps.sh) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP2_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP2_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP2_HITS[@]} > 0 )); then
+    fail "Grep #2: raw fetch to api.anthropic.com or localhost:11434 outside backend/src/llm/"
+    for f in "${GREP2_HITS[@]}"; do
+        grep -nE "$GREP2_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #3 (W1.5): localStorage/sessionStorage setItem calls whose key
+# contains the substrings `jwt`, `bearer`, or `pubkey` under src/.
+#
+# Guidelines §5 rule 3. Secrets stay in memory; sessionId is the one allowed
+# exception (and is a UUID — none of the three banned substrings).
+# ----------------------------------------------------------------------------
+GREP3_PATTERN='(localStorage|sessionStorage)\.setItem\([^)]*(jwt|bearer|pubkey)'
+GREP3_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.vue|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -niE "$GREP3_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP3_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP3_HITS[@]} > 0 )); then
+    fail "Grep #3: localStorage/sessionStorage write whose key matches jwt|bearer|pubkey under src/"
+    for f in "${GREP3_HITS[@]}"; do
+        grep -niE "$GREP3_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #4 (W1.5): `0.0.0.0` bind in backend/src/** (outside backend/test/).
+#
+# Guidelines §5 rule 4 + §4.6. Local backend binds 127.0.0.1 only.
+# ----------------------------------------------------------------------------
+GREP4_PATTERN='0\.0\.0\.0'
+GREP4_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP4_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP4_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP4_HITS[@]} > 0 )); then
+    fail "Grep #4: 0.0.0.0 bind in backend/src/** (use 127.0.0.1; §4.6)"
+    for f in "${GREP4_HITS[@]}"; do
+        grep -nE "$GREP4_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #5 (W1.5-redo): `DEV_RATELIMIT_BYPASS=true` in any tracked .env* file.
+#
+# Guidelines §5 rule 5 + §3.4. Dev-only flag; committing `=true` to any
+# .env example is a production foot-gun.
+# ----------------------------------------------------------------------------
+GREP5_PATTERN='^[[:space:]]*DEV_RATELIMIT_BYPASS=true'
+GREP5_HITS=()
+while IFS= read -r f; do
+    case "$(basename "$f")" in
+        .env|.env.*|*.env|*.env.*) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP5_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP5_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP5_HITS[@]} > 0 )); then
+    fail "Grep #5: DEV_RATELIMIT_BYPASS=true committed to a .env* file (loopback-only dev flag; §3.4)"
+    for f in "${GREP5_HITS[@]}"; do
+        grep -nE "$GREP5_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #9 (W1.5): `*` CORS origin in backend/src/** outside test fixtures.
+#
+# Guidelines §5 rule 9 + §4.6. CORS allowlist is explicit; never `*`. We
+# pattern-match the common shapes — Hono's `cors({ origin: '*' })`,
+# `Access-Control-Allow-Origin: *`, and bare `origin = '*'` / `origin: '*'`.
+# ----------------------------------------------------------------------------
+GREP9_PATTERN='(origin[[:space:]]*[:=][[:space:]]*['\''"]\*['\''"]|Access-Control-Allow-Origin[^A-Za-z0-9]+['\''"]\*['\''"])'
+GREP9_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP9_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP9_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP9_HITS[@]} > 0 )); then
+    fail "Grep #9: \`*\` CORS origin in backend/src/** (use an explicit allowlist; §4.6)"
+    for f in "${GREP9_HITS[@]}"; do
+        grep -nE "$GREP9_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #7 (W3): `... as <CapitalizedType>` cast chained off an LLM response.
+#
+# Guidelines §5 rule 7. The schema gate (harness Zod parse + validator
+# re-parse) is the only sanctioned way to give an LLM response a concrete
+# type. A raw `harness.call(...).value as Reply` bypasses the gate.
+#
+# Pattern: `(harness|provider|chat).<call|chat>(...)` followed by chained
+# access and an `as <CapitalizedType>` cast on the same line. Also catches
+# the common `.json as Reply` / `.json as <T>` shape. backend/src/llm/** is
+# excluded — the provider implementations legitimately cast SDK shapes.
+# ----------------------------------------------------------------------------
+GREP7_PATTERN='(harness|provider|chat)\.(call|chat)\([^)]*\)[^;]*[[:space:]]+as[[:space:]]+[A-Z]|\.json[[:space:]]+as[[:space:]]+[A-Z]'
+GREP7_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/llm/*) continue ;;
+        scripts/ai-ci-greps.sh) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP7_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP7_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP7_HITS[@]} > 0 )); then
+    fail "Grep #7: \`as <Type>\` cast chained off an LLM response (schema gate must come first; §4.3 gate 1)"
+    for f in "${GREP7_HITS[@]}"; do
+        grep -nE "$GREP7_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #8 (W4): every file under backend/src/pipeline/tools/ whose basename
+# matches ^[a-z_]+\.ts$ — excluding the dispatcher (index.ts), the host
+# allowlist (host-allowlist.ts), and the shared types module (types.ts) —
+# MUST have a corresponding row in docs/00-ai-global-guidelines.md §4.2.
+#
+# The §4.2 table uses the shape: `| ` + backtick + tool-name + backtick + ` |`.
+# Adding a tool without a doc row → fail. Guidelines §4.2 ("New tool / new
+# allowlist row → doc change first, then PR"). See also §8: "tool-call
+# budget per turn (§4.2)".
+# ----------------------------------------------------------------------------
+GREP8_DOC="docs/00-ai-global-guidelines.md"
+GREP8_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/pipeline/tools/*.ts) ;;
+        *) continue ;;
+    esac
+    base="$(basename "$f")"
+    case "$base" in
+        index.ts|host-allowlist.ts|types.ts) continue ;;
+    esac
+    # Only [a-z_] basenames are tool files; skip anything else (defensive).
+    case "$base" in
+        *[!a-z_.]*) continue ;;
+    esac
+    name="${base%.ts}"
+    if ! grep -qE "^\| \`${name}\`" "$GREP8_DOC" 2>/dev/null; then
+        GREP8_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP8_HITS[@]} > 0 )); then
+    fail "Grep #8: tool file in backend/src/pipeline/tools/ without a matching row in $GREP8_DOC §4.2 (docs PR first; §4.2 + §8)"
+    for f in "${GREP8_HITS[@]}"; do
+        echo "  $f (no row '| \`$(basename "${f%.ts}")\`' in $GREP8_DOC)" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #10 (W5): every backend/catalog/*-metadata.schema.json must have a
+# corresponding source export under src/utilities/schemaValidator/schemas/.
+#
+# The backend's Zod-mirror validators (backend/src/pipeline/metadata.ts)
+# duplicate the frontend's FactorySchema / TokenSchema definitions on purpose
+# (collapsing would couple front/back builds — see roadmap §3). This grep
+# guards the parity contract: when a new metadata.schema.json lands in the
+# backend catalog, the matching named export must exist in the frontend file.
+#
+# Mapping table is hardcoded — POSIX bash 3.2 doesn't have associative arrays,
+# so we round-trip through a case statement keyed by the catalog filename.
+# ----------------------------------------------------------------------------
+GREP10_SOURCE="src/utilities/schemaValidator/schemas/index.ts"
+GREP10_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/catalog/*-metadata.schema.json) ;;
+        *) continue ;;
+    esac
+    base="$(basename "$f")"
+    expected_export=""
+    case "$base" in
+        factory-metadata.schema.json) expected_export="export const FactorySchema" ;;
+        uniq-metadata.schema.json)    expected_export="export const TokenSchema" ;;
+        *)
+            GREP10_HITS+=("$f (no mapping table entry for $base)")
+            continue
+            ;;
+    esac
+    if [[ ! -f "$GREP10_SOURCE" ]]; then
+        GREP10_HITS+=("$f (source file $GREP10_SOURCE missing)")
+        continue
+    fi
+    if ! grep -qF "$expected_export" "$GREP10_SOURCE"; then
+        GREP10_HITS+=("$f (source $GREP10_SOURCE missing '$expected_export')")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP10_HITS[@]} > 0 )); then
+    fail "Grep #10: backend/catalog/*-metadata.schema.json without a matching source export in $GREP10_SOURCE (roadmap §6 row W5)"
+    for f in "${GREP10_HITS[@]}"; do
+        echo "  $f" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #11 (W8): baseline-fixture protection.
+#
+# Guidelines §6 (determinism contract): the regression baseline is
+# operator-seeded only — no workflow re-seeds. A PR that removes a baseline
+# fixture without an explicit operator decision is a drift hazard. Diffing
+# against the merge-base with main catches accidental deletions before they
+# silently shrink the regression surface. See roadmap §6 row W8.
+#
+# A directory that doesn't yet exist is not a removal — the diff simply lists
+# nothing, so this grep is a no-op on a fresh tree. It's also a no-op when run
+# against main itself (no diff = no removals) and when `origin/main` is absent
+# in a fresh clone (we fall back to local `main`, then silently skip).
+# ----------------------------------------------------------------------------
+GREP11_BASE_REF="origin/main"
+# Fall back to local main if origin/main isn't available (fresh clone / dev).
+if ! git rev-parse --verify --quiet "$GREP11_BASE_REF" >/dev/null 2>&1; then
+    GREP11_BASE_REF="main"
+fi
+if git rev-parse --verify --quiet "$GREP11_BASE_REF" >/dev/null 2>&1; then
+    GREP11_MERGE_BASE="$(git merge-base "$GREP11_BASE_REF" HEAD 2>/dev/null || true)"
+    if [[ -n "$GREP11_MERGE_BASE" ]]; then
+        GREP11_HITS=()
+        while IFS=$'\t' read -r status path; do
+            case "$status" in
+                D) ;;
+                *) continue ;;
+            esac
+            case "$path" in
+                backend/test/fixtures/baseline/*) GREP11_HITS+=("$path") ;;
+            esac
+        done < <(git diff --name-status "$GREP11_MERGE_BASE" HEAD 2>/dev/null || true)
+        if (( ${#GREP11_HITS[@]} > 0 )); then
+            fail "Grep #11: baseline fixture removed (regression baseline is operator-seeded; §6)"
+            for f in "${GREP11_HITS[@]}"; do
+                echo "  removed: $f" >&2
+            done
+        fi
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #12 (W1.5-redo): no `JWT_SECRET=` line in any tracked .env* file at
+# repo root.
+#
+# docs §5 rule 10. The W1.5 JWT path was removed in W1.5-redo; this grep
+# prevents accidental re-introduction. Pattern intentionally catches the
+# bare declaration `JWT_SECRET=` (including empty value) — the env var
+# should not exist at all after the redo.
+# ----------------------------------------------------------------------------
+GREP12_PATTERN='^[[:space:]]*JWT_SECRET='
+GREP12_HITS=()
+while IFS= read -r f; do
+    case "$(basename "$f")" in
+        .env|.env.*|*.env|*.env.*) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP12_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP12_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP12_HITS[@]} > 0 )); then
+    fail "Grep #12: JWT_SECRET= in a committed .env* file (W1.5 JWT path is removed; do not re-introduce; docs §5 rule 10)"
+    for f in "${GREP12_HITS[@]}"; do
+        grep -nE "$GREP12_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# Grep #13 (W9): JWT / auth-middleware re-introduction in backend/src/**.
+#
+# docs §5 rule 11. The W1.5 JWT path was reverted (§3.1) and replaced by the
+# per-IP rate limit (W1.5-redo) + W9 wallet-native attestation (§3.7). This
+# grep is defensive against another W1.5-style detour: it blocks the JWT-era
+# tokens `c.var.auth`, a `jwtAuth` import, a code-level `JWT_SECRET` read, a
+# `nonce-store` module, and a `verify-signature` module.
+#
+# It guards CODE (backend/src/**, .ts/.tsx/.js/.mjs/.cjs); grep #12 guards
+# `.env*` files. backend/test/ is out of scope — fixtures legitimately mention
+# the words. The W9 attestation middleware is NOT JWT: it sets `c.var.identity`
+# (not `c.var.auth`), reads no `JWT_SECRET`, and verifies an EOSIO signature via
+# `@wharfkit/antelope` — none of the banned tokens appear, so it stays green.
+# `nonce-store` / `verify-signature` are matched as hyphenated module tokens, so
+# the attestation payload's `nonce` field and the `verifyDigest` call do NOT
+# trip the grep.
+# ----------------------------------------------------------------------------
+GREP13_PATTERN='c\.var\.auth([^A-Za-z0-9_]|$)|c\.(get|set)\([[:space:]]*['\''"]auth['\''"]|(^|[^A-Za-z0-9_])jwtAuth([^A-Za-z0-9_]|$)|JWT_SECRET|nonce-store|verify-signature'
+GREP13_HITS=()
+while IFS= read -r f; do
+    case "$f" in
+        backend/src/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.ts|*.tsx|*.js|*.mjs|*.cjs) ;;
+        *) continue ;;
+    esac
+    if [[ -f "$f" ]] && grep -nE "$GREP13_PATTERN" "$f" >/dev/null 2>&1; then
+        GREP13_HITS+=("$f")
+    fi
+done < "$TRACKED_FILE"
+if (( ${#GREP13_HITS[@]} > 0 )); then
+    fail "Grep #13: JWT/auth-middleware token re-introduced in backend/src/** (W1.5 JWT path is gone; use W9 attestation's c.var.identity; docs §5 rule 11)"
+    for f in "${GREP13_HITS[@]}"; do
+        grep -nE "$GREP13_PATTERN" "$f" | sed "s|^|  $f:|" >&2
+    done
+fi
+
+# ----------------------------------------------------------------------------
+# TODO — remaining greps land in their owning waves:
+#   #6 (W3+):  dangerouslySetInnerHTML / v-html in src/components/ai/**
+# ----------------------------------------------------------------------------
+
+exit "$FAILED"

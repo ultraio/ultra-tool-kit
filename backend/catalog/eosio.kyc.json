@@ -1,0 +1,204 @@
+{
+  "contract": "eosio.kyc",
+  "abi_hash": "efae24933695c597874cb2657ae05ab40c8fb7e797002ae9943b32b60b886de7",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:39.040Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.kyc",
+  "actions": {
+    "registerkyc": {
+      "contract": "eosio.kyc",
+      "action": "registerkyc",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "provider",
+          "type": "name"
+        },
+        {
+          "name": "cert_id",
+          "type": "checksum256"
+        },
+        {
+          "name": "req_signature",
+          "type": "signature"
+        },
+        {
+          "name": "pro_signature",
+          "type": "signature"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_kyc_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "is_account(provider)",
+          "message": "provider account does not exist"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.kyc.cpp",
+        "lines": [
+          9,
+          32
+        ]
+      }
+    },
+    "removekyc": {
+      "contract": "eosio.kyc",
+      "action": "removekyc",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_kyc_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "provider_itr != _kyc.end()",
+          "message": "kyc providers has already removed"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.kyc.cpp",
+        "lines": [
+          51,
+          60
+        ]
+      }
+    },
+    "removekycpro": {
+      "contract": "eosio.kyc",
+      "action": "removekycpro",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "providers",
+          "type": "name[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_kyc_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "_kyc.begin() != _kyc.end()",
+          "message": "kyc providers has already removed"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(provider)",
+          "message": "removing provider account does not exist"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.kyc.cpp",
+        "lines": [
+          62,
+          76
+        ]
+      }
+    },
+    "togglekyc": {
+      "contract": "eosio.kyc",
+      "action": "togglekyc",
+      "params": [],
+      "auths": [
+        {
+          "actor": "ultra_kyc_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.kyc.cpp",
+        "lines": [
+          79,
+          85
+        ]
+      }
+    },
+    "updatekyc": {
+      "contract": "eosio.kyc",
+      "action": "updatekyc",
+      "params": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "provider",
+          "type": "name"
+        },
+        {
+          "name": "cert_id",
+          "type": "checksum256"
+        },
+        {
+          "name": "req_signature",
+          "type": "signature"
+        },
+        {
+          "name": "pro_signature",
+          "type": "signature"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_kyc_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "state",
+          "expr": "is_account(provider)",
+          "message": "provider account does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing_provider != _kyc.end()",
+          "message": "kyc provider does not exist"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.kyc.cpp",
+        "lines": [
+          34,
+          49
+        ]
+      }
+    }
+  }
+}

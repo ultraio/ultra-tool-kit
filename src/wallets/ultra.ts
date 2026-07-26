@@ -7,7 +7,9 @@ import type {
     AvailableAuth,
     BlockchainTransaction,
     WalletEventType,
+    ConnectAttestation,
 } from '@ultraos/wallet-sdk';
+import { setAttestation, useWalletAccounts } from './wallet-accounts';
 
 /**
  * Subset of the Ultra extension's window-injected API that this module
@@ -42,6 +44,15 @@ export function getSDK(): UltraWalletSDK | null {
     if (!isAvailable()) return null;
     if (!sdk) {
         sdk = new UltraWalletSDK({ provider: 'extension' });
+        // W9: capture a reissued attestation from `accountChanged` (RFC §6.5 /
+        // §11). Passive, additive listener — it does NOT touch the existing
+        // account/selection handling (App.vue keeps its own accountChanged
+        // listener for the accounts list). The wallet includes a fresh,
+        // origin-bound `attestation` on the event payload when it reissues;
+        // we overwrite the stored one so the next AI request uses it.
+        sdk.on('accountChanged', (data: { attestation?: ConnectAttestation }) => {
+            if (data?.attestation) setAttestation(data.attestation);
+        });
     }
     return sdk;
 }
@@ -53,10 +64,16 @@ export function getSDK(): UltraWalletSDK | null {
  * re-register internally (it observed every workaround had the same
  * dance), so this wrapper is now a thin forward.
  */
-export async function connect(onlyIfTrusted = false): Promise<UltraResponse<ConnectResult>> {
+export async function connect(
+    onlyIfTrusted = false,
+    opts: { requireAttestation?: boolean } = {}
+): Promise<UltraResponse<ConnectResult>> {
     const wallet = getSDK();
     if (!wallet) throw new Error('Ultra Wallet extension is not installed');
-    return wallet.connect({ onlyIfTrusted });
+    // W9: requireAttestation (SDK 0.5.0) asks the wallet to issue a connect-time
+    // attestation. Older wallets ignore the flag; existing callers pass nothing
+    // and behave exactly as before (RFC §4 — strictly additive).
+    return wallet.connect({ onlyIfTrusted, requireAttestation: opts.requireAttestation });
 }
 
 /**
@@ -86,11 +103,16 @@ export async function signTransaction(
     const wallet = getSDK();
     if (!wallet) throw new Error('Ultra Wallet extension is not installed');
 
+    // Deep plain-clone each action: action.data may be a Vue reactive Proxy
+    // (AI chat replies live in a ref), and the SDK postMessages this argument —
+    // structuredClone rejects proxies ("#<Object> could not be cloned"). The
+    // JSON round-trip matches getProposalTxData's existing idiom; chat/modal
+    // action data is plain JSON (no BigInt/Date).
     const sdkActions: BlockchainTransaction[] = actions.map((a) => ({
         contract: a.contract,
         action: a.action,
-        data: a.data,
-        authorization: a.authorization ? a.authorization : [{ actor, permission }],
+        data: a.data === undefined ? a.data : JSON.parse(JSON.stringify(a.data)),
+        authorization: a.authorization ? JSON.parse(JSON.stringify(a.authorization)) : [{ actor, permission }],
     }));
 
     return wallet.signTransaction(sdkActions);
@@ -198,7 +220,7 @@ export function extractAccountInfo(result: ConnectResult): {
         const activePermission = result.selectedAccount.permissions.find((p) => p.name === 'active');
         return {
             accountName: result.selectedAccount.accountName,
-            permission: activePermission ? 'active' : (result.selectedAccount.permissions[0]?.name ?? 'active'),
+            permission: activePermission ? 'active' : result.selectedAccount.permissions[0]?.name ?? 'active',
         };
     }
     // Legacy fallback
@@ -214,6 +236,63 @@ export function extractAccountInfo(result: ConnectResult): {
  */
 export function extractChainId(result: ConnectResult): string | undefined {
     return result.network?.chainId;
+}
+
+/**
+ * W9: the wallet's current connect-time attestation (RFC §2.1), or undefined
+ * when the wallet didn't issue one. Reads the shared wallet-accounts store —
+ * consumers should prefer `useWalletAccounts().attestation` directly; this
+ * getter is for non-reactive call sites.
+ */
+export function getAttestation(): ConnectAttestation | undefined {
+    return useWalletAccounts().attestation.value;
+}
+
+function attestationExpired(att: ConnectAttestation | undefined): boolean {
+    if (!att) return true;
+    const skewSec = 60;
+    return att.payload.exp <= Math.floor(Date.now() / 1000) + skewSec;
+}
+
+// De-dupes concurrent ensureAttestation() callers (e.g. a rapid drawer
+// reopen) so the wallet is prompted for an attestation at most once at a time.
+let inFlightAttestation: Promise<ConnectAttestation | undefined> | null = null;
+
+/**
+ * W9: ensure a fresh connect-time attestation is cached for the AI feature
+ * (RFC §2.1 / §5.2).
+ *
+ * No-op when a cached attestation is still valid (not past `exp`, minus a small
+ * skew). When absent OR expired, and the Ultra extension is available, calls
+ * `connect({ requireAttestation: true })` — the wallet prompts once for
+ * attestation consent via the existing connect dialog (no separate signature
+ * popup), then issues silently on subsequent connects — and surfaces the result
+ * into the shared store via `setAttestation`. Touches ONLY the attestation ref
+ * (not accounts/selection, so a local multi-signer override is preserved).
+ *
+ * Fail-soft: any failure leaves the attestation unset so the AI request falls
+ * back to the anonymous per-IP path (RFC §3 — opportunistic). Returns the cached
+ * attestation if one is now present, else undefined.
+ */
+export async function ensureAttestation(): Promise<ConnectAttestation | undefined> {
+    const { attestation } = useWalletAccounts();
+    if (!attestationExpired(attestation.value)) return attestation.value;
+    if (!isAvailable()) return undefined;
+    if (inFlightAttestation) return inFlightAttestation;
+    inFlightAttestation = (async () => {
+        try {
+            const res = await connect(false, { requireAttestation: true });
+            if (res?.status === 'success' && res.data?.attestation) {
+                setAttestation(res.data.attestation);
+            }
+        } catch {
+            // Opportunistic — stay on the anonymous path on any failure.
+        } finally {
+            inFlightAttestation = null;
+        }
+        return attestation.value;
+    })();
+    return inFlightAttestation;
 }
 
 /**
@@ -238,9 +317,7 @@ export async function resolveSelectedAccount(connectResult: ConnectResult): Prom
             const activePermission = live.data.permissions.find((p) => p.name === 'active');
             return {
                 accountName: live.data.accountName,
-                permission: activePermission
-                    ? 'active'
-                    : (live.data.permissions[0]?.name ?? 'active'),
+                permission: activePermission ? 'active' : live.data.permissions[0]?.name ?? 'active',
             };
         }
     } catch {

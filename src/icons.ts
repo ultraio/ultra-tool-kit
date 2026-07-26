@@ -51,6 +51,16 @@ library.add(
     solid.faGlobe,
     solid.faAnchor,
     solid.faMicrochip,
+    solid.faCoins,
+    solid.faLock,
+    solid.faExpand,
+    solid.faCompress,
+    solid.faComments,
+    solid.faRotateLeft,
+    solid.faCircleQuestion,
+    solid.faClose,
+    solid.faTimes,
+    solid.faGear,
     // brands
     brands.faUsb
 );

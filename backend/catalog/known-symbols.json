@@ -1,0 +1,8 @@
+{
+  "UOS": {
+    "precision": 8,
+    "contract": "eosio.token",
+    "core": true,
+    "notes": "Ultra's core token; 8-decimal precision is enforced by the chain"
+  }
+}

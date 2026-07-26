@@ -50,7 +50,7 @@ import 'vue3-easy-data-table/dist/style.css';
 
 import { getRouter } from './router';
 
-import { install as VueMonacoEditorPlugin } from '@guolao/vue-monaco-editor'
+import { install as VueMonacoEditorPlugin } from '@guolao/vue-monaco-editor';
 
 const app = createApp(App);
 
@@ -103,9 +103,9 @@ app.use(getRouter());
 app.use(VueMonacoEditorPlugin, {
     paths: {
         // The recommended CDN config
-        vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs'
+        vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs',
     },
-})
+});
 
 // Mount application to `#app` ID
 app.mount('#app');

@@ -52,14 +52,13 @@ export abstract class BlockchainService {
         console.log(`BlockchainService: Successfully init'd for endpoint ${BlockchainService.endpoint}`);
     }
 
-
     static async waitForInit(timeout: number = 5000) {
         const recheckEvery = 100;
         if (timeout <= 0) return;
         if (BlockchainService.isInit) return;
         while (timeout > 0) {
             timeout -= recheckEvery;
-            await new Promise(r => setTimeout(r, recheckEvery));
+            await new Promise((r) => setTimeout(r, recheckEvery));
             if (BlockchainService.isInit) return;
         }
         return;
@@ -81,7 +80,7 @@ export abstract class BlockchainService {
 
     static roundRobinRequest = async <T = any>(callback: () => Promise<T>): Promise<T> => {
         await BlockchainService.waitForInit();
-        
+
         let requestErrors: any[] = [];
         for (let i = 0; i < BlockchainService.maxApiRetries + 1; i++) {
             let newLastApiNodeIndex = BlockchainService.lastApiNodeIndex;
@@ -266,7 +265,10 @@ export abstract class BlockchainService {
         }
 
         try {
-            BlockchainService.abiCache[account] = { ABI: new ABI(data.abi, this.authState), wharfkitAbi: Wharfkit.ABI.from(data.abi) };
+            BlockchainService.abiCache[account] = {
+                ABI: new ABI(data.abi, this.authState),
+                wharfkitAbi: Wharfkit.ABI.from(data.abi),
+            };
 
             // try to get contract metadata
             if (withMetadata) {
@@ -327,7 +329,7 @@ export abstract class BlockchainService {
                     code: code,
                     table: table,
                     limit: limit,
-                    lower_bound: lower_bound
+                    lower_bound: lower_bound,
                 }),
             };
 

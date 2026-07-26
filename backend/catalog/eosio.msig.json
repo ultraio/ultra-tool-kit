@@ -1,0 +1,496 @@
+{
+  "contract": "eosio.msig",
+  "abi_hash": "48fe81e32f118cddc85f5e50ecb65d8ca2f780e8dc72740eebc6432790c69238",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-21T09:14:41.601Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/eosio.msig",
+  "actions": {
+    "approve": {
+      "contract": "eosio.msig",
+      "action": "approve",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "level",
+          "type": "permission_level"
+        },
+        {
+          "name": "proposal_hash",
+          "type": "checksum256$"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$level",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "itr != apps_it->requested_approvals.end()",
+          "message": "approval is not on the list of requested approvals"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr->required_approvals_no > 0",
+          "message": "required approval underflow"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr != apps.requested_approvals.end()",
+          "message": "approval is not on the list of requested approvals"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.delay_sec.value == 0",
+          "message": "old proposals are not allowed to have non-zero `delay_sec`; cancel and retry"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          162,
+          221
+        ]
+      }
+    },
+    "cancel": {
+      "contract": "eosio.msig",
+      "action": "cancel",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "canceler",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$canceler",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "unpack<transaction_header>( prop.packed_transaction ).expiration < eosio::time_point_sec(current_time_point())",
+          "message": "cannot cancel until expiration"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "apps_it != old_apptable.end()",
+          "message": "proposal not found"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          275,
+          301
+        ]
+      }
+    },
+    "exec": {
+      "contract": "eosio.msig",
+      "action": "exec",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "executer",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$executer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "apps_it != apptable.end()",
+          "message": "proposal not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "pitr != apps_it->provided_approvals.end()",
+          "message": "executer should be either proposer or one of the requested accounts"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.expiration >= eosio::time_point_sec(current_time_point())",
+          "message": "transaction expired"
+        },
+        {
+          "kind": "invariant",
+          "expr": "context_free_actions.empty()",
+          "message": "not allowed to `exec` a transaction with context-free actions"
+        },
+        {
+          "kind": "invariant",
+          "expr": "ok",
+          "message": "transaction authorization failed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "*prop.earliest_exec_time <= current_time_point()",
+          "message": "too early to execute"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          303,
+          348
+        ]
+      }
+    },
+    "failtrx": {
+      "contract": "eosio.msig",
+      "action": "failtrx",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "false",
+          "message": "validated transaction and aborted it"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          396,
+          399
+        ]
+      }
+    },
+    "invalidate": {
+      "contract": "eosio.msig",
+      "action": "invalidate",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          350,
+          364
+        ]
+      }
+    },
+    "migrate": {
+      "contract": "eosio.msig",
+      "action": "migrate",
+      "params": [],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "migr_entry.done != true",
+          "message": "migration has already been done"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          402,
+          463
+        ]
+      }
+    },
+    "propose": {
+      "contract": "eosio.msig",
+      "action": "propose",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "requested",
+          "type": "permission_level[]"
+        },
+        {
+          "name": "trx",
+          "type": "transaction"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$proposer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.expiration >= eosio::time_point_sec(current_time_point())",
+          "message": "transaction expired"
+        },
+        {
+          "kind": "invariant",
+          "expr": "context_free_actions.empty()",
+          "message": "not allowed to `propose` a transaction with context-free actions"
+        },
+        {
+          "kind": "state",
+          "expr": "proptable.find( proposal_name.value ) == proptable.end()",
+          "message": "proposal with the same name exists"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "res > 0",
+          "message": "transaction authorization failed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ri_iter->required_approvals_no < 255",
+          "message": "required approval overflow"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          88,
+          160
+        ]
+      }
+    },
+    "proposex": {
+      "contract": "eosio.msig",
+      "action": "proposex",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "requested",
+          "type": "permission_level[]"
+        },
+        {
+          "name": "trx",
+          "type": "transaction"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$proposer",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.expiration >= eosio::time_point_sec(current_time_point())",
+          "message": "transaction expired"
+        },
+        {
+          "kind": "invariant",
+          "expr": "context_free_actions.empty()",
+          "message": "not allowed to `propose` a transaction with context-free actions"
+        },
+        {
+          "kind": "state",
+          "expr": "proptable.find( proposal_name.value ) == proptable.end()",
+          "message": "proposal with the same name exists"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "res > 0",
+          "message": "transaction authorization failed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ri_iter->required_approvals_no < 255",
+          "message": "required approval overflow"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          81,
+          87
+        ]
+      }
+    },
+    "unapprove": {
+      "contract": "eosio.msig",
+      "action": "unapprove",
+      "params": [
+        {
+          "name": "proposer",
+          "type": "name"
+        },
+        {
+          "name": "proposal_name",
+          "type": "name"
+        },
+        {
+          "name": "level",
+          "type": "permission_level"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$level",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "itr != apps_it->provided_approvals.end()",
+          "message": "no approval previously granted"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr->required_approvals_no < 255",
+          "message": "required approval overflow"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "itr != apps.provided_approvals.end()",
+          "message": "no approval previously granted"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.delay_sec.value == 0",
+          "message": "old proposals are not allowed to have non-zero `delay_sec`; cancel and retry"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          223,
+          273
+        ]
+      }
+    },
+    "validatetrx": {
+      "contract": "eosio.msig",
+      "action": "validatetrx",
+      "params": [
+        {
+          "name": "account",
+          "type": "name"
+        },
+        {
+          "name": "requested",
+          "type": "permission_level[]"
+        },
+        {
+          "name": "trx",
+          "type": "transaction"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "cross_field",
+          "expr": "trx_header.expiration >= eosio::time_point_sec(current_time_point())",
+          "message": "transaction expired"
+        },
+        {
+          "kind": "invariant",
+          "expr": "context_free_actions.empty()",
+          "message": "not allowed to `propose` a transaction with context-free actions"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "res > 0",
+          "message": "transaction authorization failed"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/eosio.msig.cpp",
+        "lines": [
+          367,
+          393
+        ]
+      }
+    }
+  }
+}

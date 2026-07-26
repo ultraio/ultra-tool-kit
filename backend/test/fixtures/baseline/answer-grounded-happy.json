@@ -1,0 +1,23 @@
+{
+    "name": "answer-grounded-happy",
+    "request": {
+        "sessionId": "answer-grounded-happy-session",
+        "messages": [
+            {
+                "role": "user",
+                "content": "what does eosio.nft.ft::transfer do?"
+            }
+        ],
+        "context": {
+            "validatedAccounts": ["duncan", "bob", "ceo", "cfo"],
+            "knownAccounts": [],
+            "selectedAccount": "duncan",
+            "chainId": "test-chain",
+            "endpoint": "http://localhost:8888"
+        }
+    },
+    "expectedReply": {
+        "kind": "answer",
+        "contains": "eosio.nft.ft::transfer"
+    }
+}

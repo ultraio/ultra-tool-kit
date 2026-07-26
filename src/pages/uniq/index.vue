@@ -437,14 +437,22 @@ async function findUniq() {
         // get data from NFT API
         if (uniqId.value != undefined) {
             console.log(`Search mode: uniqId`, uniqId.value);
-            window.history.pushState('uniq', '', `${route.path}?env=${BlockchainService.environment}&id=${uniqId.value}`);
+            window.history.pushState(
+                'uniq',
+                '',
+                `${route.path}?env=${BlockchainService.environment}&id=${uniqId.value}`
+            );
             uniqData.value = await NFTAPI.fetchUniq(uniqId.value);
         }
         console.log(uniqData.value);
 
         if (factoryId.value != undefined && serialNum.value != undefined) {
             console.log(`Search mode: factoryId & serialNum`, factoryId.value, serialNum.value);
-            window.history.pushState('uniq', '', `${route.path}?env=${BlockchainService.environment}&factoryId=${factoryId.value}&serialNum=${serialNum.value}`);
+            window.history.pushState(
+                'uniq',
+                '',
+                `${route.path}?env=${BlockchainService.environment}&factoryId=${factoryId.value}&serialNum=${serialNum.value}`
+            );
             const apiData = await NFTAPI.fetchUniqsOfFactory(factoryId.value, null, null, null, null, {
                 min: serialNum.value,
                 max: serialNum.value,

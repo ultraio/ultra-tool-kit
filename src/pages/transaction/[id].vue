@@ -2,11 +2,11 @@
 import { onMounted, ref } from 'vue';
 import * as I from '../../interfaces/index';
 import { useRoute } from 'vue-router/auto';
-import {fetchWithTimeout} from '../../utilities/networks';
+import { fetchWithTimeout } from '../../utilities/networks';
 
 const route = useRoute('/transaction/[id]');
 
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 
 const data = ref();
 
@@ -23,7 +23,10 @@ async function getTrxData() {
         },
     };
 
-    const response = await fetchWithTimeout(`${props.state.endpoint}/v0/transactions/${route.params.id}`, options).catch((err) => {
+    const response = await fetchWithTimeout(
+        `${props.state.endpoint}/v0/transactions/${route.params.id}`,
+        options
+    ).catch((err) => {
         console.error(err);
         return undefined;
     });

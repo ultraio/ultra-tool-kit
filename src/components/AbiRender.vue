@@ -4,9 +4,7 @@
         <div class="flex flex-col gap-4 flex-grow" v-if="userActions.length >= 1">
             <div class="text-xl font-bold mt-4">Actions</div>
             <div class="flex flex-row gap-4 flex-grow">
-                <Button class="flex-grow" @click="startTransaction">
-                    Review {{ userActions.length }} Action(s)
-                </Button>
+                <Button class="flex-grow" @click="startTransaction"> Review {{ userActions.length }} Action(s) </Button>
                 <Button class="flex-grow" @click="clearTransaction"> Clear All Action(s) </Button>
             </div>
         </div>
@@ -63,7 +61,12 @@ defineOptions({
     inheritAttrs: false,
 });
 
-const props = defineProps<{ state: AuthState; accounts: (I.TransactionBuilderContract | string)[]; actions?: string[], metadata: I.RuntimeMetadata }>();
+const props = defineProps<{
+    state: AuthState;
+    accounts: (I.TransactionBuilderContract | string)[];
+    actions?: string[];
+    metadata: I.RuntimeMetadata;
+}>();
 const emits = defineEmits<{ (e: 'transact', actions: I.Action[]) }>();
 
 const loading = ref<boolean>(false);
@@ -161,9 +164,11 @@ onMounted(async () => {
     // If transaction was recently executed - check if it matches the current buffer and clear it
     if (
         props.metadata &&
-        props.metadata.lastSignedTransactionTimestamp && props.metadata.lastSignedTransactionTimestamp > lastRefreshEndTimestamp &&
-        props.metadata.lastSignedActions && props.metadata.lastSignedActions.length === userActions.value.length
-        ) {
+        props.metadata.lastSignedTransactionTimestamp &&
+        props.metadata.lastSignedTransactionTimestamp > lastRefreshEndTimestamp &&
+        props.metadata.lastSignedActions &&
+        props.metadata.lastSignedActions.length === userActions.value.length
+    ) {
         let isSame = true;
         for (let i = 0; i < props.metadata.lastSignedActions.length; i++) {
             if (JSON.stringify(props.metadata.lastSignedActions[i]) !== JSON.stringify(userActions.value[i])) {
@@ -180,8 +185,8 @@ onMounted(async () => {
 
     // Try to fetch contract ABIs
     for (let contract of props.accounts) {
-        if (typeof(contract) === 'string') {
-            contract = <I.TransactionBuilderContract>{account: contract, status: 'found'};
+        if (typeof contract === 'string') {
+            contract = <I.TransactionBuilderContract>{ account: contract, status: 'found' };
         }
         if (contract.status !== 'found') continue;
         try {

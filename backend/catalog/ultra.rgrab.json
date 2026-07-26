@@ -1,0 +1,276 @@
+{
+  "contract": "ultra.rgrab",
+  "abi_hash": "d76e1bba74ccb5c51832b29d62f47d46ce437f916b3356a360b881edcad16a47",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:58.971Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.rgrab",
+  "actions": {
+    "claimrewards": {
+      "contract": "ultra.rgrab",
+      "action": "claimrewards",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "wallet_id",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_id",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"claimrewards\"_n)",
+          "message": "contract locked"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "cp_it != campaigns.end()",
+          "message": "campaign not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "cp_it->deadline > 0",
+          "message": "campaign has not yet started"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it != eth_addresses.end()",
+          "message": "eth address is not linked to any ultra account"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account( ultra_id )",
+          "message": "ultra wallet does not exist"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "wl_it->points < asset::max_amount / cp_it->quantity.amount",
+          "message": "reward points multiplication overflow"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "wl_it->points < asset::max_amount / cp_it->quantity.amount",
+          "message": "reward points multiplication overflow"
+        },
+        {
+          "kind": "invariant",
+          "expr": "reward_found",
+          "message": "no reward found"
+        }
+      ],
+      "field_constraints": {
+        "wallet_id": [
+          {
+            "expr": ".size() == 8 || wallet_id.size() == 20",
+            "message": "invalid wallet_id length: must be 8 or 20"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rgrab.cpp",
+        "lines": [
+          90,
+          162
+        ]
+      }
+    },
+    "closecampgn": {
+      "contract": "ultra.rgrab",
+      "action": "closecampgn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "manager",
+          "type": "name"
+        },
+        {
+          "name": "limit",
+          "type": "uint32"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"closecampgn\"_n)",
+          "message": "contract locked"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it != campaigns.end()",
+          "message": "campaign not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it->manager == manager",
+          "message": "manager invalid"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "bn >= it->deadline",
+          "message": "cannot close a campaign that is not yet expired"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it->deadline > 0",
+          "message": "campaign has not yet started"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(points, wl_it->points)",
+          "message": "refund users points overflow"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "points < asset::max_amount / it->quantity.amount",
+          "message": "refund multiplication overflow"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rgrab.cpp",
+        "lines": [
+          164,
+          207
+        ]
+      }
+    },
+    "createcampgn": {
+      "contract": "ultra.rgrab",
+      "action": "createcampgn",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "manager",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"createcampgn\"_n)",
+          "message": "contract locked"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it == campaigns.end()",
+          "message": "campaign already exists"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rgrab.cpp",
+        "lines": [
+          20,
+          37
+        ]
+      }
+    },
+    "whitelistusr": {
+      "contract": "ultra.rgrab",
+      "action": "whitelistusr",
+      "params": [
+        {
+          "name": "campaign",
+          "type": "name"
+        },
+        {
+          "name": "wallets",
+          "type": "whitelist[]"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "it->manager",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"whitelistusr\"_n)",
+          "message": "contract locked"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it != campaigns.end()",
+          "message": "campaign not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it->deadline == 0",
+          "message": "campaign has already started"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "w.points > 0",
+          "message": "whitelist user points must be positive"
+        },
+        {
+          "kind": "invariant",
+          "expr": "w.wallet_id.size() == 8 || w.wallet_id.size() == 20",
+          "message": "invalid wallet_id length: must be 8 or 20"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account( ultra_id )",
+          "message": "ultra account to whitelist does not exist"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(new_points, w.points)",
+          "message": "new whitelist users points overflow"
+        },
+        {
+          "kind": "invariant",
+          "expr": "check_addition_overflow(new_points, it->points)",
+          "message": "campaign whitelist users total points overflow"
+        }
+      ],
+      "field_constraints": {
+        "wallets": [
+          {
+            "expr": ".size() <= 2000",
+            "message": "cannot add more than 2000 whitelist users at a time"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.rgrab.cpp",
+        "lines": [
+          39,
+          76
+        ]
+      }
+    }
+  }
+}

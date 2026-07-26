@@ -74,9 +74,7 @@ const isNameField = computed(() => props.type.type.includes('name'));
 
 const walletAccountNames = computed(() => validatedAccounts.value.map((a) => a.accountName));
 
-const accountListId = computed(
-    () => `accounts-${props.path.join('-') || 'root'}-${props.deleteIndex ?? 'x'}`
-);
+const accountListId = computed(() => `accounts-${props.path.join('-') || 'root'}-${props.deleteIndex ?? 'x'}`);
 
 function onPickAccount(value: string) {
     if (!value) return;

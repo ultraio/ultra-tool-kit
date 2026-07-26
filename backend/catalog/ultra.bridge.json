@@ -1,0 +1,1146 @@
+{
+  "contract": "ultra.bridge",
+  "abi_hash": "ed918e8ea2f1adebd2a2f43bbbb81e2b478eeaaccb38e565a883a7d6aeff3939",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:48.758Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.bridge",
+  "actions": {
+    "ack2evm.a": {
+      "contract": "ultra.bridge",
+      "action": "ack2evm.a",
+      "params": [
+        {
+          "name": "validator",
+          "type": "name"
+        },
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "evm_block",
+          "type": "uint64"
+        },
+        {
+          "name": "ultra2evm_swap_counter",
+          "type": "uint64"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$validator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ack2evm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_block > 0",
+          "message": "evm block cannot be 0"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_request != ultra2evm_swap_request_table.end()",
+          "message": "swap request not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "attestation != ultra2evm_swap_request_attestations_table.end()",
+          "message": "request attestation not found or already settled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "attestation_itr != attestation->attestations.end()",
+          "message": "validator has not signed the request"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "attestation_itr->evm_block_num_completed == 0",
+          "message": "validator has already acked the request"
+        },
+        {
+          "kind": "invariant",
+          "expr": "attestation->attestations.size() >= threshold",
+          "message": "not enough signatures to ack the request"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          372,
+          434
+        ]
+      }
+    },
+    "ack2ult.a": {
+      "contract": "ultra.bridge",
+      "action": "ack2ult.a",
+      "params": [
+        {
+          "name": "validator",
+          "type": "name"
+        },
+        {
+          "name": "evm2ultra_request",
+          "type": "evm2ultra_swap_request_v0"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$validator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"ack2ult.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "state",
+          "expr": "chain_id_v0_table.exists()",
+          "message": "ultra chain id is not set"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm != evms_table.end()",
+          "message": "evm chain is not supported"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token != tokens_table.end()",
+          "message": "token is not supported"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->contract == evm2ultra_request.contract",
+          "message": "token contract is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->evm_address == evm2ultra_request.evm_token_address",
+          "message": "evm token address is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "existing == claimed_table.end()",
+          "message": "counter is already claimed"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->evm_block_time == evm2ultra_request.evm_block_time",
+          "message": "evm block time is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->evm_block_num == evm2ultra_request.evm_block_num",
+          "message": "evm block number is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->evm_sender == evm2ultra_request.evm_sender",
+          "message": "evm sender is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->amount == evm2ultra_request.amount",
+          "message": "evm token amount is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->symbol == evm2ultra_request.symbol",
+          "message": "token symbol is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_entry->receiving_address == evm2ultra_request.receiving_address",
+          "message": "receiving address is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "it == swap_entry->confirmations.end()",
+          "message": "validator has already confirmed this request"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ],
+        "evm2ultra_request": [
+          {
+            "expr": ".chain_id == chain_id",
+            "message": "ultra chain id is not matched"
+          },
+          {
+            "expr": ".amount >= token->min_swap_amount",
+            "message": "amount below minimum"
+          },
+          {
+            "expr": ".amount <= token->max_swap_amount",
+            "message": "amount above maximum"
+          }
+        ]
+      },
+      "recipients": [
+        "receiving_name"
+      ],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          436,
+          605
+        ]
+      }
+    },
+    "addevm.a": {
+      "contract": "ultra.bridge",
+      "action": "addevm.a",
+      "params": [
+        {
+          "name": "new_evm",
+          "type": "supported_evms_v0"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"addevm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "state",
+          "expr": "chain_id_v0_table.exists()",
+          "message": "chain id is not set"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_id == evms_table.end()",
+          "message": "evm chain id already exists"
+        },
+        {
+          "kind": "state",
+          "expr": "evm_name.find(new_evm.evm_chain_name.value) == evm_name.end()",
+          "message": "evm chain name already exists"
+        }
+      ],
+      "field_constraints": {
+        "new_evm": [
+          {
+            "expr": ".evm_chain_id != 0",
+            "message": "evm chain id cannot be 0"
+          },
+          {
+            "expr": ".evm_chain_name != \"\"_n",
+            "message": "evm chain name cannot be empty"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          27,
+          51
+        ]
+      }
+    },
+    "addudata.a": {
+      "contract": "ultra.bridge",
+      "action": "addudata.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "caller",
+          "type": "name"
+        },
+        {
+          "name": "payload",
+          "type": "bytes"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$caller",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"addudata.a\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {
+        "payload": [
+          {
+            "expr": ".size() > 0",
+            "message": "user data payload cannot be empty"
+          },
+          {
+            "expr": ".size() <= max_user_data_size",
+            "message": "user data payload too large, maximum 4KB allowed"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          796,
+          821
+        ]
+      }
+    },
+    "cleanevm.a": {
+      "contract": "ultra.bridge",
+      "action": "cleanevm.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name?"
+        },
+        {
+          "name": "table_name",
+          "type": "name?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"cleanevm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "invariant",
+          "expr": "false",
+          "message": "invalid global table name"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          838,
+          883
+        ]
+      }
+    },
+    "del2evm.a": {
+      "contract": "ultra.bridge",
+      "action": "del2evm.a",
+      "params": [
+        {
+          "name": "counters",
+          "type": "uint64[]"
+        },
+        {
+          "name": "evm_chain",
+          "type": "name"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"del2evm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "att.evm_block_num_completed == 0",
+          "message": "cannot delete a request with acknowledgements"
+        }
+      ],
+      "field_constraints": {
+        "counters": [
+          {
+            "expr": ".size() > 0",
+            "message": "counters to delete cannot be empty"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          639,
+          667
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/ultra.bridge.cpp:639 but no require_auth/require_auth2 captured."
+    },
+    "fix2evm.a": {
+      "contract": "ultra.bridge",
+      "action": "fix2evm.a",
+      "params": [
+        {
+          "name": "old_2evm_counter",
+          "type": "uint64?"
+        },
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "contract",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "sender",
+          "type": "name"
+        },
+        {
+          "name": "evm_receiving_address",
+          "type": "checksum160"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"fix2evm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_request != ultra2evm_swap_request_table.end()",
+          "message": "swap request not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "att.evm_block_num_completed == 0",
+          "message": "cannot delete a request with acknowledgements"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token != tokens_table.end()",
+          "message": "token is not supported"
+        },
+        {
+          "kind": "invariant",
+          "expr": "token->has_token_state(uint8_t(token_state::ts_active))",
+          "message": "token swap is not active"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->contract == contract",
+          "message": "token contract is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->min_swap_amount <= quantity.amount",
+          "message": "quantity is less than min swap amount"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!has_user_data || is_user_data_enabled(evm_chain)",
+          "message": "User data is disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_chain_id_row != evm.end()",
+          "message": "evm chain is not supported"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_amount > 0",
+          "message": "swap amount is too small"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "current_schedule != validator_schedule_table.end()",
+          "message": "no active validator schedule found"
+        }
+      ],
+      "field_constraints": {
+        "quantity": [
+          {
+            "expr": ".amount <= token->max_swap_amount",
+            "message": "quantity is larger than max swap amount"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          607,
+          637
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/ultra.bridge.cpp:607 but no require_auth/require_auth2 captured."
+    },
+    "fix2ult.a": {
+      "contract": "ultra.bridge",
+      "action": "fix2ult.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "evm2ultra_request",
+          "type": "evm2ultra_swap_request_v0"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"fix2ult.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token != tokens_table.end()",
+          "message": "token is not supported"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->contract == evm2ultra_request.contract",
+          "message": "token contract is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->evm_address == evm2ultra_request.evm_token_address",
+          "message": "evm token address is not matched"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ]
+      },
+      "recipients": [
+        "receiving_name"
+      ],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          669,
+          761
+        ]
+      },
+      "unresolved": true,
+      "notes": "Handler found at src/ultra.bridge.cpp:669 but no require_auth/require_auth2 captured."
+    },
+    "init.a": {
+      "contract": "ultra.bridge",
+      "action": "init.a",
+      "params": [
+        {
+          "name": "chain_id",
+          "type": "checksum256"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"init.a\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          16,
+          25
+        ]
+      }
+    },
+    "new2evm.a": {
+      "contract": "ultra.bridge",
+      "action": "new2evm.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "contract",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "sender",
+          "type": "name"
+        },
+        {
+          "name": "evm_receiving_address",
+          "type": "checksum160"
+        },
+        {
+          "name": "has_user_data",
+          "type": "bool"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "ultra_swap_account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"new2evm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token != tokens_table.end()",
+          "message": "token is not supported"
+        },
+        {
+          "kind": "invariant",
+          "expr": "token->has_token_state(uint8_t(token_state::ts_active))",
+          "message": "token swap is not active"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->contract == contract",
+          "message": "token contract is not matched"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token->min_swap_amount <= quantity.amount",
+          "message": "quantity is less than min swap amount"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!has_user_data || is_user_data_enabled(evm_chain)",
+          "message": "User data is disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_chain_id_row != evm.end()",
+          "message": "evm chain is not supported"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm_amount > 0",
+          "message": "swap amount is too small"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "current_schedule != validator_schedule_table.end()",
+          "message": "no active validator schedule found"
+        }
+      ],
+      "field_constraints": {
+        "quantity": [
+          {
+            "expr": ".amount <= token->max_swap_amount",
+            "message": "quantity is larger than max swap amount"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          188,
+          194
+        ]
+      }
+    },
+    "rmtoken.a": {
+      "contract": "ultra.bridge",
+      "action": "rmtoken.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "symbol",
+          "type": "symbol"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"rmtoken.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "token != tokens_table.end()",
+          "message": "token not found"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!token->has_token_state(uint8_t(token_state::ts_active))",
+          "message": "token is still in active state"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "ultra2evm_swap_request->symbol != symbol",
+          "message": "there are pending ultra2evm swap requests for this token"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "evm2ultra->symbol != symbol",
+          "message": "there are pending evm2ultra swap requests for this token"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          84,
+          114
+        ]
+      }
+    },
+    "rmudata.a": {
+      "contract": "ultra.bridge",
+      "action": "rmudata.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "account",
+          "type": "name"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$account",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"rmudata.a\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          823,
+          836
+        ]
+      }
+    },
+    "setevmblk.a": {
+      "contract": "ultra.bridge",
+      "action": "setevmblk.a",
+      "params": [
+        {
+          "name": "validator",
+          "type": "name"
+        },
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "last_processed_evm_block",
+          "type": "uint64"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$validator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setevmblk.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "last_processed_evm_block > 0",
+          "message": "last processed evm block cannot be 0"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "v != validators_table.end()",
+          "message": "validator is not registered"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          172,
+          186
+        ]
+      }
+    },
+    "setmaint.a": {
+      "contract": "ultra.bridge",
+      "action": "setmaint.a",
+      "params": [
+        {
+          "name": "maintenance_start_time",
+          "type": "time_point_sec?"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setmaint.a\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          763,
+          780
+        ]
+      }
+    },
+    "settoken.a": {
+      "contract": "ultra.bridge",
+      "action": "settoken.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "new_token",
+          "type": "supported_tokens_v0"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"addtoken.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!new_token.evm_symbol.empty()",
+          "message": "evm symbol cannot be empty"
+        }
+      ],
+      "field_constraints": {
+        "new_token": [
+          {
+            "expr": ".symbol.is_valid()",
+            "message": "token symbol is invalid"
+          },
+          {
+            "expr": ".contract != \"\"_n",
+            "message": "contract cannot be empty"
+          },
+          {
+            "expr": ".min_swap_amount > 0",
+            "message": "min swap amount must be positive"
+          },
+          {
+            "expr": ".evm_precision > 0",
+            "message": "evm precision must be positive"
+          },
+          {
+            "expr": ".evm_precision <= 18",
+            "message": "evm precision cannot exceed 18"
+          },
+          {
+            "expr": ".max_swap_amount > new_token.min_swap_amount",
+            "message": "max swap amount must be larger than min swap amount"
+          },
+          {
+            "expr": ".max_swap_amount <= asset::max_amount",
+            "message": "max swap amount exceeds maximum allowed value"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          53,
+          82
+        ]
+      }
+    },
+    "setudata.a": {
+      "contract": "ultra.bridge",
+      "action": "setudata.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setudata.a\"_n)",
+          "message": "action is currently disabled"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          782,
+          794
+        ]
+      }
+    },
+    "setvalidr.a": {
+      "contract": "ultra.bridge",
+      "action": "setvalidr.a",
+      "params": [
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "validators",
+          "type": "name[]"
+        },
+        {
+          "name": "threshold",
+          "type": "uint64"
+        },
+        {
+          "name": "start_time",
+          "type": "time_point_sec"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"setvalidr.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "last_schedule->start_time <= ct",
+          "message": "previous schedule is still pending"
+        },
+        {
+          "kind": "invariant",
+          "expr": "(start_time - ct).to_seconds() <= max_schedule_time_in_seconds",
+          "message": "schedule start time cannot be more than 14 days in the future"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "threshold > 0",
+          "message": "threshold must be larger than 0"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "threshold <= validators.size()",
+          "message": "threshold must be less than or equal to the number of validators"
+        },
+        {
+          "kind": "invariant",
+          "expr": "unique_validators.size() == validators.size()",
+          "message": "duplicate validators not allowed"
+        },
+        {
+          "kind": "state",
+          "expr": "is_account(validator)",
+          "message": "validators has a invalid account"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          116,
+          170
+        ]
+      }
+    },
+    "sign2evm.a": {
+      "contract": "ultra.bridge",
+      "action": "sign2evm.a",
+      "params": [
+        {
+          "name": "validator",
+          "type": "name"
+        },
+        {
+          "name": "evm_chain",
+          "type": "name"
+        },
+        {
+          "name": "evm_block",
+          "type": "uint64"
+        },
+        {
+          "name": "ultra2evm_swap_counter",
+          "type": "uint64"
+        },
+        {
+          "name": "evm_signature",
+          "type": "bytes"
+        },
+        {
+          "name": "memo",
+          "type": "string"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$validator",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "is_action_executable(\"sign2evm.a\"_n)",
+          "message": "action is currently disabled"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "swap_request != ultra2evm_swap_request_table.end()",
+          "message": "swap request not found"
+        },
+        {
+          "kind": "cross_field",
+          "expr": "attestation_itr == attestation->attestations.end()",
+          "message": "validator has already signed the request"
+        }
+      ],
+      "field_constraints": {
+        "memo": [
+          {
+            "expr": ".size() <= 256",
+            "message": "memo has more than 256 bytes"
+          }
+        ],
+        "evm_signature": [
+          {
+            "expr": ".size() == 65",
+            "message": "evm signature length must be 65"
+          }
+        ]
+      },
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.bridge.cpp",
+        "lines": [
+          323,
+          370
+        ]
+      }
+    }
+  }
+}

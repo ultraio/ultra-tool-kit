@@ -1,0 +1,28 @@
+{
+    "name": "token-transfer-happy",
+    "request": {
+        "sessionId": "token-transfer-happy-session",
+        "messages": [
+            {
+                "role": "user",
+                "content": "transfer 100 UOS from duncan to bob"
+            }
+        ],
+        "context": {
+            "validatedAccounts": ["duncan", "bob", "ceo", "cfo"],
+            "knownAccounts": [],
+            "selectedAccount": "duncan",
+            "chainId": "test-chain",
+            "endpoint": "http://localhost:8888"
+        }
+    },
+    "expectedReply": {
+        "kind": "act",
+        "actions": [
+            {
+                "contract": "eosio.token",
+                "action": "transfer"
+            }
+        ]
+    }
+}

@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue';
-import type { ConnectResult, AccountInfo } from '@ultraos/wallet-sdk';
+import type { ConnectResult, AccountInfo, ConnectAttestation } from '@ultraos/wallet-sdk';
 
 export interface AuthOption {
     actor: string;
@@ -10,6 +10,12 @@ export interface AuthOption {
 const accounts = ref<AccountInfo[]>([]);
 const selectedAccountName = ref<string | null>(null);
 
+// W9: the wallet-issued connect-time attestation (RFC §2.1), surfaced for the
+// AI backend's identity path (docs/00 §3.7). Undefined when the wallet doesn't
+// provide one (older wallet, Anchor, Ledger). Single reactive source — ultra.ts
+// feeds it; consumers read it via useWalletAccounts().
+const attestation = ref<ConnectAttestation | undefined>(undefined);
+
 /**
  * Populate from a ConnectResult. The wallet's `accounts` array is now
  * authoritative for the dapp's active chain — chain-resolved server-side
@@ -19,6 +25,8 @@ const selectedAccountName = ref<string | null>(null);
  */
 export function populateWalletAccountsFromConnectResult(result: ConnectResult | undefined): void {
     if (!result) return;
+    // W9: surface the connect-time attestation (undefined clears it).
+    attestation.value = result.attestation;
     if (Array.isArray(result.accounts) && result.accounts.length > 0) {
         accounts.value = result.accounts.map((a) => ({
             accountName: a.accountName,
@@ -42,6 +50,15 @@ export function populateWalletAccountsFromConnectResult(result: ConnectResult | 
 export function clearWalletAccounts(): void {
     accounts.value = [];
     selectedAccountName.value = null;
+    attestation.value = undefined;
+}
+
+/**
+ * W9: overwrite the stored attestation when the wallet reissues one (e.g. on a
+ * wallet `accountChanged` event — RFC §6.5). Pass `undefined` to clear.
+ */
+export function setAttestation(att: ConnectAttestation | undefined): void {
+    attestation.value = att;
 }
 
 /**
@@ -57,7 +74,7 @@ export function clearWalletAccounts(): void {
  * the caller's responsibility to fall back to a valid choice.
  */
 export function setAvailableAccountsFromEvent(
-    eventAccounts: Array<{ accountName: string; permission?: string; publicKey?: string }>,
+    eventAccounts: Array<{ accountName: string; permission?: string; publicKey?: string }>
 ): void {
     if (!Array.isArray(eventAccounts) || eventAccounts.length === 0) {
         accounts.value = [];
@@ -123,5 +140,6 @@ export function useWalletAccounts() {
         selectedAccountName,
         authOptions,
         validatedAccounts,
+        attestation,
     };
 }

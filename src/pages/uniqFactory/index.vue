@@ -463,12 +463,13 @@
                                     size="sm"
                                     :disabled="!canCancelOffer(cancelAction)"
                                     @click="
-                                        canCancelOffer(cancelAction) && handleCancelOffer(
-                                            cancelAction.type,
-                                            cancelAction.factoryId,
-                                            cancelAction.uniqId,
-                                            cancelAction.offerId
-                                        )
+                                        canCancelOffer(cancelAction) &&
+                                            handleCancelOffer(
+                                                cancelAction.type,
+                                                cancelAction.factoryId,
+                                                cancelAction.uniqId,
+                                                cancelAction.offerId
+                                            )
                                     "
                                 >
                                     Cancel
@@ -862,9 +863,10 @@ async function fetchBuyOffers() {
 }
 
 function canCancelOffer(cancelAction: any) {
-    return props.state.accountName &&
-        (cancelAction.status === 'EXPIRED' ||
-         cancelAction.offerCreator === props.state.accountName)
+    return (
+        props.state.accountName &&
+        (cancelAction.status === 'EXPIRED' || cancelAction.offerCreator === props.state.accountName)
+    );
 }
 
 async function handleCancelOffer(type: string, factoryId: string, uniqId: string, offerId: string) {
@@ -898,7 +900,11 @@ async function findFactory() {
         return;
     }
     console.log({ fid: factoryId.value });
-    window.history.pushState('uniqFactory', '', `${route.path}?env=${BlockchainService.environment}&id=${factoryId.value}`);
+    window.history.pushState(
+        'uniqFactory',
+        '',
+        `${route.path}?env=${BlockchainService.environment}&id=${factoryId.value}`
+    );
 
     clearData();
     isLoading.value = true;

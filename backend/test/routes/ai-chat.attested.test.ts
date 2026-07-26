@@ -1,0 +1,178 @@
+// /api/ai-chat — attested-caller integration (W9, docs/00 §3.7).
+//
+// Full-app via createApp with a mock provider so no LLM machinery runs. A valid
+// attestation attaches identity; the balance gate sums injected UOS; the usage
+// row records identity_pubkey_hash alongside client_ip_hash. The balance gate
+// refuses (bare {kind,reason}) before the route's {reply,usage} envelope when
+// the summed UOS is below threshold.
+
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Bytes, PrivateKey, Signature } from '@wharfkit/antelope';
+
+import { createApp, type AppConfig } from '../../src/index.js';
+import type { AttestationPayload as Payload } from '../../src/middleware/attestation.js';
+import type { ChatProvider, ChatRequest, ChatResponse } from '../../src/llm/provider.js';
+import { _resetCatalogCache } from '../../src/pipeline/catalog.js';
+import { _resetEosioTypesCache } from '../../src/pipeline/validate.js';
+
+const NOW = 1_700_000_000; // unix seconds
+
+const PRIV = PrivateKey.generate('K1');
+const PUB = PRIV.toPublic().toString();
+
+// Recursive canonical form — byte-for-byte match with the wallet signer (sorts
+// keys at every nesting level, keeps signableAccounts[].permissions). The lossy
+// array-replacer form previously here masked the canonical-serialization bug.
+function canonicalize(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+            out[k] = canonicalize((value as Record<string, unknown>)[k]);
+        }
+        return out;
+    }
+    return value;
+}
+function canonical(payload: Payload): string {
+    return JSON.stringify(canonicalize(payload));
+}
+function sign(payload: Payload, priv: PrivateKey = PRIV): string {
+    // The wallet's literal signer call (KeyService.sign = PrivateKey.signMessage).
+    // signMessage(x) === signDigest(Checksum256.hash(x)); using it keeps every
+    // fixture signed exactly the way the real wallet signs.
+    return priv.signMessage(Bytes.from(canonical(payload), 'utf8')).toString();
+}
+function makeAttestation(payload: Payload, priv: PrivateKey = PRIV) {
+    return { payload, signature: sign(payload, priv) };
+}
+function header(att: { payload: Payload; signature: string }): string {
+    return `Attestation ${Buffer.from(JSON.stringify(att)).toString('base64url')}`;
+}
+
+const cfg: AppConfig = {
+    allowedOrigins: ['http://localhost:5172'],
+    devRatelimitBypass: true,
+    llmProvider: 'ollama',
+    allowedChainHosts: ['localhost', '127.0.0.1'],
+    balanceThresholdUos: 1,
+    attestationChainId: 'CHAIN_A',
+};
+
+function mockProvider(): ChatProvider {
+    return {
+        async chat(_req: ChatRequest): Promise<ChatResponse> {
+            return {
+                json: { kind: 'ask', question: 'Could you describe the transaction in more detail?' },
+                usage: { input: 10, output: 5 },
+            };
+        },
+        modelTag(): string {
+            return 'anthropic:haiku-4-5';
+        },
+    };
+}
+
+function attestationHeader(): string {
+    const att = makeAttestation({
+        v: 1,
+        pubkey: PUB,
+        account: 'alice',
+        permission: 'active',
+        origin: 'http://localhost:5172',
+        chainId: 'CHAIN_A',
+        iat: NOW - 10,
+        exp: NOW + 3600,
+        nonce: 'deadbeef'.repeat(8),
+        signableAccounts: [{ account: 'alice', permissions: ['active'] }],
+    });
+    return header(att);
+}
+
+const body = {
+    sessionId: 's-att',
+    messages: [{ role: 'user' as const, content: 'tell me more please' }],
+    context: {
+        validatedAccounts: ['alice'],
+        knownAccounts: [],
+        selectedAccount: 'alice',
+        chainId: 'CHAIN_A',
+        endpoint: 'http://localhost:8888',
+    },
+};
+
+async function readRows(logPath: string): Promise<Array<Record<string, unknown>>> {
+    const raw = await readFile(logPath, 'utf8');
+    return raw
+        .split('\n')
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+let logPath: string;
+
+beforeEach(() => {
+    _resetCatalogCache();
+    _resetEosioTypesCache();
+    logPath = join(tmpdir(), `ai-chat-attested-${randomUUID()}.jsonl`);
+});
+
+afterEach(async () => {
+    await rm(logPath, { force: true });
+    vi.clearAllMocks();
+});
+
+describe('POST /api/ai-chat — attested caller (W9)', () => {
+    it('valid attestation + sufficient balance → 200, reply present, row records identity_pubkey_hash', async () => {
+        const app = await createApp(cfg, {
+            provider: mockProvider(),
+            usageLogPath: logPath,
+            attestationNow: () => NOW,
+            readUosBalance: async () => 5,
+        });
+        const res = await app.request(
+            '/api/ai-chat',
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', authorization: attestationHeader() },
+                body: JSON.stringify(body),
+            },
+            { incoming: { socket: { remoteAddress: '127.0.0.1' } } }
+        );
+        expect(res.status).toBe(200);
+        const envelope = (await res.json()) as { reply: { kind: string } };
+        expect(envelope.reply.kind).toBeDefined();
+
+        const rows = await readRows(logPath);
+        expect(rows.length).toBe(1);
+        const row = rows[0]!;
+        expect(row.identity_pubkey_hash).toBe(createHash('sha256').update(PUB).digest('hex'));
+        expect(typeof row.client_ip_hash).toBe('string');
+        expect((row.client_ip_hash as string).length).toBeGreaterThan(0);
+    });
+
+    it('insufficient balance → bare refuse insufficient-uos (before the reply envelope)', async () => {
+        const app = await createApp(cfg, {
+            provider: mockProvider(),
+            usageLogPath: logPath,
+            attestationNow: () => NOW,
+            readUosBalance: async () => 0,
+        });
+        const res = await app.request(
+            '/api/ai-chat',
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', authorization: attestationHeader() },
+                body: JSON.stringify(body),
+            },
+            { incoming: { socket: { remoteAddress: '127.0.0.1' } } }
+        );
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ kind: 'refuse', reason: 'insufficient-uos' });
+    });
+});

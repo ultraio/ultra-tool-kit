@@ -1,0 +1,30 @@
+{
+    "name": "msig-propose-happy",
+    "request": {
+        "sessionId": "msig-propose-happy-session",
+        "messages": [
+            {
+                "role": "user",
+                "content": "propose: transfer 100 UOS from duncan to bob, require approval from ceo and cfo, proposal name txproposal1"
+            }
+        ],
+        "context": {
+            "validatedAccounts": ["duncan", "bob", "ceo", "cfo"],
+            "knownAccounts": ["ceo", "cfo"],
+            "selectedAccount": "duncan",
+            "chainId": "test-chain",
+            "endpoint": "http://localhost:8888"
+        }
+    },
+    "expectedReply": {
+        "kind": "propose",
+        "proposalName": "txproposal1",
+        "actions": [
+            {
+                "contract": "eosio.token",
+                "action": "transfer"
+            }
+        ],
+        "requestedCount": 2
+    }
+}

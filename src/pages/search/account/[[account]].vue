@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router/auto';
 import { BlockchainService } from '../../../utilities/blockchain';
 
 const route = useRoute('/search/account/[[account]]');
-const props = defineProps<{ state: I.AuthState, metadata: I.RuntimeMetadata }>();
+const props = defineProps<{ state: I.AuthState; metadata: I.RuntimeMetadata }>();
 const searchText = ref<string>('');
 const loading = ref<boolean>(false);
 const account = ref();
@@ -25,7 +25,9 @@ async function searchAccount() {
     }
 
     try {
-        const result = await BlockchainService.roundRobinRequest(async () => await BlockchainService.api.account(searchText.value).get());
+        const result = await BlockchainService.roundRobinRequest(
+            async () => await BlockchainService.api.account(searchText.value).get()
+        );
         account.value = JSON.stringify(result);
     } catch (err) {}
 

@@ -6,9 +6,7 @@
             <!-- Actions Overview -->
             <Expand title="Actions" :expanded="true">
                 <div class="flex flex-col gap-4">
-                    <div v-if="props.actions.length === 0">
-                        No actions provided. Transaction is invalid
-                    </div>
+                    <div v-if="props.actions.length === 0">No actions provided. Transaction is invalid</div>
                     <ActionDetail v-for="(actionInfo, index) in props.actions" :key="index">
                         <template #contract>
                             {{ actionInfo.contract }}
@@ -33,14 +31,12 @@
                 />
             </Expand>
             <!-- Per-action authorizer override (signs as a non-active wallet account) -->
-            <Expand
-                v-if="props.actions.length > 0 && !isMakingProposal"
-                title="Action Authorizers (Override)"
-            >
+            <Expand v-if="props.actions.length > 0 && !isMakingProposal" title="Action Authorizers (Override)">
                 <div class="flex flex-col gap-4 p-4 border border-neutral-700 rounded bg-neutral-900">
                     <div class="text-sm text-neutral-400">
                         Leave empty to sign as
-                        <span class="font-mono">{{ props.state.accountName }}@{{ props.state.accountPerm || 'active' }}</span
+                        <span class="font-mono"
+                            >{{ props.state.accountName }}@{{ props.state.accountPerm || 'active' }}</span
                         >. Add an authorizer to sign as a different account in your wallet.
                     </div>
                     <AuthorizerForm
@@ -111,11 +107,7 @@
 
         <div class="split">
             <template v-if="!transactionHash">
-                <Button
-                    :disabled="!!confirmDisabledReason"
-                    :title="confirmDisabledReason || ''"
-                    @onClick="confirm"
-                >
+                <Button :disabled="!!confirmDisabledReason" :title="confirmDisabledReason || ''" @onClick="confirm">
                     <template v-if="isTransacting">
                         <Icon icon="fa-spinner" size="1x" spin />
                     </template>
@@ -158,10 +150,7 @@ const props = withDefaults(defineProps<{ state: AuthState; actions: Action[]; al
     allowProposal: true, // Allow proposal option by default
 });
 
-const emit = defineEmits([ 
-    'clear-transaction',
-    'transaction-executed'
-]);
+const emit = defineEmits(['clear-transaction', 'transaction-executed']);
 
 let transactionHash = ref<string | undefined>(undefined);
 let isTransacting = ref<boolean>(false);
@@ -248,7 +237,6 @@ async function confirm() {
 
     // Convert to Proposal
     if (isMakingProposal.value) {
-
         try {
             const data = await BlockchainService.getProposalTxData(
                 props.state.accountName,
@@ -473,5 +461,4 @@ function applyTransactionBodyEdit(text: string) {
     emitter.emit('updateAbiActions', parsed);
     emitter.emit('updateAppActions', parsed);
 }
-
 </script>

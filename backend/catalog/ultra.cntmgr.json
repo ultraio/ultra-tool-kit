@@ -1,0 +1,54 @@
+{
+  "contract": "ultra.cntmgr",
+  "abi_hash": "59e3e953273f00add22eeeb852e39b42cb8c23bf4003c692833e42f1e80f604a",
+  "abi_chain_id": "a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097",
+  "abi_fetched_at": "2026-05-22T08:14:52.637Z",
+  "source_path": "/Users/duncandam/ultra/eosio.contracts/contracts/ultra.cntmgr",
+  "actions": {
+    "setactstate": {
+      "contract": "ultra.cntmgr",
+      "action": "setactstate",
+      "params": [
+        {
+          "name": "contract",
+          "type": "name"
+        },
+        {
+          "name": "action",
+          "type": "name"
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ],
+      "auths": [
+        {
+          "actor": "$self",
+          "permission": "active"
+        }
+      ],
+      "preconditions": [
+        {
+          "kind": "invariant",
+          "expr": "enabled",
+          "message": "(unresolved: action_already_disabled)"
+        },
+        {
+          "kind": "invariant",
+          "expr": "!enabled",
+          "message": "(unresolved: action_already_enabled)"
+        }
+      ],
+      "field_constraints": {},
+      "recipients": [],
+      "source": {
+        "path": "src/ultra.cntmgr.cpp",
+        "lines": [
+          3,
+          23
+        ]
+      }
+    }
+  }
+}

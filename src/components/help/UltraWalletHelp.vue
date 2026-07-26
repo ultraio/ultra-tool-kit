@@ -25,7 +25,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import {fetchWithTimeout} from '../../utilities/networks';
+import { fetchWithTimeout } from '../../utilities/networks';
 
 const props = defineProps<{ endpoint: string }>();
 let chain = ref<string>(undefined);

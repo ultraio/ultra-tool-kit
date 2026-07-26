@@ -51,7 +51,11 @@
             <p v-if="filteredProposals.length == 0 && !loading">No proposals found</p>
             <LoadingSpinner v-if="loading"></LoadingSpinner>
         </template>
-        <Modal v-if="previewData" :title="previewData.proposer + ' - ' + previewData.name + ' Proposal'" @close="previewData = undefined">
+        <Modal
+            v-if="previewData"
+            :title="previewData.proposer + ' - ' + previewData.name + ' Proposal'"
+            @close="previewData = undefined"
+        >
             <div class="flex flex-col gap-4">
                 <div>Details about what is inside of this proposal.</div>
                 <div v-for="(action, index) in previewData.readable.actions" :key="index">
@@ -102,7 +106,7 @@ const proposals = ref<I.Proposal[]>([]);
 const searchText = ref<string>('');
 const loading = ref<boolean>(false);
 const previewData = ref<I.Proposal>(undefined);
-const contractHashes = ref<{contract: string, isAbi: boolean, hash: string}[]>([]);
+const contractHashes = ref<{ contract: string; isAbi: boolean; hash: string }[]>([]);
 
 async function getProposals() {
     loading.value = true;
@@ -139,7 +143,7 @@ const convertPubK1 = (obj: any) => {
             convertPubK1(field);
         }
     }
-}
+};
 
 const reviewProposal = async (proposal: I.Proposal) => {
     previewData.value = proposal;
@@ -152,8 +156,7 @@ const reviewProposal = async (proposal: I.Proposal) => {
                 isAbi: false,
                 hash: crypto.createHash('sha256').update(p.data.code, 'hex').digest('hex'),
             });
-        }
-        else if (p.account === 'eosio' && p.name === 'setabi') {
+        } else if (p.account === 'eosio' && p.name === 'setabi') {
             contractHashes.value.push({
                 contract: p.data.account,
                 isAbi: true,
@@ -163,7 +166,7 @@ const reviewProposal = async (proposal: I.Proposal) => {
     }
 
     convertPubK1(proposal);
-}
+};
 
 const canCancel = (proposal: I.Proposal) => {
     if (proposal.proposer === props.state.accountName) return true;
@@ -172,7 +175,7 @@ const canCancel = (proposal: I.Proposal) => {
         if (Date.now() > proposalDate.getTime()) return true;
     }
     return false;
-}
+};
 
 const handleApprove = (proposal: I.Proposal) => {
     const approveAction = [
