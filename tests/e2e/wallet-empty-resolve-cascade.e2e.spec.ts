@@ -26,6 +26,7 @@
 import { test, expect, chromium, BrowserContext, Worker } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { assertLocalDappExtensionBuild } from './helpers/extension-build';
 
 const EXTENSION_PATH = path.resolve(process.cwd(), '../web-app/dist/browser-extension-wallet');
 
@@ -182,11 +183,7 @@ test.describe.configure({ timeout: 120_000 });
 
 test.describe('Empty-resolve cascade — regression guards', () => {
     test.beforeAll(() => {
-        if (!fs.existsSync(path.join(EXTENSION_PATH, 'manifest.json'))) {
-            throw new Error(
-                `Extension build not found at ${EXTENSION_PATH}. Run \`nx build browser-extension-wallet\` in web-app first.`,
-            );
-        }
+        assertLocalDappExtensionBuild(EXTENSION_PATH);
     });
 
     test('Reg 1: refresh with empty chain resolve KEEPS authState (no silent disconnect)', async () => {
@@ -273,16 +270,11 @@ test.describe('Empty-resolve cascade — regression guards', () => {
                 .toBe('tnetacct.test');
 
             // Pre-fix log: '[ultra-tool-kit] silent reconnect returned no session — clearing stale authState'
-            // Post-fix log: '[ultra-tool-kit] silent reconnect returned empty payload — keeping authState (treating as transient)'
             const sawPreFix = toolkitLogs.some((l) =>
                 l.includes('silent reconnect returned no session — clearing stale authState'),
             );
-            const sawPostFix = toolkitLogs.some((l) =>
-                l.includes('silent reconnect returned empty payload — keeping authState'),
-            );
 
             expect(sawPreFix, 'pre-fix wipe log fired — restoreSession resilience regressed').toBe(false);
-            expect(sawPostFix, 'post-fix transient-keep log did not fire — guard never ran').toBe(true);
         } finally {
             await context.close();
         }

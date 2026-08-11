@@ -20,6 +20,7 @@
 import { test, expect, chromium, BrowserContext, Worker } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { assertLocalDappExtensionBuild } from './helpers/extension-build';
 
 const EXTENSION_PATH = path.resolve(
     process.cwd(),
@@ -251,11 +252,7 @@ test.describe.configure({ timeout: 120_000 });
 
 test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
     test.beforeAll(() => {
-        if (!fs.existsSync(path.join(EXTENSION_PATH, 'manifest.json'))) {
-            throw new Error(
-                `Extension build not found at ${EXTENSION_PATH}. Run \`npm run build:browser-extension-wallet-prod\` in web-app first.`,
-            );
-        }
+        assertLocalDappExtensionBuild(EXTENSION_PATH);
     });
 
     test('switching ENVIRONMENT in BG fires accountChanged that the toolkit consumes', async () => {
@@ -923,7 +920,7 @@ test.describe('Wallet ↔ Toolkit network sync (real extension)', () => {
             // Testnet. Silent restoreSession will run Ultra.connect(true),
             // which returns network={chainId: TESTNET_CHAIN}.
             const MAINNET_URL = 'https://ultra.eosusa.io';
-            const TESTNET_URL = 'https://test.ultra.eosusa.io';
+            const TESTNET_URL = 'https://api.testnet.ultra.eossweden.org';
             await page.evaluate(({ chainId, endpoint }) => {
                 localStorage.setItem('authState', JSON.stringify({
                     type: 'ultra',

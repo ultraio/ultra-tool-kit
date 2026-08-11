@@ -48,6 +48,7 @@
 import { test, expect, chromium, BrowserContext, Page, Worker } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { assertLocalDappExtensionBuild } from './helpers/extension-build';
 
 const EXTENSION_PATH = path.resolve(process.cwd(), '../web-app/dist/browser-extension-wallet');
 const TOOLKIT_URL = 'http://localhost:5172';
@@ -535,11 +536,7 @@ test.describe.configure({ timeout: 120_000 });
 
 test.describe('Wallet signTransaction (real extension)', () => {
   test.beforeAll(() => {
-    if (!fs.existsSync(path.join(EXTENSION_PATH, 'manifest.json'))) {
-      throw new Error(
-        `Extension build not found at ${EXTENSION_PATH}. Build it via "npx nx build browser-extension-wallet -c=production" in web-app.`,
-      );
-    }
+    assertLocalDappExtensionBuild(EXTENSION_PATH);
   });
 
   test('Default view: multi-action transaction signs and posts response to dapp', async () => {
