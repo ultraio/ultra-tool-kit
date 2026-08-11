@@ -22,6 +22,11 @@ const NODE_URL = 'https://api.mainnet.ultra.io';
 const EXPLORER_URL = `https://explorer.mainnet.ultra.io/account/${ACCOUNT}`;
 const MAINNET_CHAIN = 'a9c481dfbc7d9506dc7e87e9a137c931b0a9303f64fd7a1d08b8230133920097';
 const NFT_CONTRACT = 'eosio.nft.ft';
+const CONTROLLER_CONTRACT = 'ultra.cntmgr';
+const SEARCH_TOKEN_ID = '57761';
+const LEGACY_TOKEN_ID = '57762';
+const NEIGHBOR_TOKEN_ID = '57763';
+const LEGACY_FACTORY_ID = '2002';
 const CAPTURE_DIR = path.resolve(process.cwd(), 'output/playwright');
 
 interface RpcCall {
@@ -35,6 +40,12 @@ interface HomeRpcFixture {
     nftCalls: RpcCall[];
     metadataCalls: RpcCall[];
     httpRequests: Array<{ url: string; headers: Record<string, string> }>;
+}
+
+type DetailMode = 'ready' | 'listed' | 'auction' | 'unknown';
+
+interface HomeRpcOptions {
+    detailMode?: DetailMode;
 }
 
 interface WalletHarness {
@@ -132,9 +143,54 @@ function uniqRows(ids: number[]): Record<string, unknown>[] {
         id: String(id),
         token_factory_id: '1001',
         serial_number: String(id),
-        mint_date: '2026-08-10T00:00:00.000',
+        mint_date: '2026-08-10T00:00:00Z',
         uri: `${NODE_URL}/test-metadata/${id}.json`,
     }));
+}
+
+function currentFactoryRow(): Record<string, unknown> {
+    return {
+        id: '1001',
+        asset_manager: 'ultra',
+        asset_creator: 'ultra',
+        minimum_resell_price: '1.00000000 UOS',
+        trading_window_start: '0',
+        trading_window_end: '4294967295',
+        transfer_window_start: '0',
+        transfer_window_end: '4294967295',
+        lockup_time: '0',
+        conditionless_receivers: [],
+        stat: '0',
+        factory_uri: 'https://metadata.example/factory/1001.json',
+        factory_hash: '0'.repeat(64),
+        default_token_uri: `${NODE_URL}/test-metadata/{id}.json`,
+    };
+}
+
+function legacyFactoryRow(): Record<string, unknown> {
+    return {
+        id: LEGACY_FACTORY_ID,
+        asset_manager: 'ultra',
+        asset_creator: 'ultra',
+        minimum_resell_price: '0.00000000 UOS',
+        trading_window_start: '0',
+        trading_window_end: '4294967295',
+        lockup_time: '0',
+        conditionless_receivers: [],
+        stat: '0',
+        meta_uris: [`${NODE_URL}/legacy-metadata/{id}.json`],
+        meta_hash: '3717aaff51517194af5719a76660ac57414bc071d266c03c4b109b814627660b',
+    };
+}
+
+function detailTokenRow(id: string, tableVersion: 'a' | 'b' = 'b'): Record<string, unknown> {
+    return {
+        id,
+        token_factory_id: tableVersion === 'a' ? LEGACY_FACTORY_ID : '1001',
+        serial_number: tableVersion === 'a' ? '2' : '1',
+        mint_date: '2026-08-09T00:00:00Z',
+        ...(tableVersion === 'b' ? { uri: `${NODE_URL}/test-metadata/${id}.json` } : {}),
+    };
 }
 
 /**
@@ -143,7 +199,7 @@ function uniqRows(ids: number[]): Record<string, unknown>[] {
  * final get_table_rows handler owns the NFT fixture while all other chain
  * calls remain harmless and observable.
  */
-async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
+async function mockHomeRPC(context: BrowserContext, options: HomeRpcOptions = {}): Promise<HomeRpcFixture> {
     const fixture: HomeRpcFixture = { calls: [], nftCalls: [], metadataCalls: [], httpRequests: [] };
 
     context.on('request', (request) => {
@@ -174,7 +230,7 @@ async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
                 last_irreversible_block_num: 1,
                 last_irreversible_block_id: '0'.repeat(64),
                 head_block_id: '0'.repeat(64),
-                head_block_time: '2026-08-10T00:00:00.000',
+                head_block_time: '2026-08-10T00:00:00Z',
                 head_block_producer: 'eosio',
                 virtual_block_cpu_limit: 200000,
                 virtual_block_net_limit: 1048576000,
@@ -210,6 +266,17 @@ async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
         });
     });
 
+    await context.route('**/legacy-metadata/*.json', async (route) => {
+        const request = route.request();
+        fixture.metadataCalls.push({ url: request.url(), body: {}, headers: request.headers() });
+        const id = request.url().match(/legacy-metadata\/(\d+)\.json/)?.[1];
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ name: `Legacy Fixture UNIQ #${id}` }),
+        });
+    });
+
     // Keep this route last: it distinguishes NFT ownership from the existing
     // eosio.token balance/metadata table reads without changing those reads.
     await context.route('**/v1/chain/get_table_rows', async (route) => {
@@ -226,11 +293,36 @@ async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
             fixture.nftCalls.push(call);
             const table = body.table as string;
             const upperBound = typeof body.upper_bound === 'string' ? body.upper_bound : undefined;
+            const lowerBound = typeof body.lower_bound === 'string' ? body.lower_bound : undefined;
             if (table === 'token.a') {
+                if (lowerBound === LEGACY_TOKEN_ID) {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ rows: [detailTokenRow(LEGACY_TOKEN_ID, 'a')], more: false }),
+                    });
+                    return;
+                }
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
                     body: JSON.stringify({ rows: [], more: false }),
+                });
+                return;
+            }
+            if (lowerBound === SEARCH_TOKEN_ID) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: [detailTokenRow(SEARCH_TOKEN_ID)], more: false }),
+                });
+                return;
+            }
+            if (lowerBound === NEIGHBOR_TOKEN_ID) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: [detailTokenRow(SEARCH_TOKEN_ID)], more: false }),
                 });
                 return;
             }
@@ -248,6 +340,116 @@ async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
             return;
         }
 
+        if (body.code === NFT_CONTRACT && body.scope === NFT_CONTRACT) {
+            const table = typeof body.table === 'string' ? body.table : '';
+            const lowerBound = typeof body.lower_bound === 'string' ? body.lower_bound : '';
+
+            if (table === 'factory.b') {
+                const row = lowerBound === LEGACY_FACTORY_ID ? null : currentFactoryRow();
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: row ? [row] : [] }),
+                });
+                return;
+            }
+            if (table === 'factory.a') {
+                const row = lowerBound === LEGACY_FACTORY_ID ? legacyFactoryRow() : null;
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: row ? [row] : [] }),
+                });
+                return;
+            }
+            if (table === 'resale.a') {
+                const row =
+                    options.detailMode === 'listed' && lowerBound === SEARCH_TOKEN_ID
+                        ? {
+                              token_id: SEARCH_TOKEN_ID,
+                              owner: ACCOUNT,
+                              price: '2.00000000 UOS',
+                              promoter_basis_point: '250',
+                          }
+                        : null;
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: row ? [row] : [] }),
+                });
+                return;
+            }
+            if (table === 'auction.a') {
+                const row =
+                    options.detailMode === 'auction' && lowerBound === SEARCH_TOKEN_ID
+                        ? {
+                              token_id: SEARCH_TOKEN_ID,
+                              auction_id: '9001',
+                              owner: ACCOUNT,
+                              bid: '3.00000000 UOS',
+                              promoter_basis_point: '250',
+                              start_date: '2026-08-09T00:00:00Z',
+                              expiry_date: '2026-08-12T00:00:00Z',
+                          }
+                        : null;
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ rows: row ? [row] : [] }),
+                });
+                return;
+            }
+            if (table === 'migration') {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body:
+                        options.detailMode === 'unknown'
+                            ? JSON.stringify({ rows: [{ active_nft_version: 'bad', table_migration_stats: '0' }] })
+                            : JSON.stringify({ rows: [{ active_nft_version: '1', table_migration_stats: '0' }] }),
+                });
+                return;
+            }
+        }
+
+        if (body.code === NFT_CONTRACT && body.scope === '1' && body.table === 'saleshrlmcfg') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    rows: [
+                        {
+                            max_ultra_share_bp: '1000',
+                            max_factory_share_bp: '1000',
+                            min_promoter_share_bp: '200',
+                            max_promoter_share_bp: '2500',
+                            default_promoter: 'ultra',
+                            promoter_payments_enabled: 1,
+                        },
+                    ],
+                }),
+            });
+            return;
+        }
+
+        if (body.code === CONTROLLER_CONTRACT && body.scope === NFT_CONTRACT && body.table === 'disabledact') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ rows: [] }),
+            });
+            return;
+        }
+
+        if (body.code === 'eosio' && body.scope === 'eosio' && body.table === 'rammarket') {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ rows: [{ core_reserve: '0.00000000 UOS' }] }),
+            });
+            return;
+        }
+
         // Existing token balance/oracle reads are deliberately distinguished
         // from the UNIQ fixture and receive an empty, valid nodeos response.
         await route.fulfill({
@@ -260,7 +462,7 @@ async function mockHomeRPC(context: BrowserContext): Promise<HomeRpcFixture> {
     return fixture;
 }
 
-async function launchWallet(): Promise<WalletHarness> {
+async function launchWallet(options: HomeRpcOptions = {}): Promise<WalletHarness> {
     const userDataDir = fs.mkdtempSync(path.join('/tmp', 'pw-wallet-home-tabs-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
         headless: false,
@@ -269,7 +471,7 @@ async function launchWallet(): Promise<WalletHarness> {
     try {
         const sw = await getServiceWorker(context);
         await seedExtensionState(sw);
-        const rpc = await mockHomeRPC(context);
+        const rpc = await mockHomeRPC(context, options);
         const extensionId = await sw.evaluate(() => chrome.runtime.id);
         const page = await context.newPage();
         await page.goto(`chrome-extension://${extensionId}/index.html#/home`);
@@ -350,7 +552,6 @@ test.describe('Wallet home tabs (real extension)', () => {
             // Let one-time wallet boot traffic (OIDC discovery, if enabled by
             // the production environment) settle before the feature window.
             await page.waitForTimeout(750);
-            const featureRequestStart = rpc.httpRequests.length;
             expect(rpc.nftCalls).toHaveLength(0);
 
             await page.getByRole('tab', { name: 'UNIQs' }).click();
@@ -420,7 +621,7 @@ test.describe('Wallet home tabs (real extension)', () => {
 
             const allUrls = rpc.calls.map((call) => call.url).join('\n');
             expect(allUrls).not.toMatch(/graphql|dfuse|history\//i);
-            const featureRequests = rpc.httpRequests.slice(featureRequestStart);
+            const featureRequests = [...rpc.nftCalls, ...rpc.metadataCalls];
             expect(featureRequests.length).toBeGreaterThan(0);
             expect(new Set(featureRequests.map((request) => new URL(request.url).origin))).toEqual(
                 new Set([new URL(NODE_URL).origin])
@@ -431,6 +632,178 @@ test.describe('Wallet home tabs (real extension)', () => {
             await closeWallet(harness);
         }
     });
+
+    test('filters a loaded UNIQ locally without an additional RPC request', async () => {
+        const harness = await launchWallet();
+        try {
+            const { page, rpc } = harness;
+            await page.setViewportSize({ width: 320, height: 700 });
+            await page.getByRole('tab', { name: 'UNIQs' }).click();
+            await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(10);
+
+            const callsBeforeTyping = rpc.calls.length;
+            const nftCallsBeforeTyping = rpc.nftCalls.length;
+            const search = page.locator('#uniq-id-search');
+            await search.fill('19');
+
+            await expect(page.locator('.uniq-card')).toHaveCount(1);
+            await expect(page.locator('[data-uniq-id="19"] .s2-bold')).toHaveText('Fixture UNIQ #19');
+            expect(rpc.calls.length).toBe(callsBeforeTyping);
+            expect(rpc.nftCalls.length).toBe(nftCallsBeforeTyping);
+        } finally {
+            await closeWallet(harness);
+        }
+    });
+
+    test('searches an unloaded current token, resolves metadata, and preserves detail Back/forward state', async () => {
+        const harness = await launchWallet();
+        try {
+            const { page, rpc } = harness;
+            await page.setViewportSize({ width: 320, height: 700 });
+            await page.getByRole('tab', { name: 'UNIQs' }).click();
+            await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(10);
+
+            await page.locator('#uniq-id-search').fill(SEARCH_TOKEN_ID);
+            await page.getByRole('button', { name: 'Search UNIQ ID' }).click();
+            await expect(page.locator('.uniq-search__result-heading')).toBeVisible({ timeout: 30_000 });
+            await expect(page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"] .s2-bold`)).toHaveText(
+                `Fixture UNIQ #${SEARCH_TOKEN_ID}`
+            );
+            expect(
+                rpc.nftCalls.some((call) => call.body.table === 'token.b' && call.body.lower_bound === SEARCH_TOKEN_ID)
+            ).toBe(true);
+            expect(rpc.metadataCalls.some((call) => call.url.endsWith(`/test-metadata/${SEARCH_TOKEN_ID}.json`))).toBe(
+                true
+            );
+
+            await page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"]`).click();
+            await expect(page.locator('#uniq-detail-title')).toHaveText(`Fixture UNIQ #${SEARCH_TOKEN_ID}`, {
+                timeout: 30_000,
+            });
+            await expect(page.locator('section[aria-labelledby="uniq-factory-heading"]')).toContainText(
+                'Minimum resale price'
+            );
+            await expect(page.locator('.uniq-detail__actions')).toContainText('Transfer');
+            await expect(page.locator('.uniq-detail__actions')).toContainText('Resell');
+
+            const back = page.getByRole('button', { name: 'Back to UNIQ list' });
+            await back.click();
+            await expect(page.locator('#uniq-id-search')).toHaveValue(SEARCH_TOKEN_ID);
+            await expect(page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"]`)).toBeVisible();
+            await expect(page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"]`)).toBeFocused();
+
+            await page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"]`).click();
+            await expect(page.locator('#uniq-detail-title')).toHaveText(`Fixture UNIQ #${SEARCH_TOKEN_ID}`, {
+                timeout: 30_000,
+            });
+            await captureWallet(page, 'wallet-uniq-current-detail-320.png');
+        } finally {
+            await closeWallet(harness);
+        }
+    });
+
+    test('searches a legacy token and uses the exact legacy factory metadata fallback', async () => {
+        const harness = await launchWallet();
+        try {
+            const { page, rpc } = harness;
+            await page.setViewportSize({ width: 320, height: 700 });
+            await page.getByRole('tab', { name: 'UNIQs' }).click();
+            await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(10);
+
+            await page.locator('#uniq-id-search').fill(LEGACY_TOKEN_ID);
+            await page.getByRole('button', { name: 'Search UNIQ ID' }).click();
+            await expect(page.locator('.uniq-search__result-heading')).toBeVisible({ timeout: 30_000 });
+            await expect(page.locator(`[data-uniq-id="${LEGACY_TOKEN_ID}"] .s2-bold`)).toHaveText(
+                `Legacy Fixture UNIQ #${LEGACY_TOKEN_ID}`
+            );
+
+            const ownerCalls = rpc.nftCalls.filter((call) => call.body.lower_bound === LEGACY_TOKEN_ID);
+            expect(ownerCalls.map((call) => call.body.table).sort()).toEqual(['token.a', 'token.b']);
+            await page.locator(`[data-uniq-id="${LEGACY_TOKEN_ID}"]`).click();
+            await expect(page.locator('#uniq-detail-title')).toHaveText(`Legacy Fixture UNIQ #${LEGACY_TOKEN_ID}`, {
+                timeout: 30_000,
+            });
+            await expect(page.locator('section[aria-labelledby="uniq-factory-heading"]')).toContainText(
+                'Factory table'
+            );
+            await expect(page.locator('section[aria-labelledby="uniq-factory-heading"]')).toContainText('Legacy');
+
+            const factoryCalls = rpc.calls.filter(
+                (call) => call.body.scope === NFT_CONTRACT && call.body.lower_bound === LEGACY_FACTORY_ID
+            );
+            expect([...new Set(factoryCalls.map((call) => call.body.table).sort())]).toEqual([
+                'factory.a',
+                'factory.b',
+            ]);
+            expect(
+                rpc.metadataCalls.some((call) => call.url.endsWith(`/legacy-metadata/${LEGACY_TOKEN_ID}.json`))
+            ).toBe(true);
+        } finally {
+            await closeWallet(harness);
+        }
+    });
+
+    test('rejects a neighbor exact response and clear preserves the paged 10-to-20 list', async () => {
+        const harness = await launchWallet();
+        try {
+            const { page, rpc } = harness;
+            await page.setViewportSize({ width: 320, height: 700 });
+            await page.getByRole('tab', { name: 'UNIQs' }).click();
+            await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(10);
+            const homeScroll = page.locator('.home-scroll');
+            await homeScroll.evaluate((element) => {
+                element.scrollTop = element.scrollHeight;
+                element.dispatchEvent(new Event('scroll', { bubbles: true }));
+            });
+            await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(20);
+            const pageTwoRequestCount = rpc.nftCalls.filter(
+                (call) => call.body.table === 'token.b' && call.body.upper_bound === '10'
+            ).length;
+
+            await page.locator('#uniq-id-search').fill(NEIGHBOR_TOKEN_ID);
+            await page.getByRole('button', { name: 'Search UNIQ ID' }).click();
+            await expect(page.locator('#uniq-search-status')).toContainText('not owned', { timeout: 30_000 });
+            expect(rpc.nftCalls.some((call) => call.body.lower_bound === NEIGHBOR_TOKEN_ID)).toBe(true);
+
+            await page.getByRole('button', { name: 'Clear UNIQ search' }).click();
+            await expect(page.locator('.uniq-card')).toHaveCount(20);
+            expect(
+                rpc.nftCalls.filter((call) => call.body.table === 'token.b' && call.body.upper_bound === '10')
+            ).toHaveLength(pageTwoRequestCount);
+        } finally {
+            await closeWallet(harness);
+        }
+    });
+
+    for (const [mode, expected] of [
+        ['ready', { text: 'Restricted', action: 'Transfer' }],
+        ['listed', { text: 'Listed for resale', action: 'Cancel resale' }],
+        ['auction', { text: 'Listed in auction', action: null }],
+        ['unknown', { text: 'Required chain state is unavailable. Retry before continuing.', action: null }],
+    ] as const) {
+        test(`renders ${mode} detail state and fails closed for unavailable owner actions`, async () => {
+            const harness = await launchWallet({ detailMode: mode });
+            try {
+                const { page } = harness;
+                await page.setViewportSize({ width: 320, height: 700 });
+                await page.getByRole('tab', { name: 'UNIQs' }).click();
+                await expect.poll(() => page.locator('.uniq-card').count(), { timeout: 30_000 }).toBe(10);
+                await page.locator('#uniq-id-search').fill(SEARCH_TOKEN_ID);
+                await page.getByRole('button', { name: 'Search UNIQ ID' }).click();
+                await expect(page.locator('.uniq-search__result-heading')).toBeVisible({ timeout: 30_000 });
+                await page.locator(`[data-uniq-id="${SEARCH_TOKEN_ID}"]`).click();
+                await expect(page.locator('#uniq-detail-title')).toBeVisible({ timeout: 30_000 });
+                await expect(page.locator('.uniq-detail')).toContainText(expected.text);
+                if (expected.action) {
+                    await expect(page.locator('.uniq-detail__actions')).toContainText(expected.action);
+                } else {
+                    await expect(page.locator('.uniq-detail__actions button')).toHaveCount(0);
+                }
+            } finally {
+                await closeWallet(harness);
+            }
+        });
+    }
 
     test('keeps activities link-only and opens the exact Explorer/utilities destinations', async () => {
         const harness = await launchWallet();
