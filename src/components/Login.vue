@@ -180,6 +180,7 @@ interface WalletProviderForm {
 }
 
 interface LoginEmits extends SharedEmits {
+    (e: 'auto-connect-started'): void;
     (e: 'set-account', type: WalletTypes, accountName: string, permission: string, ledgerIndex?: number): void;
 }
 
@@ -191,7 +192,7 @@ const loginState = reactive<LoginState>({
     connectingWalletType: null,
 });
 
-const props = defineProps<{ state: Pick<AuthState, 'endpoint' | 'environment'> }>();
+const props = defineProps<{ state: Pick<AuthState, 'endpoint' | 'environment'>; autoConnectExtension?: boolean }>();
 
 const isWebWalletSupported = computed(() => UltraWeb.isSupportedEnvironment(props.state.environment));
 
@@ -414,5 +415,9 @@ const isShowingHelp = computed(() => {
 
 onMounted(() => {
     loginState.isUltraWalletAvailable = Ultra.isAvailable();
+    if (props.autoConnectExtension) {
+        emit('auto-connect-started');
+        void login('ultra');
+    }
 });
 </script>

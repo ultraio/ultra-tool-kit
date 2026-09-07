@@ -68,3 +68,8 @@ On mount, `restoreSession()` reads `authState` from `localStorage` and calls `Ul
 - **Parent↔child data flow**: props down, `emits`/signals up. To force a re-render after internal mutation, increment a `key` ref on the bound component (existing pattern — see `keyUserUpdate`/`keyRouterUpdate`).
 - **Elevated accounts**: `I.ELEVATED_ACCOUNTS` (in `src/interfaces/index.ts`) gates admin-only UI via `authState.isAdmin`.
 - **Wallet account pickers**: any UI that lists accounts the user can act as (UserOverlay switcher, AuthorizerForm, SignatureForm, ActionFormPrimitive name-field shortcut) reads `validatedAccounts` from `wallet-accounts.ts`. Display account name only (no `@permission` suffix); the store deduplicates by accountName and filters out accounts that don't exist on the current endpoint, so each picker shows the same network-correct list. New pickers should follow this pattern instead of pulling from `accounts` or `authOptions` directly.
+
+
+### Extension connect shortcut
+
+The extension utility link adds `?connect=extension`. On initial load the dapp consumes this flag, waits up to 3 seconds for extension injection, and starts the existing Ultra extension connection flow once. Ordinary visits retain their existing login/reconnect behavior; cancellation does not retry. Unlock and connection approval remain wallet-controlled.

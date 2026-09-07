@@ -29,10 +29,12 @@ function walletMockScript(overrides: Record<string, any> = {}) {
         window.__walletTrusted = false;
         window.__walletConfig = ${JSON.stringify(config)};
         window.__signCalls = [];
+        window.__connectCalls = [];
 
         window.ultra = {
             connect: async (params) => {
                 const cfg = window.__walletConfig;
+                window.__connectCalls.push(params);
                 if (cfg.connectShouldFail) {
                     return { status: 'fail', data: null, message: 'Connection rejected' };
                 }
@@ -1063,5 +1065,39 @@ test.describe('Wallet SDK Integration', () => {
             const helpButtons = page.locator('button:has-text("Help")');
             expect(await helpButtons.count()).toBe(4);
         });
+    });
+});
+
+
+test.describe('Extension connect shortcut', () => {
+    test('connects once without login clicks and preserves other URL fields', async ({ page }) => {
+        await page.addInitScript({ content: walletMockScript() });
+        await mockChainAPI(page);
+        await page.goto('/?connect=extension&keep=yes#shortcut');
+        await expect.poll(async () => (await getAuthState(page))?.accountName).toBe(TEST_ACCOUNT);
+        await expect(page).toHaveURL(/\?keep=yes#shortcut$/);
+        expect(await page.evaluate(() => (window as any).__connectCalls.length)).toBe(1);
+        await page.reload();
+        await expect.poll(async () => page.evaluate(() => (window as any).__connectCalls.length)).toBe(1);
+        expect(await page.evaluate(() => (window as any).__connectCalls[0].onlyIfTrusted)).toBe(true);
+    });
+
+    test('waits for delayed extension injection', async ({ page }) => {
+        await page.addInitScript({ content: `setTimeout(() => { ${walletMockScript()} }, 500);` });
+        await mockChainAPI(page);
+        await page.goto('/?connect=extension');
+        await expect.poll(async () => (await getAuthState(page))?.accountName).toBe(TEST_ACCOUNT);
+    });
+
+    test('cancellation returns to wallet selection without retrying', async ({ page }) => {
+        await page.addInitScript({ content: walletMockScript({ connectShouldFail: true }) });
+        await mockChainAPI(page);
+        page.on('dialog', dialog => dialog.dismiss());
+        await page.goto('/?connect=extension');
+        await expect(page.locator('button:has-text("Ultra Wallet (Extension)")')).toBeVisible();
+        expect(await page.evaluate(() => (window as any).__connectCalls.length)).toBe(1);
+        await page.reload();
+        await expect(page.locator('text=Login to Tool Kit')).toBeVisible();
+        expect(await page.evaluate(() => (window as any).__connectCalls.length)).toBe(0);
     });
 });
