@@ -44,7 +44,14 @@
         </div>
 
         <!-- Modals -->
-        <Login v-if="pageState.showLogin" :state="authState" @set-page-state="setPageState" @set-account="setAccount" />
+        <Login
+            v-if="pageState.showLogin"
+            :state="authState"
+            :auto-connect-extension="autoConnectExtension"
+            @auto-connect-started="autoConnectExtension = false"
+            @set-page-state="setPageState"
+            @set-account="setAccount"
+        />
         <Endpoint
             v-if="pageState.showEndpoint"
             :state="authState"
@@ -72,12 +79,18 @@ import {
     setAvailableAccountsFromEvent,
 } from './wallets/wallet-accounts';
 import * as I from './interfaces';
+import { useRouter } from 'vue-router';
+import { consumeExtensionConnectLink, waitForExtension } from './utilities/extension-connect-link';
+
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { BlockchainService } from './utilities/blockchain';
 import { defaultNetworks, getEnvironmentName, getNetworkByChainId } from './utilities/networks';
 import { fetchWithTimeout } from './utilities/networks';
 import * as NFTAPI from './utilities/nftapi/api';
 import { emitter } from './eventBus';
+
+const autoConnectExtension = ref(false);
+const router = useRouter();
 
 // Use `ref` here because we want to be able to set the whole object
 // and trigger a reaction when we set the whole object.
@@ -695,7 +708,10 @@ function handleWalletDisconnect() {
 }
 
 onMounted(async () => {
-    restoreSession();
+    await router.isReady();
+    const connectFromExtension = consumeExtensionConnectLink();
+    if (connectFromExtension) await waitForExtension(Ultra.isAvailable);
+    const sessionRestored = restoreSession();
 
     emitter.on('updateAppActions', handleUpdateAppActions);
 
@@ -732,6 +748,13 @@ onMounted(async () => {
 
     // Init Blockchain & NFT API service
     await initServices();
+    if (connectFromExtension) {
+        await sessionRestored;
+        if (!authState.value.accountName) {
+            autoConnectExtension.value = true;
+            setPageState({ showLogin: true });
+        }
+    }
 });
 
 onUnmounted(async () => {

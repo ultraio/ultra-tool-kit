@@ -827,8 +827,8 @@ test.describe('Wallet home tabs (real extension)', () => {
             await page.getByRole('tab', { name: 'Utilities' }).click();
             await captureWallet(page, 'wallet-tabs-utilities-320.png');
             const utilityDestinations = [
-                'https://bridge.ultra.io/',
-                'https://toolkit.ultra.io/',
+                'https://bridge.ultra.io/?connect=extension',
+                'https://toolkit.ultra.io/?connect=extension',
             ];
             await expect(page.locator('button.utility-action')).toHaveCount(2);
             for (let index = 0; index < utilityDestinations.length; index++) {
