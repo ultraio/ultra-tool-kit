@@ -240,6 +240,11 @@ for (const app of apps) {
         try {
             const dapp = await openUtility(context, wallet, app);
             await (await permission(context)).locator('ultra-block-button[title="Cancel"]').click();
+            if (app.name === 'toolkit') {
+                // Wait for the rejection alert to be dismissed and the SDK
+                // cancellation to settle before navigating away.
+                await expect(dapp.locator('button').filter({ hasText: 'Ultra Wallet (Extension)' })).toBeVisible();
+            }
             await expect.poll(() => new URL(dapp.url()).searchParams.has('connect')).toBe(false);
             await dapp.reload();
             if (app.name === 'toolkit') {
