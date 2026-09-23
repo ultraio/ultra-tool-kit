@@ -34,7 +34,7 @@
                 </div>
                 <Button
                     :disabled="!isWebWalletSupported"
-                    :title="isWebWalletSupported ? '' : 'Web Wallet only supports Mainnet and Testnet'"
+                    :title="isWebWalletSupported ? '' : UltraWeb.WEB_WALLET_MAINNET_ONLY_MESSAGE"
                     @onClick="login('ultra-web')"
                     class="flex-grow text-left"
                 >
@@ -307,7 +307,7 @@ async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
     if (type === 'ultra-web') {
         if (!UltraWeb.isSupportedEnvironment(props.state.environment)) {
             loginState.isSelectingLogin = true;
-            alert('Ultra Web Wallet only supports Mainnet and Testnet.');
+            alert(UltraWeb.WEB_WALLET_MAINNET_ONLY_MESSAGE);
             return;
         }
 
@@ -327,7 +327,12 @@ async function login(type: 'ledger' | 'anchor' | 'ultra' | 'ultra-web') {
             setAccount(type, accountName, permission);
         } catch (err) {
             loginState.isSelectingLogin = true;
-            alert('Ultra Web Wallet connection failed. Check that popups are allowed for this site.');
+            alert(
+                UltraWeb.getErrorMessage(
+                    err,
+                    'Ultra Web Wallet connection failed. Check that popups are allowed for this site.'
+                )
+            );
         }
 
         return;

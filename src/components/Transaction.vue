@@ -353,7 +353,7 @@ async function confirm() {
             if (err?.data?.error?.details?.length > 0) {
                 errorMessage.value = err.data.error.details[0].message;
             } else {
-                errorMessage.value = err?.message ?? 'Transaction signing failed';
+                errorMessage.value = UltraWeb.getErrorMessage(err, 'Transaction signing failed');
             }
             isTransacting.value = false;
             return;

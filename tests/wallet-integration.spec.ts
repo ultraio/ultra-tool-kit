@@ -117,7 +117,6 @@ function walletMockScript(overrides: Record<string, any> = {}) {
                 return { status: 'success', data: null };
             },
             signMessage: async (msg) => ({ status: 'success', data: { signature: 'SIG_K1_mock123' } }),
-            purchaseItem: async () => ({ status: 'success', data: { orderHash: '', items: [] } }),
         };
     `;
 }
@@ -377,6 +376,48 @@ test.describe('Wallet SDK Integration', () => {
             await expect(page.locator('button:has-text("Ledger")')).toHaveClass(/cursor-pointer/);
 
             await screenshot(page, '07-extension-not-available');
+        });
+    });
+
+    // ============================================================
+    // 2b. WEB WALLET IS MAINNET-ONLY (no testnet Web Wallet exists)
+    // ============================================================
+    test.describe('Web Wallet Network Support', () => {
+        const webWalletBtn = 'button:has-text("Ultra Wallet (Web)")';
+
+        test('Web Wallet button is disabled with a Mainnet-only tooltip on Testnet', async ({ page }) => {
+            await page.addInitScript(() => {
+                localStorage.setItem('endpoint', 'https://api.testnet.ultra.eossweden.org');
+                localStorage.setItem('environment', 'Testnet');
+            });
+            await mockChainAPI(page, TESTNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+
+            await page.click('text=Login to Tool Kit');
+
+            const btn = page.locator(webWalletBtn);
+            await expect(btn).toHaveClass(/cursor-default/);
+            await expect(btn).not.toHaveClass(/cursor-pointer/);
+            await expect(btn).toHaveAttribute('title', /Mainnet only/);
+
+            await screenshot(page, '07b-web-wallet-disabled-on-testnet');
+        });
+
+        test('Web Wallet button is enabled on Mainnet', async ({ page }) => {
+            await page.addInitScript(() => {
+                localStorage.setItem('endpoint', 'https://ultra.eosusa.io');
+                localStorage.setItem('environment', 'Mainnet');
+            });
+            await mockChainAPI(page, MAINNET_CHAIN_ID);
+            await page.goto('/');
+            await page.waitForLoadState('networkidle');
+
+            await page.click('text=Login to Tool Kit');
+
+            const btn = page.locator(webWalletBtn);
+            await expect(btn).toHaveClass(/cursor-pointer/);
+            await expect(btn).toHaveAttribute('title', '');
         });
     });
 
