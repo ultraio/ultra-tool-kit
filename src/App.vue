@@ -157,18 +157,14 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
     let environment = getEnvironmentName(endpoint);
     setAuthStateKeys({ endpoint, environment });
 
-    // Web wallet sessions are bound to a specific env origin — they cannot
-    // survive an env change, and can't sign at all on Local/Custom endpoints.
-    // Log out now and (if switching between Mainnet/Testnet) open a reconnect
-    // popup on the new env after the rest of initServices() completes.
+    // Web wallet sessions exist on Mainnet only — any env change leaves the
+    // Web Wallet's only network, so the session cannot survive it.
     const webWalletEnvChanged =
         previousType === 'ultra-web' && previousEnvironment !== environment;
-    const shouldAutoReconnectWebWallet =
-        webWalletEnvChanged && UltraWeb.isSupportedEnvironment(environment);
 
-    if (webWalletEnvChanged && !shouldAutoReconnectWebWallet) {
+    if (webWalletEnvChanged) {
         alert(
-            'Ultra Web Wallet does not support this network. You have been logged out — please choose a different wallet or switch back to Mainnet/Testnet.'
+            `${UltraWeb.WEB_WALLET_MAINNET_ONLY_MESSAGE} You have been logged out.`
         );
     }
 
@@ -176,15 +172,12 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
     //   - Extension wallet (`ultra`): the wallet's session crosses chains;
     //     we flip its current chain via `Ultra.switchNetwork` (below) and
     //     refresh accounts, no logout needed.
-    //   - Web wallet (`ultra-web`): env is bound at SDK construction;
-    //     `shouldAutoReconnectWebWallet` either re-connects below or we
-    //     log out and the user picks again.
+    //   - Web wallet (`ultra-web`): Mainnet-only; log out on env change.
     //   - Anchor / Ledger: sessions are env-bound, log out on env change.
     const envChanged = previousEnvironment !== environment;
     const shouldLogoutOnEndpointChange =
         authState.value.accountName &&
         previousType !== 'ultra' &&
-        !shouldAutoReconnectWebWallet &&
         (envChanged || previousType !== 'ultra-web');
     if (shouldLogoutOnEndpointChange) {
         logout();
@@ -209,29 +202,6 @@ async function setEndpoint(endpoint: string, userInvoked?: boolean) {
 
     // Init Blockchain & NFT API service after setting authState object
     await initServices();
-
-    // Auto-reconnect web wallet on env change (separate origin → fresh popup).
-    if (shouldAutoReconnectWebWallet) {
-        try {
-            const response = await UltraWeb.connect(environment);
-            if (response && response.status === 'success') {
-                const { accountName, permission } = UltraWeb.extractAccountInfo(response.data);
-                const chainId = UltraWeb.extractChainId(response.data);
-                setAuthStateKeys({
-                    type: 'ultra-web',
-                    accountName,
-                    accountPerm: permission,
-                    isAdmin: I.ELEVATED_ACCOUNTS.includes(accountName),
-                    chainId,
-                });
-                localStorage.setItem('authState', JSON.stringify(authState.value));
-                keyRouterUpdate.value += 1;
-                keyUserUpdate.value += 1;
-            }
-        } catch {
-            // User closed the popup or rejected — remain logged out.
-        }
-    }
 
     // Toolkit→Wallet sync: only applies to the extension (web provider can't switchNetwork).
     //

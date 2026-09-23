@@ -9,31 +9,32 @@ import type {
 /**
  * Ultra Web Wallet integration.
  *
- * Opens a popup window to the hosted wallet (web-wallet.ultra.io for mainnet,
- * web-wallet.staging.ultra.io for testnet). The SDK's WebProvider requires the
- * environment at construction time; each environment is a separate origin with
- * its own vault. We keep one SDK instance per env and recreate it whenever the
- * user switches between Mainnet and Testnet.
+ * Opens a popup window to the hosted wallet at web-wallet.ultra.io. The Web
+ * Wallet exists for Mainnet only — there is no testnet Web Wallet (the SDK
+ * rejects `environment: 'testnet'` with WEB_WALLET_UNAVAILABLE, 4302), so
+ * Testnet users must use the Ultra Wallet extension. The SDK's WebProvider
+ * binds the environment at construction time; we keep one cached instance.
  *
  * Unlike the Extension provider:
  *   - No live events (accountChanged / networkChanged / disconnect are no-ops).
- *   - `switchNetwork` throws — reconnect on a new SDK instance instead.
+ *   - `switchNetwork` throws — the Web Wallet only exists on Mainnet.
  *   - Every transaction/sign opens a fresh popup.
  */
 
-type WebEnvironment = 'mainnet' | 'testnet';
+type WebEnvironment = 'mainnet';
+
+export const WEB_WALLET_MAINNET_ONLY_MESSAGE =
+    'Web Wallet is available on Mainnet only — use the Ultra Wallet extension on other networks.';
 
 let sdk: UltraWalletSDK | null = null;
 let currentEnv: WebEnvironment | null = null;
 
 function toWebEnv(environment: string | undefined): WebEnvironment | null {
-    if (environment === 'Mainnet') return 'mainnet';
-    if (environment === 'Testnet') return 'testnet';
-    return null;
+    return environment === 'Mainnet' ? 'mainnet' : null;
 }
 
 /**
- * Web wallet is only supported on Mainnet and Testnet.
+ * Web wallet is only supported on Mainnet.
  */
 export function isSupportedEnvironment(environment: string | undefined): boolean {
     return toWebEnv(environment) !== null;
@@ -46,7 +47,7 @@ export function isSupportedEnvironment(environment: string | undefined): boolean
 function getSDK(environment: string | undefined): UltraWalletSDK {
     const env = toWebEnv(environment);
     if (!env) {
-        throw new Error('Ultra Web Wallet only supports Mainnet and Testnet');
+        throw new Error(WEB_WALLET_MAINNET_ONLY_MESSAGE);
     }
     if (!sdk || currentEnv !== env) {
         sdk = new UltraWalletSDK({ provider: 'web', environment: env });
@@ -57,7 +58,7 @@ function getSDK(environment: string | undefined): UltraWalletSDK {
 
 /**
  * Drop the cached SDK so the next call reconstructs it.
- * Use this when the user switches env or logs out.
+ * Use this when the user logs out.
  */
 export function reset(): void {
     sdk = null;
@@ -125,6 +126,12 @@ export function extractAccountInfo(result: ConnectResult): {
     };
 }
 
-export function extractChainId(result: ConnectResult): string | undefined {
-    return result.network?.chainId;
+/**
+ * Since wallet-sdk 0.6.1 Web Wallet failures reject with the wallet's
+ * `{ status: 'error', code, message }` (e.g. popup blocked, user rejected)
+ * instead of `undefined`. Surface that message, else fall back.
+ */
+export function getErrorMessage(error: unknown, fallback: string): string {
+    const message = (error as { message?: unknown } | null | undefined)?.message;
+    return typeof message === 'string' && message ? message : fallback;
 }
